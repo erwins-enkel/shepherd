@@ -11,7 +11,12 @@
 // `normalizeDecision` — the two literals are the prompt's own output contract, and
 // `test/eval-core.test.ts` asserts the rendered prompt still names exactly those two.
 
-import { PLAN_VERDICT_FILE, planReviewPrompt, type RawPlanVerdict } from "../src/plan-gate";
+import {
+  PLAN_VERDICT_FILE,
+  planFindingTexts,
+  planReviewPrompt,
+  type RawPlanVerdict,
+} from "../src/plan-gate";
 import { PLAN_GATE_FIXTURES, type PlanGateFixture } from "./eval-fixtures/plan-gate";
 import { respondFromEnv } from "./eval-fixtures/env";
 import {
@@ -68,13 +73,11 @@ export function normalizePlanDecision(d: unknown): "approve" | "request-changes"
   return null;
 }
 
-/** Coerce the reviewer's `findings` to a clean string[] (drops junk, never throws). */
+/** The reviewer's finding texts, coerced by production's own parser — the prompt asks for
+ *  `{text, origin, security}` objects, and a string-only filter here would read every one of them
+ *  as an empty list and score a correct request-changes as malformed. */
 export function planFindings(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((f): f is string => typeof f === "string")
-    .map((f) => f.trim())
-    .filter(Boolean);
+  return planFindingTexts(raw);
 }
 
 export function scorePlanGate(

@@ -4,6 +4,7 @@ import {
   reviewerArgv,
   stripPlanLineRefs,
   PLAN_VERDICT_FILE,
+  PLAN_BASELINE_FILE,
 } from "../src/plan-gate";
 import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 import type { OperatorPassage } from "../src/types";
@@ -424,7 +425,7 @@ test("#1948: lateness never downgrades severity or demotes a standing blocker", 
     round: 12,
     cap: 12,
   });
-  expect(late).toContain("finding at ANY round");
+  expect(late).toContain("These ALWAYS block, at any round");
   expect(late).toContain("STAYS blocking");
 });
 
@@ -578,4 +579,60 @@ test("OPERATOR EDITS (binding) sits between the plan and the re-review, fenced (
   // Quoted like the plan above: no line number to argue about.
   expect(p).toContain("+ use Postgres at `src/db.ts`\nwhy: ops runs Postgres");
   expect(p.slice(fence)).not.toContain("src/db.ts:12");
+});
+
+// ── Late-round demotion: plan findings declare origin + security; baseline only when enforced ──
+
+test("plan findings are objects declaring origin and an explicit security boolean", () => {
+  const p = planReviewPrompt("task", "plan");
+  expect(p).toContain(
+    '"findings": [{"text": "<discrete actionable revision>", "origin": "prior" | "regression" | "new", "security": true | false}, ...]',
+  );
+  expect(p).toContain('On a first review every point is "new"');
+  expect(p).toContain("its effect on parts of the plan that did not change");
+  expect(p).toContain('"security" is true when the point concerns a security hole');
+  expect(p).toContain("If that fits AT ALL, it is true");
+});
+
+test("de: findings[].text is German prose, origin stays a literal enum", () => {
+  const p = planReviewPrompt("task", "plan", [], null, "de");
+  expect(p).toContain("every `findings[].text` in German");
+  expect(p).toContain('`origin` ("prior" | "regression" | "new") as the literal enum values');
+});
+
+test("the baseline-plan line and the enforced ROUND wording need a baseline AND priors", () => {
+  const late = { round: 2, cap: 2 };
+  const enforced = planReviewPrompt(
+    "task",
+    "plan",
+    ["old point"],
+    null,
+    "en",
+    undefined,
+    undefined,
+    {
+      ...late,
+      baseline: true,
+    },
+  );
+  expect(enforced).toContain(`\`${PLAN_BASELINE_FILE}\``);
+  expect(enforced).toContain("Shepherd records NEW points");
+  const noBaseline = planReviewPrompt(
+    "task",
+    "plan",
+    ["old point"],
+    null,
+    "en",
+    undefined,
+    undefined,
+    late,
+  );
+  expect(noBaseline).not.toContain(PLAN_BASELINE_FILE);
+  expect(noBaseline).toContain("fail outright");
+  const noPriors = planReviewPrompt("task", "plan", [], null, "en", undefined, undefined, {
+    ...late,
+    baseline: true,
+  });
+  expect(noPriors).not.toContain(PLAN_BASELINE_FILE);
+  expect(noPriors).not.toContain("Shepherd records NEW points");
 });

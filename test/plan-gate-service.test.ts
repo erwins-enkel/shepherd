@@ -4159,3 +4159,148 @@ for (const provider of ["claude", "codex"] as const) {
     }
   });
 }
+
+// ── Late-round demotion at the service seam ──────────────────────────────────────────────────────
+//
+// A late round with a usable baseline (prior real changes_requested, full previous plan view, the
+// baseline file written) records NEW, explicitly non-security findings as suggestions; a verdict
+// left with nothing blocking is an approval. Every missing piece suspends the demotion.
+
+const LATE_PRIOR = {
+  planHash: "x",
+  approved: false,
+  decision: "changes_requested",
+  round: 1,
+  findings: ["Name the rollback step."],
+  plan: "OLD PLAN",
+};
+
+function lateHarness(
+  findings: unknown[],
+  over: {
+    prior?: any;
+    writeBaselinePlan?: (wt: string, plan: string) => void;
+    readPlan?: () => string;
+  } = {},
+) {
+  const written: { wt: string; plan: string }[] = [];
+  const h = harness({
+    cap: 2,
+    store: { getPlanGate: () => over.prior ?? LATE_PRIOR, get: () => ({ id: "s1", auto: false }) },
+    writeBaselinePlan:
+      over.writeBaselinePlan ?? ((wt: string, plan: string) => written.push({ wt, plan })),
+    readVerdict: () => ({ decision: "request-changes", summary: "s", body: "## Review", findings }),
+    ...(over.readPlan ? { readPlan: over.readPlan } : {}),
+  });
+  return { h, written };
+}
+
+const NEW_POINT = { text: "Cover the empty-input case.", origin: "new", security: false };
+
+test("late round + baseline: an all-NEW verdict is approved, items become suggestions", async () => {
+  const { h, written } = lateHarness([NEW_POINT]);
+  await h.svc.consider(planningSession() as any);
+  expect(written).toEqual([{ wt: "/wt-detached", plan: "OLD PLAN" }]);
+  const p = promptOf(h);
+  expect(p).toContain("rework round 2 of at most 2");
+  expect(p).toContain(".shepherd-plan-previous.md");
+  expect(p).toContain("Shepherd records NEW points");
+  await h.svc.tick();
+  const gate = (h.store as any).gate;
+  expect(gate.decision).toBe("approved");
+  expect(gate.findings).toEqual([]);
+  expect(gate.body).toBe("## Review\n\nSuggestions (non-blocking):\n- Cover the empty-input case.");
+});
+
+test("late round + baseline: security, prior, legacy and incomplete findings keep blocking", async () => {
+  const { h } = lateHarness([
+    NEW_POINT,
+    { text: "Secrets land in the log.", origin: "new", security: true },
+    { text: "Rollback still unnamed.", origin: "prior", security: false },
+    { text: "The new step breaks step 4.", origin: "regression", security: false },
+    "A legacy bare-string finding.",
+    { text: "Security not declared.", origin: "new" },
+    { text: "Security not a boolean.", origin: "new", security: "false" },
+  ]);
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  const gate = (h.store as any).gate;
+  expect(gate.decision).toBe("changes_requested");
+  expect(gate.findings).toEqual([
+    "Secrets land in the log.",
+    "Rollback still unnamed.",
+    "The new step breaks step 4.",
+    "A legacy bare-string finding.",
+    "Security not declared.",
+    "Security not a boolean.",
+  ]);
+  expect(gate.body).toContain("- Cover the empty-input case.");
+});
+
+test("prior error gate: no baseline, demotion suspended", async () => {
+  const { h, written } = lateHarness([NEW_POINT], {
+    prior: { ...LATE_PRIOR, decision: "error", findings: [] },
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(written).toEqual([]);
+  expect(promptOf(h)).not.toContain("Shepherd records NEW points");
+  await h.svc.tick();
+  expect((h.store as any).gate.decision).toBe("changes_requested");
+  expect((h.store as any).gate.findings).toEqual(["Cover the empty-input case."]);
+});
+
+test("a clamped previous plan review: the baseline view is incomplete, demotion suspended", async () => {
+  const { h, written } = lateHarness([NEW_POINT]);
+  h.notices.set("s1:plan", {
+    sessionId: "s1",
+    kind: "plan",
+    severity: "clamped",
+    detail: "d",
+    steers: 0,
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(written).toEqual([]);
+  expect(promptOf(h)).not.toContain(".shepherd-plan-previous.md");
+  await h.svc.tick();
+  expect((h.store as any).gate.decision).toBe("changes_requested");
+});
+
+test("the baseline plan cannot be written: demotion suspended", async () => {
+  const { h } = lateHarness([NEW_POINT], {
+    writeBaselinePlan: () => {
+      throw new Error("EROFS");
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(promptOf(h)).not.toContain("Shepherd records NEW points");
+  await h.svc.tick();
+  expect((h.store as any).gate.decision).toBe("changes_requested");
+});
+
+test("an early round never writes a baseline or demotes", async () => {
+  const { h, written } = lateHarness([NEW_POINT], { prior: { ...LATE_PRIOR, round: 0 } });
+  // cap 2, round 0 + no spawns ⇒ briefed round 1: not late.
+  await h.svc.consider(planningSession() as any);
+  expect(written).toEqual([]);
+  await h.svc.tick();
+  expect((h.store as any).gate.decision).toBe("changes_requested");
+});
+
+test.skipIf(!onLinux)(
+  "a clamped CURRENT plan: the reviewer may not see the changed span, demotion suspended",
+  async () => {
+    // The baseline is usable (written, previous review un-clamped), but THIS run's prompt elides the
+    // plan's middle — exactly where a change that makes a point a regression could sit.
+    const plan = bigPlan(200_000);
+    const { h, written } = lateHarness([NEW_POINT], { readPlan: () => plan });
+    await h.svc.consider(planningSession() as any);
+    expect(written).toHaveLength(1);
+    const p = promptOf(h);
+    expect(p).toMatch(/\[… \d+ bytes elided …\]/);
+    expect(p).not.toContain("Shepherd records NEW points");
+    expect(p).not.toContain(".shepherd-plan-previous.md");
+    await h.svc.tick();
+    expect((h.store as any).gate.decision).toBe("changes_requested");
+    expect((h.store as any).gate.findings).toEqual(["Cover the empty-input case."]);
+  },
+);

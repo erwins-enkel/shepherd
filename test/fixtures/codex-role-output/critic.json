@@ -6,12 +6,14 @@
     {
       "text": "src/parser.ts: Escaped input can bypass the boundary check.",
       "severity": "important",
-      "pass": "bug"
+      "pass": "bug",
+      "origin": "new"
     },
     {
       "text": "src/parser.ts: Rename the local for readability.",
       "severity": "nit",
-      "pass": "scope"
+      "pass": "scope",
+      "origin": "new"
     }
   ]
 }

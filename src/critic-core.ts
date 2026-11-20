@@ -14,6 +14,7 @@ import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { planProvenanceCriticBlock, type PlanProvenance } from "./plan-provenance";
 import type {
   CriticFinding,
+  FindingOrigin,
   FindingPass,
   FindingSeverity,
   PlanDrift,
@@ -222,6 +223,27 @@ export async function defaultCollectBaseDelta(
   }
 }
 
+/** Whether `sha` resolves to a commit in the critic's worktree — the late-round baseline check in
+ *  `ReviewService.begin`. `createDetached` only guarantees the CURRENT head, so a previous head can
+ *  be missing (force-pushed away, never fetched); the critic could then not diff against it, and the
+ *  late-round demotion must be suspended. False on any failure. */
+export async function defaultHasCommit(
+  worktreePath: string,
+  sha: string,
+  repoPath?: string,
+): Promise<boolean> {
+  if (!/^[0-9a-f]{7,40}$/.test(sha)) return false;
+  try {
+    const pin = await criticPin(worktreePath, repoPath);
+    await execGit(["cat-file", "-e", `${sha}^{commit}`], { cwd: worktreePath, pin });
+    return true;
+  } catch {
+    // best-effort: a missing object, a bad pin or a gone worktree all mean "no usable baseline",
+    // which suspends the demotion — the caller's fail-safe default.
+    return false;
+  }
+}
+
 /** The plan block(s) of {@link reviewPrompt}, or [] when no plan text was supplied.
  *
  *  PROVENANCE IS THE POINT. The critic used to be handed the LIVE `.shepherd-plan.md` under a label
@@ -335,6 +357,11 @@ export function reviewPrompt(
     amendments?: readonly TaskAmendment[];
     /** #3518: who wrote what in `plan`, when the operator edited it. Null/absent ⇒ no block. */
     planProvenance?: PlanProvenance | null;
+    /** Late-round demotion is ACTIVE for this run: the head of the previous `changes_requested`
+     *  review, which the caller verified resolves in the critic worktree (ReviewService.begin).
+     *  It is the "regression" baseline and switches the ROUND block to its enforced wording.
+     *  Null/absent ⇒ no baseline line, request wording — byte-identical to before. */
+    baselineHead?: string | null;
   } = {},
 ): string {
   // The clamp caveats speak about "the plan shown above", so they are only coherent when a plan is
@@ -386,6 +413,11 @@ export function reviewPrompt(
       // "a non-blocking nit STILL goes in findings" contract is re-raised verbatim on the first
       // review after that contract changed — and nothing converges any faster.
       'A prior point that FINDINGS ROUTING below does not admit as blocking is likewise DROPPED — do not re-raise it as an "important" finding. You MAY restate it once with "severity": "nit". Saying in "body" that you dropped it, and why, IS compliance with the re-raise instruction above, not a violation of it.',
+      ...(opts.baselineHead
+        ? [
+            `The previous review was of commit \`${opts.baselineHead}\`. \`git diff ${opts.baselineHead} HEAD\` shows what changed since then — that is the baseline for "origin": "regression".`,
+          ]
+        : []),
       "",
     );
   }
@@ -400,7 +432,16 @@ export function reviewPrompt(
   // ROUND block (#1948) — session critic ONLY, and deliberately in this preamble rather than in
   // scopeAndOutputTail: the tail is shared verbatim with prReviewPrompt (a test asserts byte
   // identity), and the standalone critic has no rework loop to be late in.
-  lines.push(...roundBlock(opts.round, opts.cap, 'a finding with "severity": "nit"', "the author"));
+  lines.push(
+    ...roundBlock(
+      opts.round,
+      opts.cap,
+      'a finding with "severity": "nit"',
+      "the author",
+      // Enforced only alongside the baseline line above, which needs priors to exist.
+      Boolean(opts.baselineHead) && priorFindings.length > 0,
+    ),
+  );
   // The judging clause is the ONE line that differs between the session critic ("satisfies that
   // task") and the standalone PR critic ("bugs/security/quality, intent as context") — everything
   // after it (the verdict-output contract) is identical, so it's factored into the shared tail.
@@ -693,10 +734,14 @@ function landingBlock(landing: LandingContext, diffBase: string): string[] {
  * `round` is the EFFECTIVE round the caller already computed (see {@link effectiveRound}) — this
  * builder stays pure and does no clamping of its own.
  *
- * Two invariants the wording must preserve, both learned the hard way:
- *  - Severity is never downgraded by lateness. A correctness/security defect is a finding at any
- *    round, and an item that was blocking when first raised stays blocking — otherwise an
- *    unaddressed blocker would be simultaneously must-re-raise and must-route-to-non-blocking.
+ * Invariants the wording must preserve, learned the hard way:
+ *  - A security defect, an unaddressed prior and a regression block at ANY round, and an item that
+ *    was blocking when first raised stays blocking — otherwise an unaddressed blocker would be
+ *    simultaneously must-re-raise and must-route-to-non-blocking.
+ *  - `enforced` (the caller resolved a usable baseline, so the server demotes late-round NEW points
+ *    — see `buildVerdictCore`'s `late` option) switches the late line from a request ("raise a NEW
+ *    finding only if…") to a statement of what Shepherd does with one, so the reviewer reports it
+ *    honestly instead of having to self-censor. Without a baseline the request stays.
  *  - The last-round line HEDGES ("may be the last"). It is NOT safe to assert that findings stop
  *    reaching the recipient here: at `priorRound === cap - 1` the steer is still delivered, and
  *    because `round` is maxed with a spawn count it can reach `cap` while the delivered-round
@@ -707,6 +752,7 @@ export function roundBlock(
   cap: number | undefined,
   nonBlockingSection: string,
   recipient: string,
+  enforced = false,
 ): string[] {
   if (round === undefined || cap === undefined) return [];
   if (!Number.isFinite(round) || !Number.isFinite(cap) || round < 1 || cap < 1) return [];
@@ -714,7 +760,7 @@ export function roundBlock(
   const m = cap;
   const lines = [
     `ROUND — this is rework round ${n} of at most ${m}.`,
-    "- A correctness or security defect is a finding at ANY round. Nothing below downgrades one.",
+    "- These ALWAYS block, at any round: a security defect, a prior finding the revision still does not address, and a regression (a defect caused by what changed since the previous review). Nothing below downgrades one.",
     // Scoped deliberately to "under FINDINGS ROUTING" and to "the rules below". Unqualified, this
     // sentence contradicts the stale-prior DROP rule for exactly the priors that rule targets: the
     // plan prompt had no non-blocking channel before this change, so EVERY stored PlanGate.findings
@@ -730,9 +776,11 @@ export function roundBlock(
   // down to 1 (PR_REVIEW_CYCLES_MIN / PLAN_REVIEW_CYCLES_MIN), where 2n > m holds at n = 1 and would
   // muzzle the only review the operator gets — every finding on a first review is new, so the
   // blocking classes FINDINGS ROUTING names would all route to the non-blocking section.
-  if (n > 1 && 2 * n > m)
+  if (isLateRound(n, m))
     lines.push(
-      `- You are past the halfway point of the rework budget. Raise a NEW finding only if it would make the change fail outright; anything else you notice now goes to \`${nonBlockingSection}\`.`,
+      enforced
+        ? '- You are past the halfway point of the rework budget. Any point that is NOT one of the three above is NEW — the previous review could already have raised it. Report it exactly as you otherwise would, with "origin": "new": Shepherd records NEW points in this round as non-blocking and does not send them back, so they inform the operator without costing another rework round.'
+        : `- You are past the halfway point of the rework budget. Raise a NEW finding only if it would make the change fail outright; anything else you notice now goes to \`${nonBlockingSection}\`.`,
     );
   if (n >= m)
     lines.push(
@@ -740,6 +788,13 @@ export function roundBlock(
     );
   lines.push("");
   return lines;
+}
+
+/** Strictly past the halfway point of the rework budget (`2n > m`) — and never on a first-ever
+ *  review (`n > 1`), see {@link roundBlock}. The ONE predicate behind both the late-round prompt
+ *  line and the server-side late-round demotion, so the two can never disagree about lateness. */
+export function isLateRound(round: number, cap: number): boolean {
+  return round > 1 && 2 * round > cap;
 }
 
 /** The EFFECTIVE rework round both review loops brief their reviewer with (#1948).
@@ -929,11 +984,14 @@ function scopeAndOutputTail(
     // `severity: "important"` reaches ReviewVerdict.findings (see buildVerdictCore), so a nit is
     // recorded and rendered without ever touching the loop. The three lenses above keep their own
     // body sections — their items are judgement calls about the diff's shape, not review nits.
-    'FINDINGS ROUTING — every entry in "findings" is an OBJECT: {"text": "<the finding>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope"}.',
+    'FINDINGS ROUTING — every entry in "findings" is an OBJECT: {"text": "<the finding>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope", "origin": "prior" | "regression" | "new"}.',
     '- "severity": "important" is for changes the author MUST make: a correctness bug, a security issue, a broken or violated contract, a missing locale/catalog counterpart, or a diff that does not do what the task/intent above requires. Any such defect is important REGARDLESS of how small it looks. Only important findings are sent to the author, and only they can make the decision "request-changes".',
     '- "severity": "nit" is for a NON-BLOCKING point — a naming or wording preference, a stylistic choice, a comment you would phrase differently, a refactor you would like but the task did not require. It is recorded and shown to the reader, never sent back as work, and it NEVER makes the decision "request-changes". Each must still concern a file in the diff per the SCOPE rule above.',
-    '- "pass" names which review pass the point came out of: "bug" (correctness), "security", "compliance" (a repo policy, house rule, or catalog/locale requirement), or "scope" (the diff does not do what the task asked, or contradicts an explicit boundary). When two fit, pick the one that made you raise it.',
-    '- Getting severity right matters more than either other field: an important point marked "nit" is never fixed, and a nit marked "important" costs the author a rework round. When you genuinely cannot decide, it is important.',
+    '- "pass" names which review pass the point came out of: "bug" (correctness), "security", "compliance" (a repo policy, house rule, or catalog/locale requirement), or "scope" (the diff does not do what the task asked, or contradicts an explicit boundary). If "security" fits AT ALL, "pass" MUST be "security" — it always wins. Otherwise, when two fit, pick the one that made you raise it.',
+    // Late-round demotion (buildVerdictCore's `late` option) keys off this field. Declared on EVERY
+    // review so the shape never varies; with no previous round there is nothing else it can be.
+    '- "origin" says how the point relates to the PREVIOUS review round: "prior" (it re-raises a numbered prior finding the revision still does not address), "regression" (a defect CAUSED by what changed since the previous review — including its effect on code that did not change, e.g. a changed function breaking an untouched caller), or "new" (anything else: a problem the previous review could already have raised). On a first review every point is "new".',
+    '- Getting severity right matters more than either other field: an important point marked "nit" is never fixed, and a nit marked "important" costs the author a rework round. When you genuinely cannot decide, it is important — unless a ROUND rule above routes the point elsewhere.',
     "- COMMENTS specifically: do NOT raise an important finding asking for a comment to be reworded or expanded, or for more explanation of code that is already correct — that is a nit. A comment that is factually WRONG about what the code does IS a defect: raise it as important.",
     // Advisory cap on IMPORTANT findings, deliberately NOT enforced server-side: the repo's
     // deterministic backstop (scopeFindings here) enforces a
@@ -975,8 +1033,8 @@ function scopeAndOutputTail(
     '1. `.shepherd-review.md` — your full markdown review. Everywhere these instructions say "body" — the named sections, the `path:line` citations, the stated limitations — they mean THIS file. It is NOT JSON: write the prose directly, escape nothing, quote however you like.',
     "2. `.shepherd-review.json` — the structured verdict, with this shape:",
     opts.planShown
-      ? '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope"}, ...], "planDrift": "none" | "minor" | "major", "planDriftNote": "<one line, <=140 chars, no quotation marks — omit when planDrift is none>", "body": "<optional — see below>"}'
-      : '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope"}, ...], "body": "<optional — see below>"}',
+      ? '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope", "origin": "prior" | "regression" | "new"}, ...], "planDrift": "none" | "minor" | "major", "planDriftNote": "<one line, <=140 chars, no quotation marks — omit when planDrift is none>", "body": "<optional — see below>"}'
+      : '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope", "origin": "prior" | "regression" | "new"}, ...], "body": "<optional — see below>"}',
     // #2042: the body used to live inside this JSON. A single unescaped `"` before a `:` or `,` —
     // which German `„…":` prose produces constantly — is indistinguishable from a real key/value
     // boundary, so it silently destroyed complete verdicts. Keeping the prose out of JSON entirely
@@ -1236,7 +1294,7 @@ function normalizeFindingEntry(raw: unknown): CriticFinding | null {
     return text ? { text, severity: "important", pass: "bug" } : null;
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const o = raw as { text?: unknown; severity?: unknown; pass?: unknown };
+  const o = raw as { text?: unknown; severity?: unknown; pass?: unknown; origin?: unknown };
   if (typeof o.text !== "string") return null;
   const text = o.text.trim();
   if (!text) return null;
@@ -1244,7 +1302,25 @@ function normalizeFindingEntry(raw: unknown): CriticFinding | null {
   const severity: FindingSeverity = o.severity === "nit" ? "nit" : "important";
   const pass: FindingPass =
     o.pass === "security" || o.pass === "compliance" || o.pass === "scope" ? o.pass : "bug";
-  return { text, severity, pass };
+  const origin = declaredOrigin(o);
+  return origin ? { text, severity, pass, origin } : { text, severity, pass };
+}
+
+const ORIGINS: readonly FindingOrigin[] = ["prior", "regression", "new"];
+const DECLARED_PASSES: readonly unknown[] = ["bug", "security", "compliance", "scope"];
+
+/** The entry's `origin`, kept ONLY when severity, pass and origin are all explicitly declared with
+ *  valid values. Late-round demotion keys off `origin === "new"`, so an incomplete entry — notably
+ *  one whose `pass` would be DEFAULTED to `bug` above, hiding a possible `security` — must never
+ *  carry one: it stays blocking, the same fail-toward-blocking rule as everything else here. */
+function declaredOrigin(o: {
+  severity?: unknown;
+  pass?: unknown;
+  origin?: unknown;
+}): FindingOrigin | undefined {
+  if (o.severity !== "important" && o.severity !== "nit") return undefined;
+  if (!DECLARED_PASSES.includes(o.pass)) return undefined;
+  return ORIGINS.find((origin) => origin === o.origin);
 }
 
 /** Coerce the critic's `findings` field to clean {@link CriticFinding}s (#2165). Drops junk, never
@@ -1446,21 +1522,51 @@ function applyNitCap(nits: CriticFinding[], logLabel: string): CriticFinding[] {
  *  makes the taxonomy visible where it is otherwise invisible. No nits ⇒ the body is untouched, so
  *  an older critic's review posts byte-identically. NOT i18n'd: this is PR-facing English review
  *  prose, like the steer text and the critic marker beside it. */
-function composeReviewBody(body: string, nits: CriticFinding[]): string {
-  if (nits.length === 0) return body;
-  const block = [`**${NITS_HEADING}**`, "", ...nits.map((n) => `- [${n.pass}] ${n.text}`)].join(
-    "\n",
-  );
+function composeReviewBody(body: string, nits: CriticFinding[], lateNits: CriticFinding[]): string {
+  if (nits.length === 0 && lateNits.length === 0) return body;
+  const block = [
+    `**${NITS_HEADING}**`,
+    "",
+    ...nits.map((n) => `- [${n.pass}] ${n.text}`),
+    ...lateNits.map((n) => `- [${n.pass}, late round] ${n.text}`),
+  ].join("\n");
   // A body-less verdict (a Codex critic that wrote no sidecar) must not open with a blank line.
   return body ? `${body}\n\n${block}` : block;
 }
 
+/** Demote a late round's NEW findings (see {@link isLateRound}): an `important` entry whose
+ *  explicitly declared origin is `new` becomes a nit. Security ALWAYS stays blocking and is checked
+ *  first; `prior`, `regression` and every entry without a declared origin stay blocking too. Never
+ *  drops anything — the demoted entries are returned for rendering, and each one is logged. */
+function demoteLateRound(
+  important: CriticFinding[],
+  logLabel: string,
+): { blocking: CriticFinding[]; demoted: CriticFinding[] } {
+  const blocking: CriticFinding[] = [];
+  const demoted: CriticFinding[] = [];
+  for (const e of important) {
+    if (e.pass === "security" || e.origin !== "new") {
+      blocking.push(e);
+      continue;
+    }
+    console.warn(
+      `[review] late-round NEW finding recorded as non-blocking for ${logLabel}: ${e.text}`,
+    );
+    demoted.push({ ...e, severity: "nit" });
+  }
+  return { blocking, demoted };
+}
+
+/** `late`: this run is a late rework round with a usable baseline (resolved by the session critic —
+ *  ReviewService.begin), so NEW findings are demoted per {@link demoteLateRound}. Absent/false for
+ *  every other caller (standalone, landing critic), whose output stays byte-identical. */
 export function buildVerdictCore(
   raw: RawVerdict | null,
   baseSha: string | null,
   files: string[],
   patchId: string,
   logLabel: string,
+  opts: { late?: boolean } = {},
 ): {
   decision: ReviewDecision;
   summary: string;
@@ -1486,7 +1592,12 @@ export function buildVerdictCore(
     logLabel,
   );
   const kept = keepScoped(entries, scoped);
-  const important = kept.filter((e) => e.severity === "important");
+  const declaredImportant = kept.filter((e) => e.severity === "important");
+  const { blocking: important, demoted } = opts.late
+    ? demoteLateRound(declaredImportant, logLabel)
+    : { blocking: declaredImportant, demoted: [] };
+  // Declared nits only: the demoted entries are real defects the critic called important, so the
+  // nit cap — which DISCARDS — must never reach them.
   const nits = applyNitCap(
     kept.filter((e) => e.severity === "nit"),
     logLabel,
@@ -1512,9 +1623,9 @@ export function buildVerdictCore(
   return {
     decision: resolved,
     summary,
-    body: composeReviewBody(raw && typeof raw.body === "string" ? raw.body : "", nits),
+    body: composeReviewBody(raw && typeof raw.body === "string" ? raw.body : "", nits, demoted),
     findings: blocking.map((e) => e.text),
-    findingsMeta: [...blocking, ...nits],
+    findingsMeta: [...blocking, ...nits, ...demoted],
     // Fingerprint of this run's diff; a later identical head skips re-review. NOT recorded
     // for an error verdict (timeout/unparseable): that's a transient failure to retry, so a
     // content-identical rebase must re-review rather than inherit the stale error.

@@ -1,5 +1,5 @@
 import { isAutomationQuiet } from "./schedule-pause";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { prepareReviewerTaskPrompt } from "./task-prompt-file";
 import {
   readRoleResultText,
@@ -61,7 +61,7 @@ import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
 // The ROUND block + effective-round arithmetic are shared verbatim with the PR critic (#1948) so the
 // two review loops can never drift on them — the same reason `scopeAndOutputTail` is shared there.
-import { roundBlock, effectiveRound } from "./critic-core";
+import { roundBlock, effectiveRound, isLateRound } from "./critic-core";
 import { ReviewerRuns } from "./reviewer-runs";
 import { sessionIssue } from "./target-repo";
 
@@ -171,6 +171,10 @@ const PLAN_BLOCKS_FILE = ".shepherd-plan-blocks.json";
 /** The file the adversarial plan reviewer writes its verdict JSON to, in its detached worktree. */
 export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
 
+/** The previously reviewed plan, written into the reviewer's detached worktree when late-round
+ *  demotion is active — the reviewer's baseline for `"origin": "regression"`. */
+export const PLAN_BASELINE_FILE = ".shepherd-plan-previous.md";
+
 /** Rewrite `path.ext:120` / `path.ext:120-140` / `path.ext#L120-L140` to the bare `path.ext`.
  *
  *  Applied ONLY to the plan text embedded in {@link planReviewPrompt} — the plan file on disk, the
@@ -277,6 +281,10 @@ export function planReviewPrompt(
     amendments?: readonly TaskAmendment[];
     /** #3518: the operator's standing plan edits. Absent/empty ⇒ no block, byte-identical prompt. */
     operatorEdits?: readonly OperatorPassage[];
+    /** Late-round demotion is ACTIVE for this run: the previously reviewed plan was written into the
+     *  reviewer worktree as {@link PLAN_BASELINE_FILE} (PlanGateService.resolvePlanBaseline). It is
+     *  the "regression" baseline and switches the ROUND block to its enforced wording. */
+    baseline?: boolean;
   } = {},
 ): string {
   const lines = [
@@ -357,6 +365,11 @@ export function planReviewPrompt(
       // point recorded under the old "best reasonable path" bar is re-raised verbatim on the first
       // review after that bar changed — and the sessions this change exists for converge no faster.
       'EXCEPTION: a prior point that FINDINGS ROUTING below does not admit as blocking is DROPPED — do not re-raise it in "findings". You MAY restate it once under `Suggestions (non-blocking):`. Saying in "body" that you dropped it, and why, IS compliance with this instruction, not a violation of it.',
+      ...(opts.baseline
+        ? [
+            `The plan as the previous review judged it is in \`${PLAN_BASELINE_FILE}\` in your current directory. Compare the plan above against it: what was added or changed since then is the baseline for "origin": "regression".`,
+          ]
+        : []),
       "",
     );
   }
@@ -365,20 +378,27 @@ export function planReviewPrompt(
   lines.push(...locationReferenceBlock(anchor, staleness, priorFindings.length > 0), "");
   lines.push(...findingsRoutingBlock());
   lines.push(
-    ...roundBlock(opts.round, opts.cap, "Suggestions (non-blocking):", "the planning agent"),
+    ...roundBlock(
+      opts.round,
+      opts.cap,
+      "Suggestions (non-blocking):",
+      "the planning agent",
+      // Enforced only alongside the baseline line above, which needs priors to exist.
+      Boolean(opts.baseline) && priorFindings.length > 0,
+    ),
   );
   lines.push(
     `Write your verdict as JSON to \`${PLAN_VERDICT_FILE}\` in the current directory, with EXACTLY this shape:`,
-    '{"decision": "approve" | "request-changes", "summary": "<=100 char one-liner", "body": "<full markdown>", "findings": ["<discrete actionable revision>", ...]}',
+    '{"decision": "approve" | "request-changes", "summary": "<=100 char one-liner", "body": "<full markdown>", "findings": [{"text": "<discrete actionable revision>", "origin": "prior" | "regression" | "new", "security": true | false}, ...]}',
     'Use "approve" when the plan clears the SOUNDNESS bar above and nothing in "findings" remains — non-blocking items under `Suggestions (non-blocking):` do NOT prevent approval. Otherwise "request-changes" with at least one finding in "findings". Write the file as your final action, then stop.',
   );
   if (operatorLanguage === "de") {
     lines.push(
       "",
-      "Write `summary`, `body`, and `findings[]` in German (idiomatic operator-facing German). Keep " +
-        '`decision` as the literal enum value ("approve" | "request-changes") — verbatim, never ' +
-        "translate it. Keep code, identifiers, paths, commands, and quoted material in their " +
-        "original language.",
+      "Write `summary`, `body`, and every `findings[].text` in German (idiomatic operator-facing " +
+        'German). Keep `decision` ("approve" | "request-changes") and `origin` ("prior" | ' +
+        '"regression" | "new") as the literal enum values — verbatim, never translate them. ' +
+        "Keep code, identifiers, paths, commands, and quoted material in their original language.",
     );
   }
   return lines.join("\n");
@@ -421,6 +441,11 @@ function findingsRoutingBlock(): string[] {
     "- PROSE: a finding may NOT ask for more argumentation, justification, rationale, or for a decision the plan already states to be re-argued at greater length. Ask for a MISSING DECISION, never for more prose about one already made. A plan is an instruction to an implementer, not an essay defending itself.",
     '- At most 5 NEW findings per review, highest-severity first. This is a PRIORITISATION instruction, never a limit that may lose information: if more than 5 genuine blocking problems exist, emit ALL of them and say so in "summary" (the plan needs rewriting, not revising). NEVER move a blocking problem into `Suggestions (non-blocking):`, and never drop one, to fit the budget.',
     "- Re-raised prior findings do NOT count against those 5.",
+    // Late-round demotion (PlanGateService.buildGate) keys off these two fields, so both are
+    // declared on EVERY finding; with no previous round, "new" is the only origin there is.
+    '- Every entry in "findings" is an OBJECT: {"text": "<the revision>", "origin": "prior" | "regression" | "new", "security": true | false}.',
+    '- "origin" says how the point relates to the PREVIOUS review round: "prior" (it re-raises a numbered prior finding the revised plan still does not address), "regression" (a problem CAUSED by what the revision added or changed since the previous review — including its effect on parts of the plan that did not change), or "new" (anything else: a problem the previous review could already have raised). On a first review every point is "new".',
+    '- "security" is true when the point concerns a security hole, data exposure or data loss. If that fits AT ALL, it is true.',
     "",
   ];
 }
@@ -657,6 +682,9 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   worktreeExists?: (worktreePath: string) => boolean;
   /** default: read PLAN_VERDICT_FILE from the reviewer's disposable worktree. */
   readVerdict?: (worktreePath: string, spawnSessionId?: string) => RawPlanVerdict | null;
+  /** default: write {@link PLAN_BASELINE_FILE} into the reviewer's disposable worktree. Throws on
+   *  failure — a baseline the reviewer cannot read suspends the late-round demotion. */
+  writeBaselinePlan?: (worktreePath: string, plan: string) => void;
   /** default: {@link defaultPlanAnchorSha} — the merge-base of the session worktree's HEAD and
    *  `origin/<base>`, falling back to `origin/<base>` → `<base>` → the bare ref name. */
   baseSha?: (repoPath: string, base: string, worktreePath: string) => PlanAnchorResolution;
@@ -705,6 +733,9 @@ interface PlanInFlight {
   // the two stall-signal guards in escalateStallIfNeeded — a forced verdict now delivers its findings
   // and spends a round exactly like an auto one.
   forced: boolean;
+  /** A late round with a usable baseline (see PlanGateService.resolvePlanBaseline): this run's NEW
+   *  findings become suggestions at finalize. Fixed at begin() so prompt and rule always agree. */
+  demotionActive: boolean;
   startedAt: number;
   finalizing?: boolean;
   heldSince?: number | null; // operator hold (ReviewerRuns.setHeld)
@@ -740,6 +771,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   private readPlan: (worktreePath: string) => string | null;
   private readPlanBlocks: (worktreePath: string) => VisualBlock[];
   private readVerdict: (worktreePath: string, spawnSessionId?: string) => RawPlanVerdict | null;
+  private writeBaselinePlan: (worktreePath: string, plan: string) => void;
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string, worktreePath: string) => PlanAnchorResolution;
   private anchorStaleness: (repoPath: string, sha: string, base: string) => AnchorStaleness;
@@ -770,6 +802,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     this.readPlan = deps.readPlan ?? readPlanFile;
     this.readPlanBlocks = deps.readPlanBlocks ?? defaultReadPlanBlocks;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
+    this.writeBaselinePlan = deps.writeBaselinePlan ?? defaultWriteBaselinePlan;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultPlanAnchorSha;
     this.anchorStaleness = deps.anchorStaleness ?? defaultAnchorStaleness;
@@ -1021,6 +1054,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     issueBody: string | null | undefined,
     anchor: PlanAnchorResolution,
     fullPlan: string,
+    round: number,
+    baseline: boolean,
   ): (plan: string, planClamped?: boolean) => string {
     // Everything that costs a git call or reads a live setting is resolved ONCE, here, and closed
     // over — the returned composer is pure and cheap. #1944's clamp ladder re-composes the prompt
@@ -1032,22 +1067,6 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     const staleness = anchor.anchored
       ? this.anchorStaleness(session.repoPath, anchor.sha, session.baseBranch)
       : null;
-    // #1948: the EFFECTIVE round briefed to the reviewer. `prior.round` alone is wrong at both ends
-    // — applyChangesRequested HOLDS it at the cap (so `+1` would emit "round 13 of at most 12" and
-    // the at-cap rule would never fire on a stalled session), while resume() zeroes it (so a plan
-    // reviewed 29 times would be briefed as round 1). effectiveRound clamps it and maxes it against
-    // a reset-proof spawn count. Resolved ONCE here with the rest of the per-run context (#1944):
-    // the clamp ladder re-composes the prompt many times while binary-searching, and this counts
-    // spawn rows.
-    // #2224: spawns are counted only SINCE the last approval. A re-review of an edited plan is a
-    // fresh streak over fresh text, so it must be briefed as round 1 — inheriting the pre-approval
-    // count would hand it `roundBlock`'s late-round posture (don't open new fronts) against a plan
-    // no reviewer has ever seen. Never approved ⇒ `0` ⇒ every row counts, exactly as before.
-    const round = effectiveRound(
-      prior?.round ?? 0,
-      this.countPlanGateSpawns(session.id, prior?.approvedAt ?? 0),
-      this.cap,
-    );
     const language = this.deps.operatorLanguage?.() ?? "en";
     // #2225: resolved ONCE here with the rest of the per-run context — the clamp ladder re-composes
     // this prompt many times while binary-searching, and this is a store read.
@@ -1066,8 +1085,73 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
         language,
         anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
         staleness && staleness.behind > 0 ? staleness : undefined,
-        { round, cap: this.cap, planClamped, amendments, operatorEdits },
+        {
+          round,
+          cap: this.cap,
+          planClamped,
+          amendments,
+          operatorEdits,
+          // A clamped CURRENT plan can elide exactly the changed span that makes a point a
+          // regression, so the reviewer could not classify origins: no enforced wording either.
+          baseline: baseline && !planClamped,
+        },
       );
+  }
+
+  /** #1948: the EFFECTIVE round briefed to the reviewer. `prior.round` alone is wrong at both ends
+   *  — applyChangesRequested HOLDS it at the cap (so `+1` would emit "round 13 of at most 12" and
+   *  the at-cap rule would never fire on a stalled session), while resume() zeroes it (so a plan
+   *  reviewed 29 times would be briefed as round 1). effectiveRound clamps it and maxes it against
+   *  a reset-proof spawn count. Resolved ONCE per run in begin() (#1944):
+   *  the clamp ladder re-composes the prompt many times while binary-searching, and this counts
+   *  spawn rows.
+   *  #2224: spawns are counted only SINCE the last approval. A re-review of an edited plan is a
+   *  fresh streak over fresh text, so it must be briefed as round 1 — inheriting the pre-approval
+   *  count would hand it `roundBlock`'s late-round posture (don't open new fronts) against a plan
+   *  no reviewer has ever seen. Never approved ⇒ `0` ⇒ every row counts, exactly as before. */
+  private briefedRound(session: Session, prior: PlanGate | null): number {
+    return effectiveRound(
+      prior?.round ?? 0,
+      this.countPlanGateSpawns(session.id, prior?.approvedAt ?? 0),
+      this.cap,
+    );
+  }
+
+  /** Whether late-round demotion is ACTIVE for this run — false ⇒ it behaves exactly as before.
+   *  All of these must hold:
+   *   - a late round (see {@link isLateRound}) — early rounds keep full latitude;
+   *   - the prior gate is a real `changes_requested` WITH findings and plan text. An `error` gate
+   *     carries `findings: []` and the errored text, so it is no baseline;
+   *   - no `plan` spawn notice: a clamped (or refused) previous run means that reviewer saw a
+   *     truncated plan, so a point in the elided span would be mislabelled "new". Read here, BEFORE
+   *     this run's own fit records or clears the notice;
+   *   - the baseline plan was written into the reviewer worktree — a reviewer that cannot compare
+   *     against it cannot tell a regression from a new point. */
+  private resolvePlanBaseline(
+    session: Session,
+    prior: PlanGate | null,
+    round: number,
+    worktreePath: string,
+  ): boolean {
+    if (!isLateRound(round, this.cap)) return false;
+    if (prior?.decision !== "changes_requested" || !prior.findings.length) return false;
+    if (!prior.plan?.trim()) return false; // no reviewed text, no baseline
+    if (this.deps.store.getSpawnNotice(session.id, "plan")) {
+      console.warn(
+        `[plan-gate] late-round demotion suspended for ${session.id}: the previous review saw a truncated plan`,
+      );
+      return false;
+    }
+    try {
+      this.writeBaselinePlan(worktreePath, prior.plan);
+    } catch (err) {
+      console.warn(
+        `[plan-gate] late-round demotion suspended for ${session.id}: baseline plan not written:`,
+        err,
+      );
+      return false;
+    }
+    return true;
   }
 
   /** #1944: a clamp is never silent. A structured log line plus a `clamped` sidecar row (which the
@@ -1224,6 +1308,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     const taskPrompt = prepareReviewerTaskPrompt(session.prompt, wt.worktreePath, (path) =>
       this.deps.worktree.remove(path),
     );
+    const round = this.briefedRound(session, prior);
+    const baselineReady = this.resolvePlanBaseline(session, prior, round, wt.worktreePath);
     const composePrompt = this.composeReviewerPrompt(
       session,
       taskPrompt,
@@ -1231,6 +1317,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       issueBody,
       { sha, anchored, ahead },
       plan,
+      round,
+      baselineReady,
     );
     const prompt = composePrompt(plan);
     // ONE pinned reviewer session id for every argv this spawn builds (#1944). reviewerArgv mints
@@ -1328,7 +1416,11 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     if (!fitted.ok) {
       return this.refuseOversizedSpawn(session, planHash, wt.worktreePath, fitted);
     }
+    // Demotion holds only when the reviewer saw the WHOLE current plan — the composer above drops
+    // the enforced wording on a clamped render by the same rule, so prompt and finalize agree.
+    let demotionActive = baselineReady;
     if (fitted.clamps.length) {
+      demotionActive = false;
       this.recordClamp(session, "plan", fitted.clamps);
     } else if (this.deps.store.clearSpawnNotice(session.id, "plan")) {
       // A spawn that needed NO clamp is the all-clear: drop any stale notice (and, with it, the
@@ -1401,6 +1493,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       reviewerEffort,
       priorRound: prior?.round ?? 0,
       forced,
+      demotionActive,
       startedAt: spawnedAt,
     });
     this.deps.onReviewing?.(session.id, true, {
@@ -1504,6 +1597,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       // Bounded at one row per restart per session, unreachable by clicking, so it can't inflate
       // the incident counts. See escalateStallIfNeeded's guards.
       forced: false,
+      // Not persisted either, and the prompt the orphan read is unknown: fail safe — no demotion.
+      demotionActive: false,
       startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
     };
   }
@@ -2032,17 +2127,11 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     // still returns the pre-review row, INCLUDING any answered keys the answer route merged into it
     // while the review ran. Carry them forward when the plan text is unchanged (same planHash).
     const live = this.deps.store.getPlanGate(f.sessionId);
-    const decision = normalizeDecision(raw?.decision);
-    const resolved: PlanDecision = raw && decision ? decision : "error";
+    const { resolved, body, findings } = resolvePlanVerdict(raw, f.demotionActive, f.sessionId);
     const summary = resolveSummary(resolved, raw);
     // Store a sentinel code (not baked English) for the server-authored `error` summary, so the UI
     // renders it per-locale (operator-language). Non-error summaries are the reviewer's own text.
     const summaryCode = resolved === "error" ? "no-verdict" : null;
-    // The steer-back fallback must never truncate: pass the UN-clamped verdict summary here,
-    // not the (clamped) gate `summary` field above — see resolveFindings's doc comment.
-    const rawSummary = raw && typeof raw.summary === "string" ? raw.summary : "";
-    const body = raw && typeof raw.body === "string" ? raw.body : "";
-    const findings = resolveFindings(resolved, normalizeFindings(raw?.findings), rawSummary);
     return {
       sessionId: f.sessionId,
       planHash: f.planHash,
@@ -2542,6 +2631,34 @@ function normalizeDecision(d: unknown): PlanDecision | null {
   return null;
 }
 
+/** The verdict's decision, write-up and blocking findings, with the late-round demotion applied:
+ *  NEW, explicitly non-security findings become suggestions in the body, and a verdict left with
+ *  nothing blocking is an approval. `demotionActive` false (no usable baseline) ⇒ inert. Split out
+ *  of buildGate to keep that method within the complexity bar. */
+function resolvePlanVerdict(
+  raw: RawPlanVerdict | null,
+  demotionActive: boolean,
+  sessionId: string,
+): { resolved: PlanDecision; body: string; findings: string[] } {
+  const decision = normalizeDecision(raw?.decision);
+  const declared: PlanDecision = raw && decision ? decision : "error";
+  const late = demoteLateRound(
+    demotionActive && declared === "changes_requested",
+    normalizeFindings(raw?.findings),
+    sessionId,
+  );
+  const resolved: PlanDecision = late.approve ? "approved" : declared;
+  // The steer-back fallback must never truncate: pass the UN-clamped verdict summary here, not the
+  // (clamped) gate `summary` field — see resolveFindings's doc comment. A demotion-emptied verdict
+  // resolved to `approved` above, so resolveFindings returns [] and its fallback can't re-block it.
+  const rawSummary = raw && typeof raw.summary === "string" ? raw.summary : "";
+  return {
+    resolved,
+    body: appendSuggestions(raw && typeof raw.body === "string" ? raw.body : "", late.demoted),
+    findings: resolveFindings(resolved, late.kept, rawSummary),
+  };
+}
+
 /** The gate summary: "" for `error` (the UI renders the "no-verdict" sentinel per-locale — see
  *  buildGate's summaryCode), else the (clamped) verdict summary or "". */
 function resolveSummary(resolved: PlanDecision, raw: RawPlanVerdict | null): string {
@@ -2558,13 +2675,62 @@ function resolveFindings(resolved: PlanDecision, parsed: string[], rawSummary: s
   return rawSummary ? [rawSummary] : [];
 }
 
-/** Coerce the reviewer's `findings` field to a clean string[] (drops junk, never throws). */
-function normalizeFindings(raw: unknown): string[] {
+/** One reviewer finding, coerced. `demotable` is true ONLY for an object that explicitly declares
+ *  `origin: "new"` AND the boolean `security: false` — a bare (legacy) string, a missing or
+ *  non-boolean `security`, or any other origin keeps blocking: the file-based verdict path can
+ *  read incomplete objects, and an undeclared field must never demote. */
+interface PlanFinding {
+  text: string;
+  demotable: boolean;
+}
+
+/** Coerce the reviewer's `findings` field to clean entries (drops junk, never throws). Accepts the
+ *  `{text, origin, security}` objects the prompt asks for and the bare strings older verdicts hold. */
+function normalizeFindings(raw: unknown): PlanFinding[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((f): f is string => typeof f === "string")
-    .map((f) => f.trim())
-    .filter(Boolean);
+  const out: PlanFinding[] = [];
+  for (const f of raw) {
+    if (typeof f === "string") {
+      if (f.trim()) out.push({ text: f.trim(), demotable: false });
+      continue;
+    }
+    if (!f || typeof f !== "object" || Array.isArray(f)) continue;
+    const o = f as { text?: unknown; origin?: unknown; security?: unknown };
+    if (typeof o.text !== "string" || !o.text.trim()) continue;
+    out.push({ text: o.text.trim(), demotable: o.origin === "new" && o.security === false });
+  }
+  return out;
+}
+
+/** The finding TEXTS a plan verdict carries, coerced exactly as buildGate coerces them (objects and
+ *  legacy bare strings). Exported so the plan-gate eval scores what production would read. */
+export function planFindingTexts(raw: unknown): string[] {
+  return normalizeFindings(raw).map((f) => f.text);
+}
+
+/** Split a late round's findings into the ones that keep blocking and the demoted NEW ones (see
+ *  {@link PlanFinding}); `approve` when demotion emptied a non-empty list. `active` false ⇒ inert. */
+function demoteLateRound(
+  active: boolean,
+  entries: PlanFinding[],
+  sessionId: string,
+): { kept: string[]; demoted: string[]; approve: boolean } {
+  if (!active) return { kept: entries.map((e) => e.text), demoted: [], approve: false };
+  const kept = entries.filter((e) => !e.demotable).map((e) => e.text);
+  const demoted = entries.filter((e) => e.demotable).map((e) => e.text);
+  for (const text of demoted)
+    console.warn(
+      `[plan-gate] late-round NEW finding recorded as a suggestion for ${sessionId}: ${text}`,
+    );
+  return { kept, demoted, approve: demoted.length > 0 && kept.length === 0 };
+}
+
+/** Append demoted findings to the reviewer's write-up as a `Suggestions (non-blocking):` section —
+ *  the heading the verdict card splits out (ui/src/lib/plan-outline.ts → splitReviewerNotes). */
+function appendSuggestions(body: string, demoted: string[]): string {
+  if (demoted.length === 0) return body;
+  const block = ["Suggestions (non-blocking):", ...demoted.map((d) => `- ${d}`)].join("\n");
+  return body ? `${body}\n\n${block}` : block;
 }
 
 /** Read the live worktree's plan-blocks sidecar, parse it through the LLM trust boundary
@@ -2578,6 +2744,11 @@ function defaultReadPlanBlocks(worktreePath: string): VisualBlock[] {
   } catch {
     return [];
   }
+}
+
+/** Write the previously reviewed plan into the reviewer's disposable worktree (owner-only). */
+function defaultWriteBaselinePlan(worktreePath: string, plan: string): void {
+  writeFileSync(join(worktreePath, PLAN_BASELINE_FILE), plan, { encoding: "utf8", mode: 0o600 });
 }
 
 /** Read the live session worktree's plan text. Null when no plan has been written yet. */

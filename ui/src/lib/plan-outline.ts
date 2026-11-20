@@ -158,6 +158,19 @@ function splitListSection(body: string, headRe: RegExp): { items: string[]; rest
   return { items, rest };
 }
 
+/** Every list section under `headRe`, in order — a body can carry more than one (the server
+ *  appends its own `Suggestions (non-blocking):` section for late-round demoted findings). */
+function splitAllListSections(body: string, headRe: RegExp): { items: string[]; rest: string } {
+  const items: string[] = [];
+  let rest = body;
+  for (;;) {
+    const next = splitListSection(rest, headRe);
+    if (next.items.length === 0) return { items, rest };
+    items.push(...next.items);
+    rest = next.rest;
+  }
+}
+
 /**
  * Split the reviewer's `Suggestions (non-blocking):` and `Checked:` lists out of its write-up so
  * the verdict card can show the items on their own. `rest` is the write-up without those sections.
@@ -168,7 +181,7 @@ export function splitReviewerNotes(body: string): {
   checked: string[];
   rest: string;
 } {
-  const { items: notes, rest: withoutNotes } = splitListSection(body, NOTES_HEAD_RE);
+  const { items: notes, rest: withoutNotes } = splitAllListSections(body, NOTES_HEAD_RE);
   const { items: checked, rest } = splitListSection(withoutNotes, CHECKED_HEAD_RE);
   return { notes, checked, rest };
 }

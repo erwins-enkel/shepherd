@@ -21,6 +21,7 @@ import {
   REVIEW_POLICY_MAX_BYTES,
   roundBlock,
   effectiveRound,
+  isLateRound,
   captureUsage,
   normalizePlanDrift,
   normalizePlanDriftNote,
@@ -57,6 +58,7 @@ for (const fixtureName of ["critic", "critic-with-plan"] as const) {
             text: "src/parser.ts: Rename the local for readability.",
             severity: "nit",
             pass: "scope",
+            origin: "new",
           },
         ]);
       } else {
@@ -1975,4 +1977,201 @@ test("no amendments ⇒ reviewPrompt is byte-identical to the un-amended prompt"
 
 test("prReviewPrompt (standalone critic) can never carry an amendment — it has no session", () => {
   expect(prReviewPrompt("BASE", "My PR", "body")).not.toContain("OPERATOR TASK AMENDMENTS");
+});
+
+// ── Late-round demotion: a late rework round with a usable baseline stops NEW points blocking ──
+//
+// Observed (TASK-3237, #4073, baeckershop#48): a Codex critic addressed every prior finding yet
+// raised fresh, ever-narrower edge cases each round until the rework cap held the drain. The prompt
+// asked late rounds to raise only outright failures, but FINDINGS ROUTING said "when in doubt,
+// important" — so the rule is now enforced server-side, on fields the critic must declare.
+
+test("isLateRound: strictly past halfway, never on a first review", () => {
+  expect(isLateRound(1, 1)).toBe(false);
+  expect(isLateRound(1, 2)).toBe(false);
+  expect(isLateRound(2, 2)).toBe(true);
+  expect(isLateRound(2, 3)).toBe(true);
+  expect(isLateRound(2, 4)).toBe(false);
+  expect(isLateRound(3, 4)).toBe(true);
+});
+
+test("roundBlock: the always-blocking classes are named at every round", () => {
+  for (const [n, m] of [
+    [1, 2],
+    [2, 2],
+  ] as const) {
+    const b = roundBlock(n, m, "Nits (non-blocking):", "the author").join("\n");
+    expect(b).toContain("These ALWAYS block, at any round: a security defect");
+    expect(b).toContain("a regression");
+  }
+});
+
+test("roundBlock: enforced switches the late line from a request to what Shepherd does", () => {
+  const request = roundBlock(2, 2, "Nits (non-blocking):", "the author").join("\n");
+  expect(request).toContain("Raise a NEW finding only if it would make the change fail outright");
+  expect(request).not.toContain("Shepherd records NEW points");
+  const enforced = roundBlock(2, 2, "Nits (non-blocking):", "the author", true).join("\n");
+  expect(enforced).toContain('"origin": "new"');
+  expect(enforced).toContain("Shepherd records NEW points in this round as non-blocking");
+  expect(enforced).not.toContain("fail outright");
+  // Never on an early round, enforced or not.
+  const early = roundBlock(1, 2, "Nits (non-blocking):", "the author", true).join("\n");
+  expect(early).not.toContain("past the halfway point");
+});
+
+test("reviewPrompt: the baseline line + enforced wording need BOTH a baseline and priors", () => {
+  const opts = { round: 2, cap: 2, baselineHead: "abc1234" };
+  const enforced = reviewPrompt("BASE", "do X", ["src/a.ts: old bug"], [], null, null, opts);
+  expect(enforced).toContain("`git diff abc1234 HEAD` shows what changed since then");
+  expect(enforced).toContain("Shepherd records NEW points");
+  // No baseline ⇒ request wording, no baseline line.
+  const noBaseline = reviewPrompt("BASE", "do X", ["src/a.ts: old bug"], [], null, null, {
+    round: 2,
+    cap: 2,
+  });
+  expect(noBaseline).not.toContain("git diff abc1234");
+  expect(noBaseline).toContain("fail outright");
+  // A baseline without priors (impossible from the caller, but must not half-enforce).
+  const noPriors = reviewPrompt("BASE", "do X", [], [], null, null, opts);
+  expect(noPriors).not.toContain("Shepherd records NEW points");
+  expect(noPriors).not.toContain("git diff abc1234");
+});
+
+test("FINDINGS ROUTING: security wins any pass overlap, and origin is defined (both critics)", () => {
+  for (const p of [reviewPrompt("BASE", "do X"), prReviewPrompt("BASE", "t", "b")]) {
+    expect(p).toContain('If "security" fits AT ALL, "pass" MUST be "security"');
+    expect(p).toContain('"origin": "prior" | "regression" | "new"');
+    expect(p).toContain("a changed function breaking an untouched caller");
+    expect(p).toContain('On a first review every point is "new"');
+  }
+});
+
+test("normalizeFindingEntries: origin survives only on a fully declared entry", () => {
+  expect(
+    normalizeFindingEntries([
+      { text: "a", severity: "important", pass: "bug", origin: "new" },
+      { text: "b", severity: "important", origin: "new" }, // pass would be DEFAULTED → no origin
+      { text: "c", severity: "important", pass: "perf", origin: "new" }, // invalid pass
+      { text: "d", pass: "bug", origin: "new" }, // severity undeclared
+      { text: "e", severity: "important", pass: "bug", origin: "NEW" }, // unknown origin
+      { text: "f", severity: "nit", pass: "scope", origin: "regression" },
+    ]),
+  ).toEqual([
+    { text: "a", severity: "important", pass: "bug", origin: "new" },
+    { text: "b", severity: "important", pass: "bug" },
+    { text: "c", severity: "important", pass: "bug" },
+    { text: "d", severity: "important", pass: "bug" },
+    { text: "e", severity: "important", pass: "bug" },
+    { text: "f", severity: "nit", pass: "scope", origin: "regression" },
+  ]);
+});
+
+function lateCore(findings: unknown[], late = true) {
+  return buildVerdictCore(
+    { decision: "request-changes", summary: "s", body: "## Review", findings },
+    "base-sha",
+    ["src/a.ts", "src/b.ts"],
+    "p1",
+    "s1",
+    { late },
+  );
+}
+
+test("buildVerdictCore late: a NEW bug is demoted, rendered and the verdict flips to commented", () => {
+  const core = lateCore([
+    {
+      text: "src/a.ts: short viewport clips the menu",
+      severity: "important",
+      pass: "bug",
+      origin: "new",
+    },
+  ]);
+  expect(core.decision).toBe("commented");
+  expect(core.findings).toEqual([]);
+  expect(core.findingsMeta).toEqual([
+    {
+      text: "src/a.ts: short viewport clips the menu",
+      severity: "nit",
+      pass: "bug",
+      origin: "new",
+    },
+  ]);
+  expect(core.body).toContain("- [bug, late round] src/a.ts: short viewport clips the menu");
+});
+
+test("buildVerdictCore late: security, prior, regression and incomplete entries keep blocking", () => {
+  const core = lateCore([
+    // Security is checked FIRST — a NEW security point blocks at any round.
+    { text: "src/a.ts: new token leak", severity: "important", pass: "security", origin: "new" },
+    // A security regression whose location the rework never touched still blocks.
+    {
+      text: "src/b.ts: unchanged caller now unescaped",
+      severity: "important",
+      pass: "security",
+      origin: "regression",
+    },
+    // A cross-file regression: the changed function breaks an untouched caller — no location test.
+    {
+      text: "src/b.ts: caller breaks on the new return shape",
+      severity: "important",
+      pass: "bug",
+      origin: "regression",
+    },
+    { text: "src/a.ts: still not addressed", severity: "important", pass: "bug", origin: "prior" },
+    { text: "src/a.ts: no origin declared", severity: "important", pass: "bug" },
+    { text: "src/a.ts: pass missing", severity: "important", origin: "new" },
+  ]);
+  expect(core.decision).toBe("changes_requested");
+  expect(core.findings).toEqual([
+    "src/a.ts: new token leak",
+    "src/b.ts: unchanged caller now unescaped",
+    "src/b.ts: caller breaks on the new return shape",
+    "src/a.ts: still not addressed",
+    "src/a.ts: no origin declared",
+    "src/a.ts: pass missing",
+  ]);
+  expect(core.body).not.toContain("late round");
+});
+
+test("buildVerdictCore late: demoted entries are never lost to the nit cap", () => {
+  const declaredNits = Array.from({ length: NIT_CAP + 2 }, (_, i) => ({
+    text: `src/a.ts: nit ${i}`,
+    severity: "nit",
+    pass: "bug",
+    origin: "new",
+  }));
+  const demoted = Array.from({ length: 3 }, (_, i) => ({
+    text: `src/b.ts: late bug ${i}`,
+    severity: "important",
+    pass: "bug",
+    origin: "new",
+  }));
+  const core = lateCore([...demoted, ...declaredNits]);
+  expect(core.findingsMeta.filter((f) => f.text.includes("late bug"))).toHaveLength(3);
+  expect(core.findingsMeta.filter((f) => f.text.includes(": nit "))).toHaveLength(NIT_CAP);
+  for (let i = 0; i < 3; i++)
+    expect(core.body).toContain(`[bug, late round] src/b.ts: late bug ${i}`);
+});
+
+test("buildVerdictCore: without late a NEW finding blocks exactly as before", () => {
+  const finding = {
+    text: "src/a.ts: edge case",
+    severity: "important",
+    pass: "bug",
+    origin: "new",
+  };
+  const core = lateCore([finding], false);
+  expect(core.decision).toBe("changes_requested");
+  expect(core.findings).toEqual(["src/a.ts: edge case"]);
+  expect(core.body).toBe("## Review");
+  // The default (no opts) is identical to late: false.
+  expect(
+    buildVerdictCore(
+      { decision: "request-changes", summary: "s", body: "## Review", findings: [finding] },
+      "base-sha",
+      ["src/a.ts", "src/b.ts"],
+      "p1",
+      "s1",
+    ),
+  ).toEqual(core);
 });

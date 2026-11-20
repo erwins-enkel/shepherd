@@ -86,6 +86,16 @@ describe("splitReviewerNotes", () => {
     expect(out.rest).toBe("Closing words.");
   });
 
+  it("collects every suggestions section — the server appends one for late-round demotions", () => {
+    const body =
+      "## Verdict\nHolds.\n\nVorschläge (nicht blockierend):\n- reviewer note\n\nChecked:\n- c\n\nSuggestions (non-blocking):\n- demoted point";
+    expect(splitReviewerNotes(body)).toEqual({
+      notes: ["reviewer note", "demoted point"],
+      checked: ["c"],
+      rest: "## Verdict\nHolds.",
+    });
+  });
+
   it("returns the body whole when there is no section, or it is prose", () => {
     expect(splitReviewerNotes("All good.")).toEqual({
       notes: [],

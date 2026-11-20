@@ -5921,3 +5921,153 @@ for (const provider of ["claude", "codex"] as const) {
     }
   });
 }
+
+// ── Late-round demotion at the service seam (the TASK-3237 path) ─────────────────────────────────
+//
+// TASK-3237 held its epic on a REAL `changes_requested` verdict, not an error: each round addressed
+// the prior findings and the critic raised new edge cases until the cap. With a usable baseline, a
+// late round's NEW finding is recorded as a nit, the verdict is `commented`, and nothing is steered.
+
+const NEW_EDGE_CASE = {
+  decision: "request-changes",
+  summary: "a new edge case",
+  body: "## Review",
+  findings: [
+    {
+      text: "src/foo.ts: arrow keys reach the dashboard shortcut",
+      severity: "important",
+      pass: "bug",
+      origin: "new",
+    },
+  ],
+};
+
+function lateRoundPrior(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
+  // Round 1 on head aaaa111 raised a blocker; with cap 2 the next review briefs round 2 = late.
+  return verdict({
+    headSha: "aaaa111",
+    findings: ["src/foo.ts: hide stamp reused after undo"],
+    addressRound: 1,
+    addressCap: 2,
+    streakReviews: 1,
+    finalRoundPending: false,
+    ...over,
+  });
+}
+
+test("late round + usable baseline: a NEW finding no longer blocks or steers", async () => {
+  const checked: { wt: string; sha: string }[] = [];
+  const {
+    deps: d,
+    reviews,
+    started,
+    steers,
+  } = makeDeps(
+    {
+      cap: 2,
+      hasCommit: async (wt: string, sha: string) => {
+        checked.push({ wt, sha });
+        return true;
+      },
+      readVerdict: () => NEW_EDGE_CASE,
+    },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = lateRoundPrior();
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(checked).toEqual([{ wt: "/review-wt", sha: "aaaa111" }]);
+  const p = criticPrompt(started);
+  expect(p).toContain("rework round 2 of at most 2");
+  expect(p).toContain("`git diff aaaa111 HEAD`");
+  expect(p).toContain("Shepherd records NEW points");
+  await svc.tick();
+  const v = reviews["s1"]!;
+  expect(v.decision).toBe("commented"); // troubleHold keys on changes_requested — no hold
+  expect(v.findings).toEqual([]);
+  expect(v.findingsMeta).toEqual([
+    {
+      text: "src/foo.ts: arrow keys reach the dashboard shortcut",
+      severity: "nit",
+      pass: "bug",
+      origin: "new",
+    },
+  ]);
+  expect(v.body).toContain("[bug, late round] src/foo.ts: arrow keys reach the dashboard shortcut");
+  expect(steers).toEqual([]);
+});
+
+test("the same NEW finding on a first review still blocks and steers", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps(
+    { cap: 2, hasCommit: async () => true, readVerdict: () => NEW_EDGE_CASE },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]!.decision).toBe("changes_requested");
+  expect(reviews["s1"]!.findings).toEqual(["src/foo.ts: arrow keys reach the dashboard shortcut"]);
+  expect(steers.length).toBe(1);
+});
+
+test("A changes_requested → error on B → retry on B: no baseline, demotion suspended", async () => {
+  // The error verdict carries findings: [] and the errored head, so the priors and the last
+  // genuinely reviewed revision are both gone — the retry must not demote anything.
+  let hasCommitCalls = 0;
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({
+    cap: 2,
+    hasCommit: async () => {
+      hasCommitCalls++;
+      return true;
+    },
+    readVerdict: () => NEW_EDGE_CASE,
+  });
+  reviews["s1"] = lateRoundPrior({
+    headSha: OPEN_GREEN.headSha!,
+    decision: "error",
+    findings: [],
+    errorRound: 1,
+    patchId: "",
+    autoRetryAt: 0, // the same-head retry is due
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(started.length).toBe(1);
+  expect(hasCommitCalls).toBe(0);
+  const p = criticPrompt(started);
+  expect(p).toContain("rework round 2 of at most 2"); // still late — the streak survived the error
+  expect(p).not.toContain("Shepherd records NEW points");
+  expect(p).toContain("fail outright");
+  await svc.tick();
+  expect(reviews["s1"]!.decision).toBe("changes_requested");
+  expect(reviews["s1"]!.findings).toEqual(["src/foo.ts: arrow keys reach the dashboard shortcut"]);
+});
+
+test("late round whose baseline head is missing from the critic worktree: demotion suspended", async () => {
+  const {
+    deps: d,
+    reviews,
+    started,
+  } = makeDeps({
+    cap: 2,
+    hasCommit: async () => false, // e.g. force-pushed away and never fetched
+    readVerdict: () => NEW_EDGE_CASE,
+  });
+  reviews["s1"] = lateRoundPrior();
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  const p = criticPrompt(started);
+  expect(p).not.toContain("git diff aaaa111");
+  expect(p).not.toContain("Shepherd records NEW points");
+  await svc.tick();
+  expect(reviews["s1"]!.decision).toBe("changes_requested");
+  expect(reviews["s1"]!.findings).toEqual(["src/foo.ts: arrow keys reach the dashboard shortcut"]);
+});

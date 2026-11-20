@@ -650,6 +650,19 @@ test("plan-gate scorer applies the fixture's findings predicates", () => {
     scorePlanGate(rc, { decision: "request-changes", findings: ["The plan is a bit terse."] })
       .correct,
   ).toBe(false);
+  // The prompt's object shape ({text, origin, security}) is what a current reviewer writes.
+  expect(
+    scorePlanGate(rc, {
+      decision: "request-changes",
+      findings: [
+        {
+          text: "src/automerge-core.ts: isBehindBase does not exist.",
+          origin: "new",
+          security: false,
+        },
+      ],
+    }).correct,
+  ).toBe(true);
 });
 
 test("critic scorer uses production's normalizers and the severity contract", () => {
@@ -1264,6 +1277,11 @@ test("CASES actually meets the coverage invariant it states", () => {
   covers("critic", "NO plan reviewer approved this text");
   covers("critic", "CURRENT PLAN FILE");
   covers("critic", "NOTE: this current plan file was too large");
+  // Late-round demotion: the enforced ROUND wording + each prompt's baseline line.
+  covers("critic", "Shepherd records NEW points in this round as non-blocking");
+  covers("critic", "shows what changed since then");
+  covers("plan-gate", "Shepherd records NEW points in this round as non-blocking");
+  covers("plan-gate", "The plan as the previous review judged it is in");
 });
 
 // ---------------------------------------------------------------------------

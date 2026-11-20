@@ -45,6 +45,11 @@ function harness(opts?: {
   herdrFollowsPush?: boolean;
   /** A visible-buffer read that fails (pane unreadable). */
   readFails?: boolean;
+  /** Start the clock this long after the session's `createdAt` (default: the fixed 2023 clock,
+   *  i.e. before `createdAt`, so the spawn grace always applies). */
+  ageMs?: number;
+  /** herdr's status before any push under `herdrFollowsPush` (default: the registered `working`). */
+  initialStatus?: string;
 }) {
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -53,12 +58,12 @@ function harness(opts?: {
     sandboxDegraded: opts?.sandboxDegraded ?? false,
   });
   const pushes: { paneId: string; agentName: string; state: string }[] = [];
-  let clock = 1_700_000_000_000;
+  let clock = opts?.ageMs === undefined ? 1_700_000_000_000 : s.createdAt + opts.ageMs;
   const visible = opts?.visible ?? (() => "Computing… (1s)");
   let reads = 0;
   const agentStatus = (): string => {
     if (opts?.herdrFollowsPush) {
-      const last = pushes.at(-1)?.state ?? "working";
+      const last = pushes.at(-1)?.state ?? opts.initialStatus ?? "working";
       return last === "idle" ? "done" : last;
     }
     return opts?.agentStatus?.() ?? "working";
@@ -360,4 +365,67 @@ test("a trusted session at rest is never pushed, even with a live spinner on scr
   });
   await h.runFor(10_000);
   expect(h.pushes).toEqual([]);
+});
+
+// A session already at rest when the poller first sees it — Shepherd restarted (deploy) while it
+// idled — must settle via the terminal confirm, not stay on the assumed `working` forever.
+
+test("restart at rest: an old resting session is pushed idle, never working", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({
+    visible: restingScreen,
+    herdrFollowsPush: true,
+    initialStatus: "done",
+    ageMs: 3_600_000,
+  });
+  await h.runFor(60_000);
+  expect(h.pushes.map((p) => p.state)).toEqual(["idle"]);
+  expect(h.store.get(h.id)?.status).toBe("done");
+});
+
+test("restart with herdr frozen working: a resting screen is confirmed idle", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ visible: restingScreen, herdrFollowsPush: true, ageMs: 3_600_000 });
+  await h.runFor(60_000);
+  expect(h.pushes.map((p) => p.state)).toEqual(["idle"]);
+  expect(h.store.get(h.id)?.status).toBe("done");
+});
+
+test("restart mid-turn: a live spinner keeps an old session working", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ visible: liveSpinner(), herdrFollowsPush: true, ageMs: 3_600_000 });
+  await h.runFor(60_000);
+  expect(h.pushes.map((p) => p.state)).not.toContain("idle");
+  expect(h.store.get(h.id)?.status).toBe("running");
+});
+
+test("fresh spawn: reads working through the boot grace, then is confirmed idle", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ visible: restingScreen, herdrFollowsPush: true, ageMs: 0 });
+  await h.runFor(55_000);
+  expect(h.pushes.map((p) => p.state)).toEqual(["working"]);
+  await h.runFor(15_000);
+  expect(h.pushes.map((p) => p.state)).toEqual(["working", "idle"]);
+  expect(h.store.get(h.id)?.status).toBe("done");
+});
+
+test("idle compaction at rest: pushed working while compacting, then back to idle", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  let screen: () => string = restingScreen;
+  const h = harness({ visible: () => screen(), herdrFollowsPush: true });
+  await h.poller.tick();
+  await flush();
+  h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+  await h.runFor(16_000);
+  expect(h.pushes.at(-1)?.state).toBe("idle");
+
+  let n = 1;
+  screen = () => `✻ Compacting conversation… (${n++}s · ↓ 1k tokens)\n\n❯ \n`;
+  await h.runFor(40_000);
+  expect(h.pushes.at(-1)?.state).toBe("working");
+
+  screen = () => "● Compacted while idle, before the prompt cache expired\n\n❯ \n";
+  await h.runFor(60_000);
+  expect(h.pushes.at(-1)?.state).toBe("idle");
+  expect(h.store.get(h.id)?.status).toBe("done");
 });

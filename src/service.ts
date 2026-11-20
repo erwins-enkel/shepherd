@@ -4810,6 +4810,7 @@ export class SessionService {
     const key = this.deps.assistantIngress!.sign(s.id);
     const paths = ingressSpawnPaths(this.ingressSpawnDir(false), s.id);
     const files = await Promise.all(
+      // best-effort: missing spawn file ⇒ no key ⇒ stale (respawn)
       [paths.settings, paths.mcpConfig].map((p) => readFile(p, "utf8").catch(() => "")),
     );
     if (!files.some((f) => f.includes(key))) return true;

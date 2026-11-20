@@ -1,7 +1,8 @@
 // Local ESLint rule `shepherd/no-silent-catch` (issue #4076). Flags rejections and exceptions
 // swallowed without a trace — the server's house rule is "fail closed":
 //   • a `catch` clause with no statements (empty or comments only);
-//   • a `.catch(handler)` whose handler has an empty body, or only yields null/undefined/void 0.
+//   • a `.catch(handler)` whose handler has an empty body, or only yields null/undefined/void 0 or an
+//     empty literal fallback (`""`, `false`, `[]`, `{}`), also through TS type wrappers.
 // A deliberate swallow passes only with a `best-effort: <why>` comment (colon + reason). Where it
 // goes: inside the catch block / the `.catch(...)` call, trailing on the call's last line, or on
 // its own line directly above `.catch`.
@@ -12,13 +13,36 @@ const MARKER = /\bbest-effort:\s*\S/;
 
 const isMarker = (comment) => MARKER.test(comment.value);
 
-/** True when `node` is `null`, `undefined` or `void <literal>`. */
-function isNullishSentinel(node) {
-  if (node.type === "Literal") return node.value === null && node.raw === "null";
-  if (node.type === "Identifier") return node.name === "undefined";
-  return (
-    node.type === "UnaryExpression" && node.operator === "void" && node.argument.type === "Literal"
-  );
+/** TS wrappers that leave the runtime value unchanged (`x as T`, `x satisfies T`, `<T>x`, `x!`). */
+const TS_WRAPPERS = new Set([
+  "TSAsExpression",
+  "TSSatisfiesExpression",
+  "TSTypeAssertion",
+  "TSNonNullExpression",
+]);
+
+/** True when `node` is `null`, `undefined`, `void <literal>` or an empty literal (`""`, `` `` ``,
+ *  `false`, `[]`, `{}`), seen through TS type wrappers. */
+function isSentinel(node) {
+  while (TS_WRAPPERS.has(node.type)) node = node.expression;
+  switch (node.type) {
+    case "Literal":
+      return (
+        (node.value === null && node.raw === "null") || node.value === "" || node.value === false
+      );
+    case "Identifier":
+      return node.name === "undefined";
+    case "UnaryExpression":
+      return node.operator === "void" && node.argument.type === "Literal";
+    case "TemplateLiteral":
+      return node.expressions.length === 0 && node.quasis[0].value.cooked === "";
+    case "ArrayExpression":
+      return node.elements.length === 0;
+    case "ObjectExpression":
+      return node.properties.length === 0;
+    default:
+      return false;
+  }
 }
 
 /** @type {import("eslint").Rule.RuleModule} */
@@ -33,7 +57,7 @@ const rule = {
       emptyHandler:
         "Empty .catch() handler swallows the rejection. Log it, propagate it, or mark it `// best-effort: <why>`.",
       sentinel:
-        ".catch() maps the rejection to null/undefined silently. Log it, propagate it, or mark it `// best-effort: <why>`.",
+        ".catch() maps the rejection to a null/empty fallback silently. Log it, propagate it, or mark it `// best-effort: <why>`.",
     },
   },
   create(context) {
@@ -78,7 +102,7 @@ const rule = {
         let messageId;
         if (handler.body.type === "BlockStatement") {
           if (handler.body.body.length === 0) messageId = "emptyHandler";
-        } else if (isNullishSentinel(handler.body)) {
+        } else if (isSentinel(handler.body)) {
           messageId = "sentinel";
         }
         if (!messageId || hasCallMarker(node, callee.property)) return;

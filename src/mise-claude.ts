@@ -168,6 +168,7 @@ export async function detectMiseClaude(deps: MiseClaudeDeps = {}): Promise<MiseC
 
   // A launcher script realpaths to itself; a shim/symlink realpaths into the mise tree; a native
   // install realpaths into `~/.local/share/claude`. Only the last one blocks the spawn pin.
+  // best-effort: unreadable PATH ⇒ absent ⇒ NOT_MANAGED
   const onPath = await listOnPath("claude").catch((): string[] => []);
   const targets = new Set(await Promise.all(onPath.map((p) => toReal(p).catch(() => p))));
   // Ambiguous (two different `claude`s on PATH) or absent ⇒ we cannot say what herdr spawns.
@@ -181,6 +182,7 @@ export async function detectMiseClaude(deps: MiseClaudeDeps = {}): Promise<MiseC
     probeVersion(run, misePath),
   ]);
 
+  // best-effort: no native versions dir ⇒ no residue
   const builds = await listNative(join(nativeRoot, "versions")).catch(() => []);
   const nativeResidue = builds.length
     ? { count: builds.length, bytes: builds.reduce((sum, e) => sum + e.bytes, 0) }

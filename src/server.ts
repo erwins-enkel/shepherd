@@ -2284,7 +2284,7 @@ async function recordedMachineUpdate(
     .clone()
     .json()
     .then((b: { discard?: unknown } | null) => b?.discard === true)
-    .catch(() => false);
+    .catch(() => false); // best-effort: absent/malformed body = no discard (plain update)
   const { res, outcome, reason } = await guardedUpdate(async () => {
     const res = await applyMachineUpdate(req, svc, id);
     return { res, ...(await relayOutcome(res)) };
@@ -4571,7 +4571,7 @@ async function handleRepoBrowserOpen({ req, parts, deps }: Ctx): Promise<Respons
   if (!(parts[0] === "api" && parts[1] === "repo-browser" && parts[2] === "open" && !parts[3]))
     return null;
   if (req.method !== "POST") return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: unknown; sessionId?: unknown };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: unknown; sessionId?: unknown };
   const dir = safeRepoDir(typeof body.repo === "string" ? body.repo : "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (!deps.store.getRepoConfig(dir).sharedBrowserEnabled)
@@ -8003,7 +8003,7 @@ function handleSessionQuotaDismiss({ req, parts, deps }: Ctx): Response | null {
 // Body: { enabled: boolean | null }  (null = inherit the repo default)
 async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "PUT" && parts[2] && parts[3] === "autopilot")) return null;
-  const body = (await req.json().catch(() => ({}))) as { enabled?: unknown };
+  const body = ((await readJsonBody(req)) ?? {}) as { enabled?: unknown };
   const e = body.enabled;
   if (!(e === true || e === false || e === null)) {
     return json({ error: "enabled must be true, false, or null" }, 400);
@@ -8027,7 +8027,7 @@ async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Respon
 // Body: { enabled: boolean | null }  (null = inherit the repo default)
 async function handleSessionAutoMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "PUT" && parts[2] && parts[3] === "automerge")) return null;
-  const body = (await req.json().catch(() => ({}))) as { enabled?: unknown };
+  const body = ((await readJsonBody(req)) ?? {}) as { enabled?: unknown };
   const e = body.enabled;
   if (!(e === true || e === false || e === null)) {
     return json({ error: "enabled must be true, false, or null" }, 400);
@@ -9176,7 +9176,7 @@ async function parseApproveBody(
   if (requireJsonContentType(req)) return invalid;
   let body: unknown;
   try {
-    body = JSON.parse(await req.text().catch(() => ""));
+    body = JSON.parse(await req.text().catch(() => "")); // best-effort: unreadable body ⇒ "" ⇒ parse throws ⇒ 400
   } catch {
     return invalid;
   }
@@ -9544,7 +9544,7 @@ function operatorAssistantSnapshot(deps: AppDeps) {
 /** The `repo` of an Operator Assistant POST body (`{repo?: string}`): a missing or empty body, or
  *  an absent / null / "" repo, is null (the global assistant). A malformed body is a 400. */
 async function operatorAssistantRepoArg(req: Request): Promise<string | null | Response> {
-  const text = await req.text().catch(() => "");
+  const text = await req.text().catch(() => ""); // best-effort: unreadable (aborted) body reads as empty
   if (text.trim() === "") return null;
   let body: unknown;
   try {
@@ -9671,7 +9671,7 @@ async function handleSessionLoginRequest({ req, parts, deps }: Ctx): Promise<Res
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "login-request")) return null;
   const id = parts[2];
   if (!id || parts[4] || req.method !== "POST") return null;
-  const body = (await req.json().catch(() => ({}))) as { outcome?: unknown };
+  const body = ((await readJsonBody(req)) ?? {}) as { outcome?: unknown };
   if (body.outcome !== "done" && body.outcome !== "cancelled")
     return json({ error: "outcome must be done or cancelled" }, 400);
   if (!deps.loginRequests?.resolve(id, body.outcome))
@@ -9705,7 +9705,7 @@ async function handleSessionActionRequest({
   if (agentIngress) return json({ error: "not found" }, 404);
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => ({}))) as { requestId?: unknown; outcome?: unknown };
+  const body = ((await readJsonBody(req)) ?? {}) as { requestId?: unknown; outcome?: unknown };
   if (body.outcome !== "approved" && body.outcome !== "denied")
     return json({ error: "outcome must be approved or denied" }, 400);
   if (typeof body.requestId !== "string") return json({ error: "requestId required" }, 400);
@@ -9785,7 +9785,7 @@ async function forgeOpenPr(
   deps: AppDeps,
 ): Promise<Response> {
   const head = session.branch ?? "";
-  const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+  const body = ((await readJsonBody(req)) ?? {}) as { title?: string; body?: string };
   const description = body.body ?? session.prompt;
   const cfg = deps.store.getRepoConfig(session.repoPath);
   let status: PrStatus;
@@ -9939,7 +9939,7 @@ async function forgeMerge(
   deps: AppDeps,
 ): Promise<Response> {
   const head = session.branch ?? "";
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = ((await readJsonBody(req)) ?? {}) as {
     method?: MergeMethod;
     deleteBranch?: boolean;
     confirm?: unknown;
@@ -10794,7 +10794,7 @@ async function updateApply({ req, deps, token }: Ctx): Promise<Response> {
   const session = await updateCallSession(req, deps);
   const caller = callerOfUpdate(req, token, deps);
   // No body at all stays what it always was: a plain update.
-  const body: unknown = await req.json().catch(() => ({}));
+  const body: unknown = (await readJsonBody(req)) ?? {};
   const status = deps.updates?.current();
   const { res, outcome, reason } = await guardedUpdate(() => attemptUpdate(body, deps, requestId));
   noteUpdateCall(deps, {
@@ -12750,7 +12750,7 @@ async function handleRepoInitEmptyCommit({ req, parts }: Ctx): Promise<Response 
     parts[3]
   )
     return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: string; branch?: string };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: string; branch?: string };
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const branch = (body.branch ?? "main").trim() || "main";
@@ -13193,7 +13193,7 @@ async function handleActionsList({ req, parts, url, deps }: Ctx): Promise<Respon
 async function handleActionsRerun({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "actions" || parts[2] !== "rerun")
     return null;
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = ((await readJsonBody(req)) ?? {}) as {
     repo?: string;
     runId?: number;
     failedOnly?: boolean;
@@ -13223,7 +13223,7 @@ async function handleActionsRetryCi({ req, parts, deps }: Ctx): Promise<Response
     parts[2] !== "retry-ci"
   )
     return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: string; pr?: number };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: string; pr?: number };
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (typeof body.pr !== "number") return json({ error: "pr required" }, 400);
@@ -13249,7 +13249,7 @@ async function handleActionsCancel({ req, parts, deps }: Ctx): Promise<Response 
     parts[2] !== "cancel"
   )
     return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: string; runId?: number };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: string; runId?: number };
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (typeof body.runId !== "number") return json({ error: "runId required" }, 400);
@@ -13333,6 +13333,7 @@ async function manualMergePrStatus(
   // best-effort: a missing snapshot falls back to the direct reads below
   const snap = await deps.openPrSnapshot?.get(forge).catch(() => null);
   for (const status of snap?.statuses.values() ?? []) if (status.number === number) return status;
+  // best-effort: list failure ⇒ no head ⇒ null status ⇒ merge gate fails closed
   const rows = snap?.prs ?? (await forge.listPullRequests().catch(() => []));
   const head = rows.find((pr) => pr.number === number)?.headRefName;
   if (!head) return null;
@@ -13378,7 +13379,7 @@ async function resolveBacklogMerge(
 async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "prs" || parts[2] !== "merge")
     return null;
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = ((await readJsonBody(req)) ?? {}) as {
     repo?: string;
     number?: number;
     method?: MergeMethod;
@@ -13426,7 +13427,7 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
 async function handleRepoPull({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "repos" || parts[2] !== "pull")
     return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: string; branch?: string };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: string; branch?: string };
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const forge = deps.resolveForge?.(dir) ?? null;
@@ -13475,7 +13476,7 @@ async function handleSyncFork({ req, parts, deps }: Ctx): Promise<Response | nul
     parts[2] !== "sync-fork"
   )
     return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: string };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: string };
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const forge = deps.resolveForge?.(dir) ?? null;
@@ -13508,7 +13509,7 @@ async function handleDependabotRebase({ req, parts, deps }: Ctx): Promise<Respon
     parts[2] !== "dependabot-rebase"
   )
     return null;
-  const body = (await req.json().catch(() => ({}))) as { repo?: string; number?: number };
+  const body = ((await readJsonBody(req)) ?? {}) as { repo?: string; number?: number };
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (typeof body.number !== "number") return json({ error: "number required" }, 400);
@@ -13533,7 +13534,7 @@ async function handleDependabotCommand({ req, parts, deps }: Ctx): Promise<Respo
     parts[2] !== "dependabot-command"
   )
     return null;
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = ((await readJsonBody(req)) ?? {}) as {
     repo?: string;
     number?: number;
     command?: unknown;

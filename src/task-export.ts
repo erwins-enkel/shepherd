@@ -132,7 +132,7 @@ export function capRaw(
 async function isDir(path: string): Promise<boolean> {
   return stat(path)
     .then((st) => st.isDirectory())
-    .catch(() => false);
+    .catch(() => false); // best-effort: missing/unreadable path ⇒ not a dir
 }
 
 async function readTranscript(s: Session): Promise<TaskExportTranscript> {

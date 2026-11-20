@@ -51,6 +51,7 @@ export interface DriftDeps {
 /** One directory's manifests (pushed onto `out`) and the subdirectories worth descending into. */
 async function scanDir(root: string, d: string, out: string[]): Promise<string[]> {
   const subdirs: string[] = [];
+  // best-effort: unreadable dir ⇒ skipped in the manifest scan
   for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) {
     if (e.isFile() && MANIFESTS.has(e.name)) {
       out.push(relative(root, join(d, e.name)));
@@ -80,6 +81,7 @@ async function readDeclared(dir: string): Promise<DeclaredDep[]> {
   const manifests = await findManifests(dir);
   const parsed = await Promise.all(
     manifests.map(async (m) => {
+      // best-effort: manifest vanished mid-scan ⇒ parses as empty
       const text = await readFile(join(dir, m), "utf8").catch(() => "");
       if (m.endsWith("Cargo.toml")) return parseCargoToml(text, m);
       if (m.endsWith("Package.swift")) return parsePackageSwift(text, m);
@@ -162,12 +164,14 @@ async function readDependabotConfig(dir: string): Promise<string> {
 
 export async function frameworkDrift(dir: string, deps: DriftDeps): Promise<FrameworkDrift> {
   const forge = usableForge(deps.forge);
+  // best-effort: no CLAUDE.md ⇒ no pins
   const claudeMd = await readFile(join(dir, "CLAUDE.md"), "utf8").catch(() => "");
   const tracked = trackedKeys(deps.houseStack, claudeMdPins(claudeMd));
   const packages = trackedDeclared(await readDeclared(dir), tracked);
   const [latest, bumps, epicBranches, story, dependabotConfig] = await Promise.all([
     lookupLatest(packages, deps.resolver),
     dependabotSignal(forge),
+    // best-effort: optional signal; git failure ⇒ no epic branches
     (deps.listEpicBranches ?? gitEpicBranches)(dir).catch(() => []),
     forge ? openStory(forge).catch(() => null) : null, // best-effort: optional signal; forge failure → no story
     readDependabotConfig(dir),

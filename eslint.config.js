@@ -34,7 +34,8 @@ export default [
     rules: {
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
-      // Fail closed (#4076): no silent `catch {}`, empty `.catch()` or `.catch(() => null)`.
+      // Fail closed (#4076): no silent `catch {}`, empty `.catch()`, or `.catch(() => null)` and
+      // empty-literal fallbacks like `.catch(() => [])` (#4097).
       // A deliberate swallow needs a `best-effort: <why>` comment.
       "shepherd/no-silent-catch": "error",
     },

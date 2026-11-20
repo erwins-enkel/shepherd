@@ -4286,6 +4286,7 @@ export class GithubForge implements GitForge {
   }
 
   async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
+    // best-effort: fail-quiet forge reader; fetchSubIssues is the throwing variant
     return this.fetchSubIssues(parentNumber).catch(() => []);
   }
 
@@ -4317,6 +4318,7 @@ export class GithubForge implements GitForge {
   }
 
   async listBlockedBy(issueNumber: number): Promise<number[]> {
+    // best-effort: fail-quiet forge reader; fetchBlockedBy is the throwing variant
     return this.fetchBlockedBy(issueNumber).catch(() => []);
   }
 

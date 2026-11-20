@@ -3781,6 +3781,35 @@ describe("NewTask mobile sheets + shortcuts", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ repoPath: repoB.path, baseBranch: "main" });
   });
 
+  it("typing in the repo search keeps the top result in view below the pinned filter", async () => {
+    await page.viewport(390, 844);
+    const repos: RepoEntry[] = Array.from({ length: 40 }, (_, i) => ({
+      name: `repo${String(i).padStart(2, "0")}`,
+      path: `/repo/r${i}`,
+      display: `repo${i}`,
+      realPath: `/repo/r${i}`,
+    }));
+    mockListRepos.mockResolvedValue({ repos, recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/r38" } });
+    await expect.poll(() => document.querySelector(".ctx-chip")?.textContent).toContain("repo38");
+
+    document.querySelector<HTMLButtonElement>(".ctx-chip")!.click();
+    const body = document.querySelector<HTMLElement>(".sheet-body")!;
+    // Opening scrolls the sheet down to the selected (near-last) repo.
+    await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
+
+    const filter = document.querySelector<HTMLInputElement>(".ctx-sheet .rs-filter")!;
+    filter.value = "repo";
+    filter.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const firstOption = () =>
+      document.querySelector<HTMLElement>('.ctx-sheet [role="option"]')!.getBoundingClientRect();
+    await expect
+      .poll(() => firstOption().top)
+      .toBeGreaterThanOrEqual(filter.getBoundingClientRect().bottom - 1);
+    expect(firstOption().bottom).toBeLessThanOrEqual(body.getBoundingClientRect().bottom);
+  });
+
   it("one tap on the chip opens the sheet, the repo panel and focuses the filter", async () => {
     await renderMobile();
     const chip = () => document.querySelector<HTMLButtonElement>(".ctx-chip")!;

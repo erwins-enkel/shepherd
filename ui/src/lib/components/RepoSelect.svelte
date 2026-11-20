@@ -219,7 +219,10 @@
   function scrollActiveIntoView() {
     // Rows are looked up by id, not child index — the list interleaves non-option
     // section headers/dividers, so child index no longer tracks the option index.
-    const row = listEl?.querySelector(`#rs-opt-${activeIdx}`) as HTMLElement | null;
+    // Row 0 scrolls via the list's first child so the "Recent" heading above it shows too.
+    const row = (
+      activeIdx === 0 ? listEl?.firstElementChild : listEl?.querySelector(`#rs-opt-${activeIdx}`)
+    ) as HTMLElement | null;
     row?.scrollIntoView({ block: "nearest" });
   }
 
@@ -291,7 +294,12 @@
         aria-controls="rs-listbox"
         aria-autocomplete="list"
         aria-activedescendant={shown.length ? `rs-opt-${activeIdx}` : undefined}
-        oninput={() => (activeIdx = 0)}
+        oninput={() => {
+          activeIdx = 0;
+          // A filter keeps the old scroll offset (e.g. the selected repo's, from open):
+          // bring the new top result back into view once the list re-renders.
+          tick().then(scrollActiveIntoView);
+        }}
         onkeydown={onFilterKey}
       />
       <ul class="rs-list" id="rs-listbox" role="listbox" bind:this={listEl}>

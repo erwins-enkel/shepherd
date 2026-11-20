@@ -369,3 +369,30 @@ describe("RepoSelect — emojis from a settings source (#3967)", () => {
       .toContain(m.settings_source_err_no_repo());
   });
 });
+
+describe("RepoSelect — search scroll", () => {
+  it("scrolls the list back to the top result when the user types", async () => {
+    const repos: RepoEntry[] = Array.from({ length: 30 }, (_, i) => ({
+      name: `repo${String(i).padStart(2, "0")}`,
+      path: `/repos/r${i}`,
+      display: `~/repos/r${i}`,
+      realPath: `/repos/r${i}`,
+    }));
+    render(RepoSelect, { repos, value: "/repos/r28", onchange: noop, windowDays: 7 });
+
+    await page.getByRole("button", { name: /repo28/ }).click();
+    const list = document.querySelector<HTMLElement>(".rs-list")!;
+    // Opening scrolls the selected (near-last) repo into view.
+    await expect.poll(() => list.scrollTop).toBeGreaterThan(0);
+
+    await page.getByPlaceholder(m.reposelect_filter_placeholder()).fill("repo");
+
+    await expect.poll(() => list.scrollTop).toBe(0);
+    const first = document
+      .querySelector<HTMLElement>('.rs-list [role="option"]')!
+      .getBoundingClientRect();
+    const box = list.getBoundingClientRect();
+    expect(first.top).toBeGreaterThanOrEqual(box.top - 1);
+    expect(first.bottom).toBeLessThanOrEqual(box.bottom + 1);
+  });
+});

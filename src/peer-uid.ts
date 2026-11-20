@@ -115,6 +115,7 @@ function parseProcNetTcpInode(
 
 async function holdsSocket(procRoot: string, pid: string, link: string): Promise<boolean> {
   const fdDir = join(procRoot, pid, "fd");
+  // best-effort: pid gone / fds unreadable ⇒ not the holder
   const fds = await readdir(fdDir).catch(() => [] as string[]);
   for (const fd of fds) {
     if ((await readlink(join(fdDir, fd)).catch(() => null)) === link) return true; // best-effort: fd closed mid-scan / unreadable → no match
@@ -123,6 +124,7 @@ async function holdsSocket(procRoot: string, pid: string, link: string): Promise
 }
 
 async function sessionMarker(procRoot: string, pid: string): Promise<string | null> {
+  // best-effort: unreadable environ ⇒ no marker
   const environ = await readFile(join(procRoot, pid, "environ"), "utf8").catch(() => "");
   const prefix = `${SESSION_MARKER_ENV}=`;
   const entry = environ.split("\0").find((e) => e.startsWith(prefix));
@@ -149,6 +151,7 @@ export async function loopbackPeerSessionId(
   const procRoot = opts.procRoot ?? "/proc";
   const deadline = Date.now() + (opts.deadlineMs ?? PEER_SESSION_DEADLINE_MS);
   const tables = await Promise.all(
+    // best-effort: absent table (no IPv6) ⇒ no inode
     ["net/tcp", "net/tcp6"].map((file) => readFile(join(procRoot, file), "utf8").catch(() => "")),
   );
   const inode = tables
@@ -156,6 +159,7 @@ export async function loopbackPeerSessionId(
     .find(Boolean);
   if (!inode) return null;
   const link = `socket:[${inode}]`;
+  // best-effort: unreadable /proc ⇒ null (no session)
   const pids = (await readdir(procRoot).catch(() => [] as string[])).filter((n) => /^\d+$/.test(n));
   for (const pid of pids) {
     if (Date.now() > deadline) return null;

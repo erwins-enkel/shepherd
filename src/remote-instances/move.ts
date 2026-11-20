@@ -126,7 +126,10 @@ export async function runMove(run: MoveRun): Promise<MoveReply> {
   const staged = { images: [] as string[], names: [] as string[], missing: [] as string[] };
   for (const rel of h.files) {
     const dest = run.stagePath(rel);
-    const ok = await source.fetchFile(rel, dest).catch(() => false);
+    const ok = await source.fetchFile(rel, dest).catch((err: unknown) => {
+      console.warn(`[remote-move] fetching ${rel} failed; continuing without it:`, err);
+      return false;
+    });
     if (ok) {
       staged.images.push(dest);
       staged.names.push(basename(rel));
@@ -148,7 +151,10 @@ export async function runMove(run: MoveRun): Promise<MoveReply> {
   switch (outcome.kind) {
     case "started":
     case "held": {
-      const archived = await source.complete(h.issueRef !== null).catch(() => false);
+      const archived = await source.complete(h.issueRef !== null).catch((err: unknown) => {
+        console.warn(`[remote-move] archiving the original after a successful move failed:`, err);
+        return false;
+      });
       return outcome.kind === "started"
         ? { status: 201, body: { session: outcome.session, archived } }
         : { status: 200, body: { ...outcome.body, archived } };

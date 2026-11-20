@@ -24,6 +24,7 @@ async function readWorkflows(dir: string): Promise<string[]> {
     .filter((n) => n.endsWith(".yml") || n.endsWith(".yaml"))
     .slice(0, MAX_WORKFLOWS);
   const texts = await Promise.all(
+    // best-effort: unreadable workflow ⇒ treated as empty
     files.map((n) => readFile(join(base, n), "utf8").catch(() => "")),
   );
   return texts.filter(Boolean);

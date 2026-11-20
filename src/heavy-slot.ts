@@ -198,7 +198,10 @@ export class HeavySlotService {
       this.#emit();
       this.#schedule();
       for (const job of notify) {
-        void this.#deps.steer(job.sessionId, disabledSteer(job)).catch(() => false);
+        void this.#deps.steer(job.sessionId, disabledSteer(job)).catch((err: unknown) => {
+          console.warn(`[heavy-slot] disabled-notice steer to ${job.sessionId} failed:`, err);
+          return false;
+        });
       }
       return;
     }
@@ -626,6 +629,7 @@ export class HeavySlotService {
         for (const job of offered) {
           if ((this.#pollLease.get(job.id) ?? 0) > this.#now()) continue;
           this.#clearPoll(job.id);
+          // best-effort: an unlanded offer is dropped as steer_missed below
           const landed = await this.#deps.steer(job.sessionId, offerSteer(job)).catch(() => false);
           if (!landed && this.#ledger.get(job.id)?.state === "offered") {
             this.#ledger.drop(job.id, "steer_missed", this.#now());
@@ -671,6 +675,7 @@ export class HeavySlotService {
 async function defaultSampleMemory(platform: NodeJS.Platform): Promise<MemorySample> {
   if (platform === "darwin") return sampleMemoryDarwin();
   if (platform !== "linux") return { availableBytes: null, psiFullAvg10: null };
+  // best-effort: absent /proc file ⇒ null sample
   const read = (path: string) => readFile(path, "utf8").catch(() => "");
   const [meminfo, psi] = await Promise.all([read("/proc/meminfo"), read("/proc/pressure/memory")]);
   return { availableBytes: parseMemAvailable(meminfo), psiFullAvg10: parsePsiAvg10(psi, "full") };
@@ -709,9 +714,11 @@ export async function scanMarkersLinux(
   }
   const out = new Map<string, ProcStat>();
   await mapBounded(pids, SCAN_CONCURRENCY, async (pid) => {
+    // best-effort: pid gone mid-scan / unreadable ⇒ skipped
     const environ = await readFile(`/proc/${pid}/environ`, "latin1").catch(() => "");
     const id = environ ? environValue(environ, HEAVY_JOB_ENV) : null;
     if (!id || !jobIds.has(id)) return;
+    // best-effort: pid gone mid-scan ⇒ no RSS
     const status = await readFile(`/proc/${pid}/status`, "utf8").catch(() => "");
     const kb = status.match(/^VmRSS:\s+(\d+)\s+kB$/m);
     const stat = out.get(id) ?? { count: 0, rssBytes: 0, pids: [] };

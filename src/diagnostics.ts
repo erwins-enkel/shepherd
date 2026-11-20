@@ -1585,7 +1585,7 @@ export class DiagnosticsService {
       this.runVersion("claude", ["--version"]).catch(() => null), // best-effort: null = claude absent
       this.runVersion("codex", ["--version"])
         .then(() => true)
-        .catch(() => false),
+        .catch(() => false), // best-effort: false = codex absent
     ]);
     const claudeOk = claudeVersionOut !== null;
     const anyAgentCli = claudeOk || codexOk;

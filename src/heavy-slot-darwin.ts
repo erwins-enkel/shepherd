@@ -46,8 +46,9 @@ const run: MemoryRunner = (file, args) =>
 
 export async function sampleMemoryDarwin(runner: MemoryRunner = run): Promise<MemorySample> {
   const [pressure, vm] = await Promise.all([
+    // best-effort: unreadable sample ⇒ null fields
     runner("/usr/sbin/sysctl", ["-n", "kern.memorystatus_vm_pressure_level"]).catch(() => ""),
-    runner("/usr/bin/vm_stat", []).catch(() => ""),
+    runner("/usr/bin/vm_stat", []).catch(() => ""), // best-effort: unreadable sample ⇒ null fields
   ]);
   return {
     availableBytes: parseVmStatAvailable(vm),

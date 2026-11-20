@@ -1165,6 +1165,7 @@ export class AutopilotService {
     this.deps.onState?.(s.id);
     this.skipCi(cur, git, "not-delivered", false);
     // A native question blocked the steer: waiting on it is not a failed attempt.
+    // best-effort: unreadable questions ⇒ not asked ⇒ counts as a failed attempt
     const asked = await this.deps.pendingQuestions?.(s.id)?.catch(() => false);
     if (!asked) this.bump(this.deps.store.get(s.id) ?? cur);
   }

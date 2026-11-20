@@ -241,7 +241,7 @@ export class ComposeCleanup {
         DOWN_TIMEOUT_MS,
       );
       return true;
-    })().catch(() => false);
+    })().catch(() => false); // best-effort: failed down leaves the orphan for the next sweep
     this.inflight.set(key, pending);
     try {
       return await pending;

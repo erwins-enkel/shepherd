@@ -64,6 +64,7 @@ async function firstDoc(dir: string, dirs: string[], files: string[] = []): Prom
 async function pinnedStackDoc(dir: string): Promise<string[]> {
   const out: string[] = [];
   for (const f of ["CLAUDE.md", "AGENTS.md"]) {
+    // best-effort: absent doc = no pinned stack
     const text = await readFile(join(dir, f), "utf8").catch(() => "");
     if (PINNED_STACK_RE.test(text)) out.push(f);
   }

@@ -45,7 +45,9 @@ restart the core (it serves the SPA statically).
 ### Silent swallows (`shepherd/no-silent-catch`)
 
 Server code (`src/`, non-test) fails closed. The lint rule rejects an empty or comment-only
-`catch {}`, an empty `.catch(() => {})` and a `.catch(() => null | undefined)` sentinel. Give each
+`catch {}`, an empty `.catch(() => {})` and a `.catch()` handler that only returns a sentinel:
+`null`, `undefined`, or an empty-literal fallback (`""`, `false`, `[]`, `({})`), also through TS type
+wrappers such as `[] as string[]`. Give each
 one of three treatments: log it, propagate it, or mark a deliberate swallow with a
 `best-effort: <why>` comment (colon + reason) inside the block or call, trailing on its line, or on
 its own line directly above `.catch`.

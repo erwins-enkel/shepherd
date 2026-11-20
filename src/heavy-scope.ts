@@ -143,7 +143,7 @@ export async function heavyScopeOutcome(
       "-p",
       "Result,ActiveState,LoadState",
       unit,
-    ]).catch(() => "");
+    ]).catch(() => ""); // best-effort: unreadable unit props ⇒ stop polling, outcome unknown
     const value = (key: string) => props.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim();
     const active = value("ActiveState");
     if (value("Result") === "oom-kill") {
@@ -157,6 +157,7 @@ export async function heavyScopeOutcome(
     if (!props || now() >= deadline) break;
     await sleep(POLL_MS * 2);
   }
+  // best-effort: cleanup only; outcome already decided
   await run("systemctl", ["--user", "reset-failed", unit]).catch(() => "");
   return outcome;
 }
@@ -164,6 +165,7 @@ export async function heavyScopeOutcome(
 /** Boot: reset the failed scopes a restart left behind (their outcome is no longer wanted). */
 export async function reapHeavyScopes(deps: HeavyScopeDeps = {}): Promise<void> {
   const { run } = resolve(deps);
+  // best-effort: boot cleanup; nothing to reset is fine
   await run("systemctl", ["--user", "reset-failed", `${UNIT_PREFIX}*.scope`]).catch(() => "");
 }
 

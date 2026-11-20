@@ -95,6 +95,7 @@ export class GiteaForge implements GitForge {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
+      // best-effort: error body is detail only; the throw below carries the status
       const text = await res.text().catch(() => "");
       throw new Error(`gitea ${method} ${path} → ${res.status}: ${text}`);
     }

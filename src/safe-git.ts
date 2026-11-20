@@ -235,6 +235,7 @@ export async function resolveWorktreePin(
   if (wtReal === repoReal) return null;
   const common = await commonDir(repoPath);
   const root = join(common, "worktrees");
+  // best-effort: no worktrees dir ⇒ no match ⇒ UntrustedGitDirError below (fails closed)
   const names = await readdir(root).catch(() => [] as string[]);
   const entries = await Promise.all(names.map((n) => adminEntry(join(root, n))));
   const dir = matchAdmin(common, wtReal, entries);

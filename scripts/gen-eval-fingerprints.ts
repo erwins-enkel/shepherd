@@ -117,6 +117,16 @@ export const CASES: Record<string, Case[]> = {
     },
     // The German operator-language block.
     { name: "de", render: () => planReviewPrompt(TASK, PLAN, [], null, "de") },
+    // Late round with a usable baseline: the enforced ROUND wording + the baseline-plan line.
+    {
+      name: "late-enforced",
+      render: () =>
+        planReviewPrompt(TASK, PLAN, PRIOR, null, "en", undefined, undefined, {
+          round: 2,
+          cap: 2,
+          baseline: true,
+        }),
+    },
   ],
   critic: [
     { name: "session-minimal", render: () => reviewPrompt(DIFF_BASE, TASK) },
@@ -177,6 +187,16 @@ export const CASES: Record<string, Case[]> = {
           plan: PLAN,
           planCurrent: PLAN_EDITED,
           planCurrentClamped: true,
+        }),
+    },
+    // Late round with a usable baseline: the enforced ROUND wording + the baseline-head line.
+    {
+      name: "session-late-enforced",
+      render: () =>
+        reviewPrompt(DIFF_BASE, TASK, PRIOR, [], null, null, {
+          round: 2,
+          cap: 2,
+          baselineHead: "c".repeat(40),
         }),
     },
     { name: "pr-minimal", render: () => prReviewPrompt(DIFF_BASE, "Add --since", "") },

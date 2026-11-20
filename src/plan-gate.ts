@@ -2689,6 +2689,12 @@ function normalizeFindings(raw: unknown): PlanFinding[] {
   return out;
 }
 
+/** The finding TEXTS a plan verdict carries, coerced exactly as buildGate coerces them (objects and
+ *  legacy bare strings). Exported so the plan-gate eval scores what production would read. */
+export function planFindingTexts(raw: unknown): string[] {
+  return normalizeFindings(raw).map((f) => f.text);
+}
+
 /** Split a late round's findings into the ones that keep blocking and the demoted NEW ones (see
  *  {@link PlanFinding}); `approve` when demotion emptied a non-empty list. `active` false ⇒ inert. */
 function demoteLateRound(

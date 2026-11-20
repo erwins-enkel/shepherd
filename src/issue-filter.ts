@@ -235,7 +235,7 @@ export function storedIssueFilter(stored: string | null | undefined): IssueFilte
     const parsed = parseIssueFilterPatch(JSON.parse(stored), defaults());
     if (parsed.ok) return parsed.value;
   } catch {
-    // corrupt row → default below
+    // best-effort: corrupt row → default below
   }
   return defaults();
 }

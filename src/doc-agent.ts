@@ -1225,6 +1225,7 @@ export class DocAgentService {
       // Complete the durable cost row with real usage (best-effort) on EVERY finalize path (observe
       // and act) BEFORE the worktree is removed — mirrors recap.ts / review.ts.
       // completeReviewerSpawn no-ops on an unknown id, so an empty/missing id is safe.
+      // best-effort: unreadable usage falls back below
       const usage = await this.readUsage(f.worktreePath, f.spawnSessionId).catch(() => null);
       const fallback =
         this.uncompletedRowFor(f.worktreePath)?.reviewerProvider === "codex" ? null : ZEROED_USAGE;
@@ -1330,6 +1331,7 @@ export class DocAgentService {
     for (const chosen of matches) {
       // A cached discovery may predate an external merge/close. Never force-push a closed PR.
       if (cached && forge.prReviewMeta) {
+        // best-effort: an unreadable live state fails safe (PR skipped, never force-pushed)
         const live = await forge.prReviewMeta(chosen.number).catch(() => null);
         if (live?.state !== "open") continue;
       }
@@ -1727,6 +1729,7 @@ export class DocAgentService {
   private async completeRowFor(worktreePath: string): Promise<void> {
     const row = this.uncompletedRowFor(worktreePath);
     if (!row) return;
+    // best-effort: unreadable usage falls back below
     const u = await this.readUsage(worktreePath, row.reviewerSessionId).catch(() => null);
     const fallback = row.reviewerProvider === "codex" ? null : ZEROED_USAGE;
     this.deps.store.completeReviewerSpawn(row.reviewerSessionId, u ?? fallback, this.now());

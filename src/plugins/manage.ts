@@ -184,12 +184,12 @@ export async function installPlugin(
   try {
     await clone(url, dest);
   } catch (e) {
-    await rm(dest, { recursive: true, force: true }).catch(() => {});
+    await rm(dest, { recursive: true, force: true }).catch(() => {}); // best-effort: partial-clone cleanup; the clone error is reported
     return { ok: false, error: classifyCloneError(e) };
   }
 
   const fail = async (error: string): Promise<InstallResult> => {
-    await rm(dest, { recursive: true, force: true }).catch(() => {});
+    await rm(dest, { recursive: true, force: true }).catch(() => {}); // best-effort: rejected-install cleanup; the validation error is reported
     return { ok: false, error };
   };
 

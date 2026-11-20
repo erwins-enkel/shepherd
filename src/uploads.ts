@@ -147,7 +147,7 @@ export function listRegularUploadEntries(worktreePath: string): RegularUpload[] 
       if (st.isFile() && realpathSync(path).startsWith(root))
         out.push({ path, dev: st.dev, ino: st.ino });
     } catch {
-      // vanished or unreadable — skip
+      // best-effort: vanished or unreadable — skip
     }
   }
   return out;
@@ -260,7 +260,7 @@ function sweepOldFiles(
     try {
       if (now - statSync(p).mtimeMs > maxAgeMs) rmSync(p, { force: true });
     } catch {
-      /* best-effort */
+      /* best-effort: entry vanished or unremovable — retried next sweep */
     }
   }
 }
@@ -299,7 +299,7 @@ export interface UploadDeps {
  * or MIME checks — those are caller responsibilities.
  */
 export async function parseUploadFile(req: Request): Promise<File | Response> {
-  const form = await req.formData().catch(() => null);
+  const form = await req.formData().catch(() => null); // best-effort: unparseable body → 400 below
   const file = form?.get("file");
   if (!(file instanceof File)) return j({ error: "missing file field" }, 400);
   return file;

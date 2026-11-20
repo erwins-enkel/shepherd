@@ -36,6 +36,7 @@ export function makeUserCache(
 
     // A throwing probe is a failure like any other — callers want "unknown me", never
     // an exception, since every consumer of the viewer fails open on null.
+    // best-effort: failure is cached via failedAt; consumers fail open on null
     const resolved = await probe().catch(() => null);
     if (resolved) {
       login = resolved;

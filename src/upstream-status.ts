@@ -54,7 +54,7 @@ export async function upstreamStatus(
       ),
     );
   } catch {
-    // fetch failure is swallowed — offline, timeout/kill, lock contention, no remote;
+    // best-effort: fetch failure is swallowed — offline, timeout/kill, lock contention, no remote;
     // resolution continues against whatever refs already exist locally.
   }
 
@@ -69,7 +69,7 @@ export async function upstreamStatus(
     );
     upstreamSha = stdout.trim() || null;
   } catch {
-    // hasUpstream = false, upstreamSha = null
+    // best-effort: ref missing → hasUpstream = false, upstreamSha = null
   }
 
   // Resolve local sha
@@ -81,7 +81,7 @@ export async function upstreamStatus(
     );
     localSha = stdout.trim() || null;
   } catch {
-    // localExists = false, localSha = null
+    // best-effort: branch missing → localExists = false, localSha = null
   }
 
   // Compute behind/ahead only when both shas resolve
@@ -95,7 +95,7 @@ export async function upstreamStatus(
       });
       behind = Number.parseInt(stdout.trim(), 10) || 0;
     } catch {
-      // safe default
+      // best-effort: count failed → keep safe default 0
     }
     try {
       const { stdout } = await execGit(["rev-list", "--count", `${upstreamSha}..${localSha}`], {
@@ -103,7 +103,7 @@ export async function upstreamStatus(
       });
       ahead = Number.parseInt(stdout.trim(), 10) || 0;
     } catch {
-      // safe default
+      // best-effort: count failed → keep safe default 0
     }
   }
 

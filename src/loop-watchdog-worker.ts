@@ -32,7 +32,7 @@ function emit(lines: string[]): void {
   try {
     writeSync(2, `${lines.join("\n")}\n`);
   } catch {
-    // Nothing sensible to do if the log fd itself is gone.
+    // best-effort: nothing sensible to do if the log fd itself is gone.
   }
 }
 

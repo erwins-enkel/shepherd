@@ -1730,7 +1730,7 @@ export class GithubForge implements GitForge {
       (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
     if (fresh) {
       if (this.readCache?.expired(hit) && this.readCache.canRefresh())
-        void this.loadIssues(fpKey).catch(() => {});
+        void this.loadIssues(fpKey).catch(() => {}); // best-effort: background refresh; stale hit is served, next read retries
       return copyIssues(hit.value);
     }
     return copyIssues(await this.loadIssues(fpKey));
@@ -1909,7 +1909,7 @@ export class GithubForge implements GitForge {
 
   private async getIssueRest(issueNumber: number): Promise<Issue | null> {
     if (restFallbackReserve.depleted()) return null;
-    return this.fetchIssueRest(issueNumber).catch(() => null);
+    return this.fetchIssueRest(issueNumber).catch(() => null); // best-effort: REST fallback; null = issue unreadable
   }
 
   /** {@link getIssueRest} without the error swallowing. */
@@ -2145,7 +2145,7 @@ export class GithubForge implements GitForge {
 
   private async fetchWorkflowRuns(): Promise<WorkflowRun[]> {
     // Resolve the default branch; CI health is read from its runs, not PR branches.
-    // A lookup failure degrades to [] (fail-quiet, matching the other forge readers).
+    // best-effort: a lookup failure degrades to [] (fail-quiet, matching the other forge readers).
     const branch = await this.defaultBranch().catch(() => null);
     if (!branch) return [];
 
@@ -2241,6 +2241,7 @@ export class GithubForge implements GitForge {
    *  `limit`. Summary rows only — `jobs` is empty; callers lazy-load per-run
    *  jobs via {@link listRunJobs}. */
   async listWorkflowRunHistory(workflowId: number, o: { limit: number }): Promise<WorkflowRun[]> {
+    // best-effort: unresolvable default branch degrades to no history
     const branch = await this.defaultBranch().catch(() => null);
     if (!branch) return [];
     const listOut = await this.run([
@@ -2298,7 +2299,7 @@ export class GithubForge implements GitForge {
       this.slug,
       "--json",
       "headRefName,headRefOid",
-    ]).catch(() => null);
+    ]).catch(() => null); // best-effort: unreadable PR = no failed run to report
     if (!prOut) return null;
     const pr = JSON.parse(prOut || "{}") as { headRefName?: string; headRefOid?: string };
     const branch = pr.headRefName;
@@ -2316,7 +2317,7 @@ export class GithubForge implements GitForge {
       "20",
       "--json",
       "databaseId,headSha,createdAt",
-    ]).catch(() => null);
+    ]).catch(() => null); // best-effort: run-list failure = no failed run to report
     if (!listOut) return null;
     const raw = JSON.parse(listOut || "[]") as Array<{
       databaseId: number;
@@ -2355,6 +2356,7 @@ export class GithubForge implements GitForge {
    *  rows: `jobs` omitted (see {@link runJobs}). Default-branch lookup failure → [] (fail-quiet,
    *  like {@link listWorkflowRuns}). */
   async listDefaultBranchRuns(o: { sinceId?: number }): Promise<ForgeRun[]> {
+    // best-effort: default-branch lookup failure → [] (fail-quiet, documented above)
     const branch = await this.defaultBranch().catch(() => null);
     if (!branch) return [];
     const out = await this.run([
@@ -2860,7 +2862,7 @@ export class GithubForge implements GitForge {
     // (which would empty the PRs tab AND break the poller's statuses batch). Only
     // cross-repo and Actions-bot PRs can await approval, so skip the REST call without one (#2861).
     const [def, awaitingShas] = await Promise.all([
-      this.defaultBranch().catch(() => null),
+      this.defaultBranch().catch(() => null), // best-effort: no default branch only drops the stacked-PR flag
       this.mayAwaitApproval(prs) ? this.awaitingApprovalShas() : new Set<string>(),
     ]);
 
@@ -2916,7 +2918,7 @@ export class GithubForge implements GitForge {
       (GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> }) | null;
     if (!p || p.state !== "OPEN") return null;
     const [def, awaitingShas] = await Promise.all([
-      this.defaultBranch().catch(() => null),
+      this.defaultBranch().catch(() => null), // best-effort: no default branch only drops the stacked-PR flag
       this.mayAwaitApproval([p]) ? this.awaitingApprovalShas() : new Set<string>(),
     ]);
     return {
@@ -2979,7 +2981,7 @@ export class GithubForge implements GitForge {
       await this.run(["api", `repos/${this.slug}/git/ref/heads/${branch}`]);
       return; // exists → never reset its tip
     } catch {
-      // not found → create below
+      // best-effort: not found → create below (a real gh failure resurfaces on the create)
     }
     const baseRef = await this.run(["api", `repos/${this.slug}/git/ref/heads/${fromRef}`]);
     const sha = (JSON.parse(baseRef) as { object: { sha: string } }).object.sha;
@@ -3041,7 +3043,7 @@ export class GithubForge implements GitForge {
    * TTL elapses. See {@link makeUserCache} for why the failure must stay retryable.
    */
   private readonly resolveUser = makeUserCache(async () => {
-    const rest = await this.currentUserRest().catch(() => null);
+    const rest = await this.currentUserRest().catch(() => null); // best-effort: REST failure falls back to GraphQL
     return rest ?? (await this.currentUserGraphql());
   });
 
@@ -3062,9 +3064,9 @@ export class GithubForge implements GitForge {
     if (this.now() < this.userFailureUntil) return Promise.resolve(null);
     if (!this.userInflight) {
       const p = this.currentUserRest()
-        .catch(() => null)
+        .catch(() => null) // best-effort: REST failure falls back to GraphQL
         .then((rest) => rest ?? this.currentUserGraphql())
-        .catch(() => null)
+        .catch(() => null) // best-effort: null login arms userFailureUntil backoff below
         .then((login) => {
           if (login) this.readCache?.put("viewer", "", null, login);
           else this.userFailureUntil = this.now() + ISSUES_FAILURE_BACKOFF_MS;
@@ -3142,7 +3144,7 @@ export class GithubForge implements GitForge {
         );
         return { logins, unavailable: false, source };
       } catch {
-        // Contributors may read assignees even when GitHub refuses collaborators.
+        // best-effort: contributors may read assignees even when GitHub refuses collaborators.
       }
     }
     return { logins: [], unavailable: true };
@@ -3299,7 +3301,7 @@ export class GithubForge implements GitForge {
       if (Object.values(flags).every((f) => typeof f === "boolean"))
         methods = (["merge", "squash", "rebase"] as const).filter((m) => flags[m]);
     } catch {
-      // Unknown: Up Next then offers no menu, only the configured method.
+      // best-effort: unknown — Up Next then offers no menu, only the configured method.
     }
     this.mergeMethodsCache = { at: Date.now(), methods };
     return methods;
@@ -3972,7 +3974,7 @@ export class GithubForge implements GitForge {
         "Claimed by a Shepherd session (auto-drain or linked issue)",
       ]);
     } catch {
-      // already exists (or a transient gh error) — ignore.
+      // best-effort: label already exists; a real failure surfaces on the subsequent --add-label
     }
   }
 
@@ -4172,7 +4174,7 @@ export class GithubForge implements GitForge {
         this.readCache.canRefresh() &&
         (hit.retryAt === undefined || now >= hit.retryAt)
       )
-        void this.loadEpicStructure(parentNumber, fpKey).catch(() => {});
+        void this.loadEpicStructure(parentNumber, fpKey).catch(() => {}); // best-effort: background refresh; stale hit is served, next read retries
       return hit.structure;
     }
     return this.loadEpicStructure(parentNumber, fpKey);
@@ -4256,7 +4258,7 @@ export class GithubForge implements GitForge {
         );
         return { structure, complete: true };
       } catch {
-        // Any failure: read the parts over REST, as this path did before #2807.
+        // best-effort: any failure reads the parts over REST, as this path did before #2807.
       }
     }
     let complete = true;

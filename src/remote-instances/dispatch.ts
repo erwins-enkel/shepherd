@@ -808,7 +808,7 @@ export class RemoteDispatcher {
       { fetch: this.fetch, timeoutMs: REMOTE_CAPABILITY_TIMEOUT_MS },
     );
     if (!res.ok) return null;
-    const body: unknown = await res.response.json().catch(() => null);
+    const body: unknown = await res.response.json().catch(() => null); // best-effort: non-JSON report → null (no usable report)
     if (!res.response.ok || !isRecord(body)) return null;
     const snapshot = parseCapabilityReport(body.capabilities, this.now());
     if (snapshot) this.instances.noteCapabilities(instanceId, snapshot);
@@ -930,7 +930,7 @@ export class RemoteDispatcher {
     const path = `/api/held/${encodeURIComponent(heldId)}`;
     const del = await requestRemote(creds, path, { method: "DELETE" }, { fetch: this.fetch });
     if (!del.ok) return;
-    await del.response.body?.cancel().catch(() => {});
+    await del.response.body?.cancel().catch(() => {}); // best-effort: discarding an unread body
     if (!del.response.ok && del.response.status !== 404) return;
     const res = await this.ask(creds, "GET", id);
     if (res?.status !== 200 || !isRecord(res.body)) return;
@@ -948,6 +948,7 @@ export class RemoteDispatcher {
   ): Promise<{ status: number; body: unknown } | null> {
     const res = await requestRemote(creds, dispatchPath(id), { method }, { fetch: this.fetch });
     if (!res.ok) return null;
+    // best-effort: non-JSON body → null; callers check the body shape
     return { status: res.response.status, body: await res.response.json().catch(() => null) };
   }
 

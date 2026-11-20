@@ -211,7 +211,7 @@ async function runProbe(
     console.warn(`[sandbox] membrane-launch probe for ${agent} could not run:`, err);
     return { state: "uninspectable" };
   } finally {
-    if (probeDir) await rm(probeDir, { recursive: true, force: true }).catch(() => {});
+    if (probeDir) await rm(probeDir, { recursive: true, force: true }).catch(() => {}); // best-effort: probe tmp dir cleanup must not mask the probe result
   }
   if (run.status === 0) return { state: "ok" };
 

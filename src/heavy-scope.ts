@@ -114,7 +114,7 @@ export async function startHeavyScope(
   }
   const deadline = now() + MOVE_WAIT_MS;
   for (;;) {
-    const cgroup = await readCgroup(pids[0]!).catch(() => null);
+    const cgroup = await readCgroup(pids[0]!).catch(() => null); // best-effort: gone ⇒ false
     if (cgroup === null) return false;
     if (cgroup.includes(`/${unit}`)) return true;
     if (now() >= deadline) return false;

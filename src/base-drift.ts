@@ -105,6 +105,7 @@ export class BaseDriftService {
 
   /** Fresh re-check right before a steer: the PR re-polled, the session re-read. */
   private async stillDue(id: string): Promise<boolean> {
+    // best-effort: a failed re-poll leaves the cached PR state, still re-checked below
     if (!this.settled(id)) await this.deps.refreshPr(id).catch(() => undefined);
     const s = this.deps.store.get(id);
     return !!s && eligible(s) && !this.settled(id) && !this.deps.rebaseOwned(s);

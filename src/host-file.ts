@@ -91,7 +91,7 @@ async function withReal(paths: string[]): Promise<string[]> {
     if (!isAbsolute(p)) continue;
     const n = normalize(p).replace(/(.)\/$/, "$1");
     out.add(n);
-    const real = await fsp.realpath(n).catch(() => null);
+    const real = await fsp.realpath(n).catch(() => null); // best-effort: missing ⇒ keep n only
     if (real) out.add(real);
   }
   return [...out];
@@ -170,6 +170,7 @@ interface AllowEntry {
 const allowCache = new Map<string, AllowEntry>();
 
 async function loadAllowList(path: string, provider: AgentProvider): Promise<HostAllowList | null> {
+  // best-effort: unreadable transcript ⇒ no allow-list (fails closed)
   const text = await readTranscriptTailAsync(path, TRANSCRIPT_TAIL_BYTES).catch(() => null);
   return text === null ? null : parseAllowList(text, provider);
 }
@@ -268,6 +269,7 @@ function decodeText(bytes: Buffer, partial: boolean): string | null {
 /** Open `real` without following a symlink and read it (or its first {@link SNIFF_BYTES}) as text,
  *  refusing anything but a small, group/other-readable, UTF-8, NUL-free regular file. */
 async function readText(real: string, sniff: boolean): Promise<TextRead | null> {
+  // best-effort: open refused (symlink/missing/perm) ⇒ null (fails closed)
   const fh = await fsp.open(real, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => null);
   if (!fh) return null;
   try {
@@ -302,7 +304,7 @@ export async function resolveHostFile(rawPath: string, q: HostLookup): Promise<H
   if (!p || deniedHostPath(p, env)) return null;
   const allow = await hostAllowList(q.transcriptPath, q.provider);
   if (!allow || !announced(allow, p, env.home)) return null;
-  const real = await fsp.realpath(p).catch(() => null);
+  const real = await fsp.realpath(p).catch(() => null); // best-effort: missing ⇒ refused
   if (!real || deniedHostPath(real, env)) return null;
   const head = await readText(real, true);
   return head ? { path: p, real, size: head.size, dev: head.dev, ino: head.ino } : null;

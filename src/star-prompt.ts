@@ -94,7 +94,7 @@ export class StarPromptService {
         const parsed = JSON.parse(raw) as StarPromptState;
         if (parsed && typeof parsed.firstSeenAt === "number") return parsed;
       } catch {
-        // corrupt JSON — fall through and re-seed
+        // best-effort: corrupt JSON — fall through and re-seed
       }
     }
     const seeded: StarPromptState = { firstSeenAt: this.now() };

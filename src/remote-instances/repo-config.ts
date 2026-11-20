@@ -143,7 +143,7 @@ export class RepoConfigCoordinator {
     };
     try {
       value = await withTimeout(readJson(), 5_000, () => {
-        void reader?.cancel().catch(() => {});
+        void reader?.cancel().catch(() => {}); // best-effort: abandoning a timed-out stream
         throw new Error("timeout");
       });
     } catch {

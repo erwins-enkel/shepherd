@@ -517,6 +517,7 @@ export class MaintainService {
       incidents: this.deps.store.countSignalsByKind(now - INCIDENT_WINDOW_MS),
       repos: this.deps.repoDelivery(),
       deadCode: parseDeadCodeReport(
+        // best-effort: a failed dead-code run yields no reading this tick
         await this.fixRunner.deadCode(this.deps.selfRepoPath).catch(() => null),
       ),
     };
@@ -1116,6 +1117,7 @@ export class MaintainService {
       // Teardown AND the run row settle on EVERY path — an exception escaping the block above must
       // still close the row out, or the band keeps a dangling in-flight row until the next boot
       // reconcile. `outcome` stays "error" unless the try reassigned it.
+      // best-effort: unreadable usage settles the row with zeroed usage
       const usage = await this.readUsage(f.run.worktreePath, f.run.spawnSessionId).catch(
         () => null,
       );

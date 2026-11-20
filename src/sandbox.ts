@@ -459,7 +459,7 @@ export function scanPath(cmd: string, path: string | undefined): string[] {
       accessSync(p, fsConstants.X_OK);
       hits.push(p);
     } catch {
-      // not here
+      // best-effort: not here — keep walking PATH
     }
   }
   return hits;

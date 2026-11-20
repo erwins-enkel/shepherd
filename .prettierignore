@@ -10,10 +10,6 @@ docs-site
 # Generated changelog — leave its formatting alone
 CHANGELOG.md
 
-# ESLint bulk-suppressions baseline (#4076) — ESLint writes it (no trailing newline) and
-# rewrites it on --prune-suppressions; prettier formatting would churn every prune.
-eslint-suppressions.json
-
 # Build outputs
 node_modules
 cli/target

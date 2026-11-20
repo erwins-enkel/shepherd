@@ -259,7 +259,7 @@ async function fetchAndClassifyAncestor(
     ]);
     return { shortCircuit: { kind: "current" } };
   } catch {
-    // Not an ancestor → need to rebase
+    // best-effort: non-zero exit = not an ancestor → need to rebase
   }
 
   return { leaseSha };
@@ -290,7 +290,7 @@ async function classifyRebaseConflict(
     try {
       await git(worktreePath, ["rebase", "--abort"]);
     } catch {
-      /* best effort */
+      /* best-effort: no rebase in progress, or the worktree is torn down next anyway */
     }
   };
 

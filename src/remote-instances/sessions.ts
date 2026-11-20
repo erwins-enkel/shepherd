@@ -703,7 +703,7 @@ export class RemoteSessionMirror {
     const delay = this.recheckDelays[link.attempt++]!;
     link.retry = setTimeout(() => {
       link.retry = null;
-      // A failed recheck leaves the next one (or the regular probe round) to try again.
+      // best-effort: a failed recheck leaves the next one (or the regular probe round) to try again.
       this.instances.check(link.instanceId).catch(() => {});
     }, delay);
     link.retry.unref?.();

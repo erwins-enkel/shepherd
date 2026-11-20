@@ -134,7 +134,7 @@ function embeddedJson(text: string): unknown[] {
     try {
       values.push(JSON.parse(text.slice(start, end + 1)));
     } catch {
-      // A prose brace or malformed envelope is not machine evidence.
+      // best-effort: a prose brace or malformed envelope is not machine evidence.
     }
   }
   return values;

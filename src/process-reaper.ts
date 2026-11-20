@@ -691,7 +691,7 @@ const linuxProbes: ReaperProbes = {
       try {
         comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
       } catch {
-        /* keep empty */
+        /* best-effort: process exited mid-scan — keep comm empty */
       }
       out.push({ pid, cwd, comm });
     }

@@ -446,7 +446,7 @@ export async function readHandoffPlan(worktree: string): Promise<string | null> 
   const file = await open(
     join(worktree, ".shepherd-plan.md"),
     constants.O_RDONLY | constants.O_NOFOLLOW,
-  ).catch(() => null);
+  ).catch(() => null); // best-effort: no plan file (or a symlink) → no plan
   if (!file) return null;
   try {
     const stat = await file.stat();

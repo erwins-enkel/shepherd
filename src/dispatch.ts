@@ -191,7 +191,7 @@ export async function runDispatch(
     const body: unknown = await res
       .clone()
       .json()
-      .catch(() => null);
+      .catch(() => null); // best-effort: non-JSON body ⇒ outcome from status alone
     store.settleDispatch(claim.id, outcomeOf(res.status, body));
     return res;
   } catch (e) {

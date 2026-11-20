@@ -139,7 +139,7 @@ async function fetchChunk(run: GhRunner, targets: HeadTarget[]): Promise<Map<str
       try {
         return parseHeadBatchResponse(stdout, targets);
       } catch {
-        // no usable partial data — fall through to the original error
+        // best-effort: no usable partial data — fall through to the original error
       }
     }
     throw err;
@@ -183,7 +183,7 @@ class HeadBatcher {
         const res = await fetchChunk(this.run, all.slice(i, i + HEAD_BATCH_CHUNK));
         for (const [k, pr] of res) found.set(k, pr);
       } catch {
-        // a failed chunk's heads stay absent → per-head fallback
+        // best-effort: a failed chunk's heads stay absent → per-head fallback
       }
     }
     for (const w of waiters) w.resolve(pick(found, w.targets));

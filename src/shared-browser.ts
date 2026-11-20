@@ -196,7 +196,7 @@ async function readPrefs(file: string): Promise<Prefs> {
     const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Prefs;
   } catch {
-    // missing or unreadable: start from an empty pref set
+    // best-effort: missing or unreadable — start from an empty pref set
   }
   return {};
 }
@@ -377,7 +377,7 @@ export class SharedBrowserManager {
       if (contextId !== null)
         entry.pipe
           .call("Target.disposeBrowserContext", { browserContextId: contextId })
-          .catch(() => {});
+          .catch(() => {}); // best-effort: teardown; context dies with the browser anyway
       proxy.close();
     };
     try {
@@ -465,7 +465,7 @@ export class SharedBrowserManager {
       try {
         child.kill(sig);
       } catch {
-        // already gone
+        // best-effort: already gone
       }
     };
     const timers: unknown[] = [];
@@ -579,7 +579,7 @@ export class SharedBrowserManager {
       try {
         child.kill("SIGKILL");
       } catch {
-        // never started
+        // best-effort: never started — launch-failed thrown below
       }
       throw new SharedBrowserError("launch-failed", `could not start ${bin}`);
     }
@@ -591,7 +591,7 @@ export class SharedBrowserManager {
           try {
             if (input.writable) input.write(data);
           } catch {
-            // EPIPE etc.: the exit handler tears the entry down.
+            // best-effort: EPIPE etc. — the exit handler tears the entry down.
           }
         },
       }),
@@ -773,7 +773,7 @@ export async function reapOrphanBrowsers(
       kill(pid, "SIGTERM");
       killed++;
     } catch {
-      // exited meanwhile
+      // best-effort: exited meanwhile
     }
   }
   return killed;

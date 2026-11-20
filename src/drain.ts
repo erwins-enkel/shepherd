@@ -1465,6 +1465,7 @@ export class DrainService {
       )
         continue;
       const refs =
+        // best-effort: unreadable refs classify as unknown (per-issue loop, diagnostics only)
         (await forge?.issuePullRequestReferences?.(issue.number).catch(() => null)) ?? null;
       const nowLive = this.deps.store
         .list()
@@ -1875,6 +1876,7 @@ export class DrainService {
   private async openPrBranches(repoPath: string): Promise<ReadonlySet<string> | null> {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge || forge.isFork || !this.deps.openPrSnapshot) return null;
+    // best-effort: null = unknown; callers fail closed
     const snap = await this.deps.openPrSnapshot.get(forge, { background: true }).catch(() => null);
     return snap && !snap.capped ? new Set(snap.statuses.keys()) : null;
   }
@@ -6356,6 +6358,7 @@ export class DrainService {
   /** The repo's open PRs by number, from the open-PR snapshot; null when it is unreadable or
    *  truncated — then nothing is known about any of them. */
   private async openPrsByNumber(forge: GitForge): Promise<Map<number, PrStatus> | null> {
+    // best-effort: null = unknown; callers treat nothing as known
     const snap = await this.deps.openPrSnapshot?.get(forge, { background: true }).catch(() => null);
     if (!snap || snap.capped) return null;
     const open = new Map<number, PrStatus>();

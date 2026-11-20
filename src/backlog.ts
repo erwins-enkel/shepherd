@@ -337,7 +337,7 @@ export class CountsService {
           ),
         );
       } catch {
-        // fall through to per-repo queries
+        // best-effort: fall through to per-repo queries, which surface any real failure
       }
     }
     await Promise.all(

@@ -119,7 +119,7 @@ export function backfillRuntimeIdentity(
       store.setRuntimeIdentity(row.id, identity);
       filled += 1;
     } catch {
-      /* one bad row must not abort the sweep */
+      /* best-effort: one bad row must not abort the sweep */
     }
   }
   if (filled > 0)

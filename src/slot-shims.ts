@@ -61,7 +61,7 @@ export async function ensureSlotShims(
     for (const tool of tools) {
       const path = join(dir, tool);
       const body = shimBody(dir, node, script, tool, extra.heavyList);
-      if ((await readFile(path, "utf8").catch(() => null)) !== body) await writeFile(path, body);
+      if ((await readFile(path, "utf8").catch(() => null)) !== body) await writeFile(path, body); // best-effort: missing shim → (re)write it
       await chmod(path, 0o755);
     }
     return dir;

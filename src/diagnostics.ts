@@ -351,7 +351,7 @@ export function defaultRunRemediation(
       try {
         process.kill(-child.pid!, "SIGKILL"); // negative pid ⇒ kill the whole group
       } catch {
-        /* group already gone */
+        /* best-effort: group already gone */
       }
       reject(new Error("remediation timed out"));
     }, timeoutMs);
@@ -738,7 +738,7 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
   try {
     ({ unit, userScope } = parseCgroupUnit(await readFile("/proc/self/cgroup", "utf8")));
   } catch {
-    /* non-Linux / no cgroup v2 ⇒ unit stays null */
+    /* best-effort: non-Linux / no cgroup v2 ⇒ unit stays null */
   }
 
   // `asUser` is explicit (not the closed-over `userScope`) so the herdr read can force `--user`
@@ -783,7 +783,7 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
       try {
         return hasMeaningfulLimit(await showLimits(slice, asUser));
       } catch {
-        /* slice unreadable ⇒ keep the service-level verdict (false) */
+        /* best-effort: slice unreadable ⇒ keep the service-level verdict (false) */
       }
     }
     return base;
@@ -829,7 +829,7 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
     swap = parseSwap(meminfo);
     memTotal = parseMemTotal(meminfo);
   } catch {
-    /* no /proc/meminfo */
+    /* best-effort: no /proc/meminfo ⇒ swap/memTotal stay null */
   }
 
   const readPsi = async (res: string): Promise<number | null> => {
@@ -1582,7 +1582,7 @@ export class DiagnosticsService {
    *  ALSO gates the `claude_trust` folder-trust check (below).  */
   private agentCliProbes = async (): Promise<DiagnosticCheck[]> => {
     const [claudeVersionOut, codexOk] = await Promise.all([
-      this.runVersion("claude", ["--version"]).catch(() => null),
+      this.runVersion("claude", ["--version"]).catch(() => null), // best-effort: null = claude absent
       this.runVersion("codex", ["--version"])
         .then(() => true)
         .catch(() => false),
@@ -1626,7 +1626,7 @@ export class DiagnosticsService {
    *  claude, a version was unreadable, or the probe is unwired/failing. Its own catch keeps a slow
    *  or exploding `mise` from costing the claude/codex rows that share `agentCliProbes`. */
   private claudeInstallCheck = async (): Promise<DiagnosticCheck | null> => {
-    const state = await this.readMiseClaude().catch(() => null);
+    const state = await this.readMiseClaude().catch(() => null); // best-effort: no row on failure
     return state ? miseClaudeCheck(state) : null;
   };
 

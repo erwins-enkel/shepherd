@@ -950,7 +950,7 @@ export class StandalonePrCriticService {
    *  (it dies with the parent on exit anyway). Mirrors `reapRun`'s ordering. */
   stopAll(): void {
     for (const f of this.inFlight.values()) {
-      void this.deps.herdr.stop(f.terminalId).catch(() => {});
+      void this.deps.herdr.stop(f.terminalId).catch(() => {}); // best-effort: shutdown; the tab dies with the parent anyway
       this.deps.worktree.remove(f.worktreePath);
     }
     this.inFlight.clear();

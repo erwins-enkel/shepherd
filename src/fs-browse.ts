@@ -139,7 +139,7 @@ async function classifySymlinkTarget(
       type = st.isDirectory() ? "dir" : "file";
       createdMs = createdMsFromStat(st);
     } catch {
-      // best-effort — default to "file" and omit createdMs on throw
+      // best-effort: default to "file" and omit createdMs on throw
     }
     return {
       name: dirent.name,
@@ -186,7 +186,7 @@ async function classifyDirent(
     try {
       createdMs = createdMsFromStat(await fsp.stat(abs));
     } catch {
-      // keep surfacing the entry without a creation date
+      // best-effort: keep surfacing the entry without a creation date
     }
     return { name: dirent.name, type, path: relFromRoot(rootReal, abs), createdMs };
   }

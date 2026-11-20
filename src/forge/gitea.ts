@@ -274,7 +274,7 @@ export class GiteaForge implements GitForge {
       this.req("GET", `/api/v1/repos/${this.slug}/pulls?state=open&limit=200`) as Promise<
         GiteaPr[]
       >,
-      this.defaultBranch().catch(() => null),
+      this.defaultBranch().catch(() => null), // best-effort: no default branch only drops the stacked-PR chip
     ]);
     // Checks ride a per-PR commit-status call (same shape as prStatus); fan out
     // (bounded — see STATUS_FETCH_CONCURRENCY) so the list isn't serialized on a
@@ -382,6 +382,7 @@ export class GiteaForge implements GitForge {
   }
 
   private async defaultBranchTaskRuns(sinceId: number): Promise<ForgeRun[]> {
+    // best-effort: unresolvable default branch means no runs to list
     const branch = await this.defaultBranch().catch(() => null);
     if (!branch) return [];
     const { tasks, cutoff } = await this.fetchTasksSince(sinceId);

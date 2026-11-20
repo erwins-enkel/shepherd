@@ -716,7 +716,7 @@ async function psiBlock(diag: OperatorDiagDeps) {
   const avg10 = (res: string) =>
     read(`/proc/pressure/${res}`)
       .then(parsePsiAvg10)
-      .catch(() => null);
+      .catch(() => null); // best-effort: no PSI (non-Linux / old kernel) → null
   const [cpu, memory, io] = await Promise.all([avg10("cpu"), avg10("memory"), avg10("io")]);
   return cpu === null && memory === null && io === null ? null : { cpu, memory, io };
 }

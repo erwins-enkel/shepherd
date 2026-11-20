@@ -50,10 +50,6 @@ one of three treatments: log it, propagate it, or mark a deliberate swallow with
 `best-effort: <why>` comment (colon + reason) inside the block or call, trailing on its line, or on
 its own line directly above `.catch`.
 
-Pre-existing sites are baselined in `eslint-suppressions.json` (ESLint bulk suppressions, counts per
-file). The baseline only shrinks: after fixing a baselined site, lint exits 2 until you run
-`bunx eslint --prune-suppressions <file>` and commit the updated file. Never add entries by hand.
-
 ## Project layout
 
 ```

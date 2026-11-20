@@ -568,7 +568,7 @@ function errorReason(err: unknown): string | null {
       const reason = (JSON.parse(body) as { reason?: unknown }).reason;
       if (typeof reason === "string") return reason;
     } catch {
-      /* not JSON — fall through to the message */
+      /* best-effort: not JSON — fall through to the message */
     }
   }
   const msg = (err as Error)?.message;

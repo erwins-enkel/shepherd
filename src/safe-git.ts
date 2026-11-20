@@ -201,7 +201,7 @@ function commonDirSync(repoPath: string): string {
 
 async function commonDir(repoPath: string): Promise<string> {
   const dotGit = join(repoPath, ".git");
-  const st = await stat(dotGit).catch(() => null);
+  const st = await stat(dotGit).catch(() => null); // best-effort: no .git entry → ask git below
   if (st?.isDirectory()) return realpath(dotGit);
   const { stdout } = await execGit(["rev-parse", "--git-common-dir"], { cwd: repoPath });
   return realpath(resolve(repoPath, stdout.trim()));

@@ -134,6 +134,7 @@ export function drainMachinePort(deps: DrainMachineDeps): DrainMachinePort {
         { fetch: deps.fetch, timeoutMs: SETTLE_TIMEOUT_MS },
       );
       if (!res.ok) return { kind: "failed" };
+      // best-effort: an unparseable body settles from the status code alone
       return settleOutcomeOf(res.response.status, await res.response.json().catch(() => null));
     },
   };

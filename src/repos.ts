@@ -181,7 +181,7 @@ function realToRawMap(repos: readonly { path: string }[]): Map<string, string> {
     try {
       realToRaw.set(realpathSync(r.path), r.path);
     } catch {
-      // broken symlink / vanished entry — can't be matched, skip it
+      // best-effort: broken symlink / vanished entry — can't be matched, skip it
     }
   }
   return realToRaw;
@@ -510,7 +510,7 @@ export async function listGithubRepos(
   try {
     login = (await run(["api", "user", "--jq", ".login"])).trim() || null;
   } catch {
-    // Login is only used to group "your account" vs teams — degrade silently.
+    // best-effort: login is only used to group "your account" vs teams — degrade silently.
   }
 
   const out = await run([
@@ -756,7 +756,7 @@ function bootstrapLocalRepo(
     try {
       rmSync(target, { recursive: true, force: true });
     } catch {
-      /* best-effort cleanup */
+      /* best-effort: cleanup; the bootstrap error below is what gets reported */
     }
     const error = classifyLocalBootstrapError(e);
     const detail = localFailureDetail(e);

@@ -327,6 +327,7 @@ export class UpNextService {
    *  rows into the cached input and rebuild when they differ — no forge call. Waits for an
    *  in-flight compute first, which would otherwise publish the rows it read before. */
   async prsUpdated(slug: string): Promise<void> {
+    // best-effort: only waiting for the compute to settle; its own caller sees the rejection
     if (this.inFlight) await this.inFlight.catch(() => {});
     const peek = this.deps.openPrSnapshot?.peek?.bind(this.deps.openPrSnapshot);
     if (!this.input || !peek) return;
@@ -472,6 +473,7 @@ export class UpNextService {
    *  compute first, then start a fresh one — which also makes our push land AFTER the stale
    *  one, so a pre-existing compute can't re-show a cleared item. */
   private async recompute(): Promise<UpNextSnapshot> {
+    // best-effort: only waiting for the compute to settle; its own caller sees the rejection
     if (this.inFlight) await this.inFlight.catch(() => {});
     return this.refresh();
   }
@@ -493,7 +495,7 @@ export class UpNextService {
       try {
         rawByReal.set(this.realpath(r.repoPath), r.repoPath);
       } catch {
-        // vanished/broken path — can't be reconciled, skip it
+        // best-effort: vanished/broken path — can't be reconciled, skip it
       }
     }
     const wanted = started.map((s) => ({
@@ -541,7 +543,7 @@ export class UpNextService {
     // The operator's own login on this forge, for the "mine & unassigned" filter (#824). Cached
     // per-forge (`gh api user`), so ~free after the first call. null when the host can't resolve
     // it (local/un-authed/no identity API) → the core fails open and filters nothing.
-    const viewer = (await forge.currentUser?.().catch(() => null)) ?? null;
+    const viewer = (await forge.currentUser?.().catch(() => null)) ?? null; // best-effort: fails open
     let openIssues: Awaited<ReturnType<GitForge["listIssues"]>>;
     try {
       openIssues = await forge.listIssues();
@@ -567,7 +569,7 @@ export class UpNextService {
     const openPrs = await this.openPrs(forge);
     // Only a repo with open PRs shows a Merge ▾ menu; the read is cached per forge.
     const allowedMergeMethods = openPrs?.length
-      ? await forge.allowedMergeMethods?.().catch(() => null)
+      ? await forge.allowedMergeMethods?.().catch(() => null) // best-effort: menu shows no method list
       : undefined;
 
     return {
@@ -594,12 +596,14 @@ export class UpNextService {
    *  for repos the operator works in (#2808, `scan`): a reference clone is listed without them —
    *  no native-epic or dependency gating there. */
   private async relations(forge: GitForge, scan: boolean) {
+    // best-effort: per-repo scan on the refresh cadence; unreadable = no sub-issue summaries
     const summaries = (scan ? await forge.listSubIssueSummaries?.().catch(() => null) : null) ?? {
       summaries: new Map<number, { total: number; completed: number }>(),
       subIssueNumbers: [],
     };
     const links = await this.prLinks(forge);
     const blockedByOpen =
+      // best-effort: per-repo scan on the refresh cadence; unreadable = no known blockers
       (scan ? await forge.listBlockedByOpen?.().catch(() => null) : null) ??
       new Map<number, number[]>();
     return { summaries, blockedByOpen, links };
@@ -622,9 +626,11 @@ export class UpNextService {
     forge: GitForge,
   ): Promise<{ issues: number[]; closing: Record<number, number> }> {
     if (!forge.listOpenPrLinkedIssues) {
+      // best-effort: unreadable links drop nothing from the issue list
       const issues = (await forge.listOpenPrClosingIssues?.().catch(() => null)) ?? [];
       return { issues, closing: {} };
     }
+    // best-effort: unreadable links drop nothing from the issue list
     const linked = (await forge.listOpenPrLinkedIssues().catch(() => null)) ?? new Map();
     const closing: Record<number, number> = {};
     for (const [issue, prs] of linked)
@@ -652,7 +658,7 @@ export class UpNextService {
     try {
       real = this.realpath(repoPath);
     } catch {
-      // vanished/broken path — only the raw form can match
+      // best-effort: vanished/broken path — only the raw form can match
     }
     const paths = real === repoPath ? [repoPath] : [repoPath, real];
     return paths.some((p) => lastUsed[p] !== undefined || this.deps.getEpicRun(p) !== null);

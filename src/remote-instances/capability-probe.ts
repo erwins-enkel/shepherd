@@ -198,7 +198,7 @@ function sandboxVerdicts(deps: CapabilityProbeDeps): Partial<Record<Capability, 
   try {
     found = deps.detectSandbox();
   } catch {
-    // A throwing detector means no usable sandbox, never a crashed probe.
+    // best-effort: a throwing detector means no usable sandbox, never a crashed probe.
   }
   return {
     "sandbox:trusted": OK,

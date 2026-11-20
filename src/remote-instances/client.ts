@@ -102,10 +102,10 @@ function statusFailure(status: number): ProbeFailure {
 async function notFoundFailure(res: Response): Promise<ProbeFailure> {
   const notShepherd: ProbeFailure = { status: "unreachable", reason: "not_shepherd" };
   if (!res.headers.get("content-type")?.includes("application/json")) {
-    await res.body?.cancel().catch(() => {});
+    await res.body?.cancel().catch(() => {}); // best-effort: discarding an unread body; the failure is returned regardless
     return notShepherd;
   }
-  const body: unknown = await res.json().catch(() => null);
+  const body: unknown = await res.json().catch(() => null); // best-effort: non-JSON body reads as not_shepherd
   return isRecord(body) && typeof body.error === "string"
     ? { status: "incompatible", reason: "api_missing" }
     : notShepherd;
@@ -147,7 +147,7 @@ export async function getRemoteJson(
   }
   if (res.status === 404) return { ok: false, failure: await notFoundFailure(res) };
   if (!res.ok) {
-    await res.body?.cancel().catch(() => {});
+    await res.body?.cancel().catch(() => {}); // best-effort: discarding an unread body; the failure is returned regardless
     return { ok: false, failure: statusFailure(res.status) };
   }
   try {
@@ -194,7 +194,7 @@ export async function requestRemote(
     clearTimeout(timer);
   }
   if ((res.status >= 300 && res.status < 400) || res.status === 401 || res.status === 403) {
-    await res.body?.cancel().catch(() => {});
+    await res.body?.cancel().catch(() => {}); // best-effort: discarding an unread body; the failure is returned regardless
     return { ok: false, failure: statusFailure(res.status) };
   }
   return { ok: true, response: res };
@@ -294,7 +294,7 @@ async function postRemote(
       err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
     return { kind: "no_answer", reason: timedOut ? "timeout" : "network" };
   }
-  const parsed: unknown = await res.json().catch(() => null);
+  const parsed: unknown = await res.json().catch(() => null); // best-effort: non-JSON body; caller still gets the status
   return { kind: "answered", status: res.status, body: parsed };
 }
 

@@ -182,7 +182,7 @@ export function detectEgressBackend(deps: EgressBackendProbeDeps = {}): EgressBa
       try {
         rmSync(p, { recursive: true, force: true });
       } catch {
-        // best-effort cleanup
+        // best-effort: temp-dir cleanup must not fail the probe
       }
     });
 
@@ -343,6 +343,7 @@ async function runEgressSelfTest(
   // Re-derive host-loopback support too: it was cached `false` if slirp4netns was absent at first
   // probe, which would keep the host-gateway rule off after an install until restart.
   resetEgressHostLoopbackCache();
+  // best-effort: slirp4netns absent ⇒ host-loopback detected as unsupported
   const version = await runCapture("slirp4netns", ["--version"]).catch(() => null);
   detectEgressHostLoopback({
     versionOutput: () => (version?.status === 0 ? version.output.trim() : null),
@@ -365,7 +366,7 @@ async function runEgressSelfTest(
     try {
       cleanup(tmpDir);
     } catch {
-      // best-effort cleanup
+      // best-effort: temp-dir cleanup must not fail the probe
     }
   }
 }
@@ -1161,7 +1162,7 @@ export function removeEgressTmp(sessionId: string): void {
   try {
     rmSync(egressTmpDir(sessionId), { recursive: true, force: true });
   } catch {
-    // best-effort
+    // best-effort: orphaned dirs are reaped by the boot sweep
   }
 }
 
@@ -1184,7 +1185,7 @@ export function sweepEgressTmp(liveSessionIds: Iterable<string>): void {
     try {
       rmSync(join(egressTmpRoot(), id), { recursive: true, force: true });
     } catch {
-      // best-effort — skip this entry
+      // best-effort: skip this entry; retried on the next sweep
     }
   }
 }

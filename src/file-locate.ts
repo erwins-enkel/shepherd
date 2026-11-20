@@ -47,7 +47,7 @@ async function targetIn(
 ): Promise<FileTarget | null> {
   const hit = await resolveInRoot(root, rel, source === "worktree" ? { hideSegment: hideGit } : {});
   if (!hit) return null;
-  const st = await fsp.stat(hit.resolved).catch(() => null);
+  const st = await fsp.stat(hit.resolved).catch(() => null); // best-effort: missing ⇒ no target
   if (!st || !(st.isFile() || st.isDirectory())) return null;
   return {
     source,

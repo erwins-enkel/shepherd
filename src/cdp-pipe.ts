@@ -322,7 +322,7 @@ export class CdpPipe {
       resolveReady = resolve;
       rejectReady = reject;
     });
-    // Callers need not await `ready`; a rejection must never go unhandled.
+    // best-effort: callers need not await `ready`; a rejection must never go unhandled.
     ready.catch(() => {});
     const client: ClientState = {
       sink,

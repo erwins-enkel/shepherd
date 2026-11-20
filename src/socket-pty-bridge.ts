@@ -160,7 +160,7 @@ export class SocketPtyBridge {
         this.handleChunk(chunk);
       }
     })().catch(() => {
-      /* stream torn down — watchExit drives the classification + ws.close() */
+      /* best-effort: stream torn down — watchExit drives the classification + ws.close() */
     });
   }
 
@@ -175,7 +175,7 @@ export class SocketPtyBridge {
         if (done) break;
       }
     })().catch(() => {
-      /* discard */
+      /* best-effort: stderr drained only to avoid pipe backpressure */
     });
   }
 
@@ -184,7 +184,7 @@ export class SocketPtyBridge {
       try {
         await proc.exited;
       } catch {
-        /* treat a rejected exited promise the same as a plain exit */
+        /* best-effort: treat a rejected exited promise the same as a plain exit */
       }
       // Drain every NDJSON line the pump can still deliver before classifying. proc.stdout EOFs
       // at exit, so awaiting the pump guarantees a trailing terminal.closed is parsed first and

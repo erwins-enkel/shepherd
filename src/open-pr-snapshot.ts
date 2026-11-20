@@ -437,7 +437,7 @@ export class OpenPrSnapshotService {
       raw = p;
       this.inflight.set(slug, raw);
       // Suppress the unhandled-rejection warning on the shared raw promise;
-      // each caller's derived chain below provides the actual handler.
+      // best-effort: each caller's derived chain below provides the actual handler.
       raw.catch(() => {});
     }
 

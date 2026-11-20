@@ -564,7 +564,7 @@ export async function enrichLandingEpics(
           : await forge.prStatus(branch);
         Object.assign(row, deriveLandingGate(row, pr, forge.kind, branch, deps));
       } catch {
-        // leave live fields undefined — callers always serve/return the base DB rows
+        // best-effort: leave live fields undefined — callers always serve/return the base DB rows
       }
     }),
   );

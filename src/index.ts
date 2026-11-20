@@ -750,7 +750,7 @@ let credentialBanner: string | null = null;
     const parsed = findServedPort(stdout, config.port);
     if (parsed !== null) servedPort = parsed;
   } catch {
-    // tailscale not available or not set up — default to 443, no served hosts
+    // best-effort: tailscale not available or not set up — default to 443, no served hosts
   }
   // Resolve the node's own tailnet hostname (null when tailscale is absent).
   config.previewHost = await resolveNodeHost();
@@ -3040,7 +3040,7 @@ const apiErrorRetry = new ApiErrorRetry({
   readTranscript: (s) =>
     readTranscriptTailAsync(
       jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
-    ).catch(() => null),
+    ).catch(() => null), // best-effort: unreadable transcript ⇒ no retry decision this tick
   steer: (id, text) => service.resumeAndReply(id, text, { automatic: true }),
   setHalt: (id, haltedAt) => {
     store.setHaltReason(id, "error", haltedAt);
@@ -3127,7 +3127,7 @@ const autopilot = new AutopilotService({
         );
         if (u) return u;
       } catch {
-        // transcript missing/unreadable → fall through to the PTY source
+        // best-effort: transcript missing/unreadable → fall through to the PTY source
       }
     }
     const v = await readVisibleBuffer(id); // PTY-only `/login` URL (guarded → null when herdr is down)

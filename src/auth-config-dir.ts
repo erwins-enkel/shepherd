@@ -173,7 +173,7 @@ function _ensureSourceSymlink(
   try {
     symlinkSync(sourcePath, destEntryPath);
   } catch {
-    // Best-effort per entry; don't abort the whole provisioning loop.
+    // best-effort: one entry failing must not abort the whole provisioning loop
   }
 }
 
@@ -218,6 +218,6 @@ function _tryRemove(p: string): void {
   try {
     rmSync(p, { recursive: true, force: true });
   } catch {
-    // best-effort; a single entry failure must not abort the loop
+    // best-effort: one entry failing must not abort the loop
   }
 }

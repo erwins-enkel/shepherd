@@ -134,7 +134,7 @@ export function storedHouseStack(stored: string | null | undefined): HouseStack 
     const parsed = parseHouseStack(JSON.parse(stored));
     if (parsed.ok) return parsed.value;
   } catch {
-    // corrupt row → default below
+    // best-effort: corrupt row → default below
   }
   return structuredClone(DEFAULT_HOUSE_STACK);
 }

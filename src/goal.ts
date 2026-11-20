@@ -121,6 +121,7 @@ export class GoalTracker {
   }
 
   async #readTail(path: string): Promise<string | null> {
+    // best-effort: unreadable transcript ⇒ null (no goal state), same as a timeout
     const read = (this.deps.readTail ?? readTranscriptTailAsync)(path).catch(() => null);
     return withTimeout(read, this.deps.timeoutMs ?? STOP_READ_TIMEOUT_MS, () => null);
   }

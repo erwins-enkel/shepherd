@@ -161,7 +161,7 @@ export async function readResultFile(file: string): Promise<VerdictRead<unknown>
   } catch {
     return { status: "absent" };
   } finally {
-    await fh?.close().catch(() => {});
+    await fh?.close().catch(() => {}); // best-effort: closing a read-only handle; result already read
   }
   const parsed = tolerantParseJson(text);
   return parsed.status === "ok"
@@ -369,14 +369,14 @@ export class PluginAgentService {
     } catch {
       throw new PluginAgentError("unavailable", "could not resolve the default branch");
     }
-    // Freshen origin/<base> so the agent reads current code. Best-effort: a failed fetch falls back
-    // to the last-fetched ref, and no ref at all fails closed below.
+    // Freshen origin/<base> so the agent reads current code.
+    // best-effort: a failed fetch falls back to the last-fetched ref; no ref at all fails closed below.
     await this.deps.worktree.ensureBaseRef(repo, base).catch(() => undefined);
     let sha = "";
     try {
       sha = (await this.git(repo, ["rev-parse", `refs/remotes/origin/${base}`])).trim();
     } catch {
-      /* fall through */
+      // best-effort: empty sha fails closed on the next line
     }
     if (!sha) throw new PluginAgentError("unavailable", `cannot resolve origin/${base}`);
     return { base, sha };
@@ -488,6 +488,7 @@ export class PluginAgentService {
     terminalId: string | null,
   ): Promise<void> {
     if (slot.recorded) {
+      // best-effort: unreadable usage settles the cost row as zeroed
       const usage = await this.readUsage(worktreePath, sessionId).catch(() => null);
       this.deps.store.completeReviewerSpawn(sessionId, usage ?? ZEROED_USAGE, this.now());
     }

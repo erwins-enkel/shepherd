@@ -143,7 +143,7 @@ export async function heavyScopeOutcome(
       "-p",
       "Result,ActiveState,LoadState",
       unit,
-    ]).catch(() => ""); // best-effort: unreadable unit props ⇒ poll again until the deadline
+    ]).catch(() => ""); // best-effort: unreadable unit props ⇒ stop polling, outcome unknown
     const value = (key: string) => props.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim();
     const active = value("ActiveState");
     if (value("Result") === "oom-kill") {

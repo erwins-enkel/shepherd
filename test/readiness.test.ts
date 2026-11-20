@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -541,18 +541,20 @@ test("#4080: strict: false → absent, prescription names the reason and the fix
   expect(r.claudeMd).toContain('Set `"strict": true` in `compilerOptions`');
 });
 
-test("#4080: strict unset → absent (TypeScript default is off)", async () => {
+test("#4092: strict unset → absent; the reason holds for TS 5 and TS 6+", async () => {
   tsRepo('{ "compilerOptions": { "target": "ESNext" } }');
   const r = await analyzeReadiness(dir);
   expect(tsStrict(r)?.present).toBe(false);
-  expect(r.claudeMd).toContain("strict not set (TypeScript default: off)");
+  expect(r.claudeMd).toContain("strict not set explicitly (off by default before TypeScript 6)");
+  expect(r.claudeMd).not.toContain("TypeScript default: off");
 });
 
 test("#4080: typescript dep without a tsconfig → applies, absent", async () => {
   pkg({ name: "ts", devDependencies: { typescript: "^6" } });
   const r = await analyzeReadiness(dir);
   expect(tsStrict(r)?.present).toBe(false);
-  expect(r.claudeMd).toContain("No tsconfig.json found");
+  expect(r.claudeMd).toContain("No tsconfig.json at the repository root");
+  expect(r.claudeMd).toContain("solution-style root");
 });
 
 test("#4080: a pure-JS repo is not scored on ts_strict", async () => {
@@ -587,12 +589,12 @@ test("#4080: the child's own strict: false overrides a strict base", async () =>
   expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(false);
 });
 
-test("#4080: an unresolvable package base → strictness unknown, never a pass", async () => {
+test("#4092: a package base that isn't installed → strictness unknown, never a pass", async () => {
   tsRepo('{ "extends": "@tsconfig/strictest/tsconfig.json" }');
   const r = await analyzeReadiness(dir);
   expect(tsStrict(r)?.present).toBe(false);
   expect(r.claudeMd).toContain(
-    "extends `@tsconfig/strictest/tsconfig.json` (package base, not resolved)",
+    "extends `@tsconfig/strictest/tsconfig.json`: package not found in node_modules",
   );
 });
 
@@ -750,6 +752,164 @@ test("#4080: a root with references that also compiles files must be strict itse
   const r = await analyzeReadiness(dir);
   expect(tsStrict(r)?.present).toBe(false);
   expect(r.claudeMd).toContain("`tsconfig.json`: strict not set");
+});
+
+// ── #4092: ts_strict follow-ups ─────────────────────────────────────────────────
+
+const STRICT = '{ "compilerOptions": { "strict": true } }';
+const LOOSE = '{ "compilerOptions": { "strict": false } }';
+const count = (hay: string, needle: string) => hay.split(needle).length - 1;
+
+test("#4092: a package root also referenced from the root tsconfig is reported once", async () => {
+  write("tsconfig.json", '{ "files": [], "references": [{ "path": "./ui" }] }');
+  write("ui/package.json", JSON.stringify({ devDependencies: { typescript: "^6" } }));
+  write("ui/tsconfig.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.evidence).toEqual(["ui/tsconfig.json strict"]);
+  write("ui/tsconfig.json", "{}");
+  const r = await analyzeReadiness(dir);
+  expect(tsStrict(r)?.present).toBe(false);
+  expect(count(r.claudeMd, "`ui/tsconfig.json`:")).toBe(1);
+});
+
+test("#4092: a solution-style package root referenced from the root is judged by its own references", async () => {
+  write("tsconfig.json", '{ "files": [], "references": [{ "path": "./ui" }] }');
+  write("ui/package.json", JSON.stringify({ devDependencies: { typescript: "^6" } }));
+  write("ui/tsconfig.json", '{ "files": [], "references": [{ "path": "./tsconfig.app.json" }] }');
+  write("ui/tsconfig.app.json", STRICT);
+  const r = await analyzeReadiness(dir);
+  expect(tsStrict(r)?.present).toBe(true);
+  expect(tsStrict(r)?.evidence).toEqual(["ui/tsconfig.app.json strict"]);
+  expect(r.claudeMd).not.toContain("solution-style config");
+});
+
+test("#4092: a relative base is tried as written first (.jsonc, extensionless)", async () => {
+  tsRepo('{ "extends": "./base.jsonc" }');
+  write("base.jsonc", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+
+  write("tsconfig.json", '{ "extends": "./base" }');
+  write("base", STRICT);
+  write("base.json", LOOSE);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("#4092: a relative base naming a directory falls back to <name>.json", async () => {
+  tsRepo('{ "extends": "./cfg" }');
+  write("cfg/other.json", LOOSE);
+  write("cfg.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("#4092: a bare package base resolves its tsconfig.json from node_modules", async () => {
+  tsRepo('{ "extends": "@tsconfig/strictest" }');
+  write("node_modules/@tsconfig/strictest/package.json", '{ "name": "@tsconfig/strictest" }');
+  write("node_modules/@tsconfig/strictest/tsconfig.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+  write("tsconfig.json", '{ "extends": "@tsconfig/strictest/tsconfig.json" }');
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("#4092: a package subpath without .json resolves <sub>.json, then <sub>/tsconfig.json", async () => {
+  tsRepo('{ "extends": "base-pkg/strict" }');
+  write("node_modules/base-pkg/strict.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+  write("tsconfig.json", '{ "extends": "base-pkg/nested" }');
+  write("node_modules/base-pkg/nested/tsconfig.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("#4092: a package.json tsconfig field is honored for a bare package base", async () => {
+  tsRepo('{ "extends": "base-pkg" }');
+  write("node_modules/base-pkg/package.json", '{ "tsconfig": "./configs/strict.json" }');
+  write("node_modules/base-pkg/configs/strict.json", STRICT);
+  write("node_modules/base-pkg/tsconfig.json", LOOSE);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("#4092: package exports — an exact string key is honored, conditions are unknown", async () => {
+  tsRepo('{ "extends": "base-pkg/tsconfig.json" }');
+  write("node_modules/base-pkg/tsconfig.json", LOOSE);
+  write("node_modules/base-pkg/real.json", STRICT);
+  write(
+    "node_modules/base-pkg/package.json",
+    '{ "exports": { "./tsconfig.json": "./real.json" } }',
+  );
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+  write(
+    "node_modules/base-pkg/package.json",
+    '{ "exports": { "./tsconfig.json": { "default": "./real.json" } } }',
+  );
+  const r = await analyzeReadiness(dir);
+  expect(tsStrict(r)?.present).toBe(false);
+  expect(r.claudeMd).toContain("extends `base-pkg/tsconfig.json`: package `exports` not resolved");
+});
+
+test("#4092: typesVersions in a package base is unknown", async () => {
+  tsRepo('{ "extends": "base-pkg" }');
+  write("node_modules/base-pkg/package.json", '{ "typesVersions": { "*": {} } }');
+  write("node_modules/base-pkg/tsconfig.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(false);
+});
+
+test("#4092: node_modules in an ancestor directory is found", async () => {
+  write("ui/package.json", JSON.stringify({ devDependencies: { typescript: "^6" } }));
+  write("ui/tsconfig.json", '{ "extends": "base-pkg" }');
+  write("node_modules/base-pkg/tsconfig.json", STRICT);
+  expect(tsStrict(await analyzeReadiness(dir))?.evidence).toEqual(["ui/tsconfig.json strict"]);
+});
+
+test("#4092: a package base symlinked outside the repo is never read", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "shepherd-readiness-outside-"));
+  try {
+    writeFileSync(join(outside, "tsconfig.json"), STRICT);
+    tsRepo('{ "extends": "base-pkg" }');
+    mkdirSync(join(dir, "node_modules"), { recursive: true });
+    symlinkSync(outside, join(dir, "node_modules/base-pkg"));
+    const r = await analyzeReadiness(dir);
+    expect(tsStrict(r)?.present).toBe(false);
+    expect(r.claudeMd).toContain("extends `base-pkg`: outside the repository");
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("#4092: a malformed package specifier is unknown", async () => {
+  tsRepo('{ "extends": "base-pkg/../../x" }');
+  write("x.json", STRICT);
+  const r = await analyzeReadiness(dir);
+  expect(tsStrict(r)?.present).toBe(false);
+  expect(r.claudeMd).toContain("extends `base-pkg/../../x` (invalid package specifier)");
+});
+
+test("#4092: a package base's package.json read is charged to the chain budget", async () => {
+  write("node_modules/base-pkg/package.json", "{}");
+  write("node_modules/base-pkg/tsconfig.json", STRICT);
+  // 1 root + 3 × (package.json + tsconfig.json) = 7 reads, within the budget of 8.
+  tsRepo(JSON.stringify({ extends: Array(3).fill("base-pkg") }));
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+  // 1 + 4 × 2 = 9 reads: over budget, so unknown — and every later entry is skipped unread.
+  tsRepo(JSON.stringify({ extends: Array(50).fill("base-pkg") }));
+  const r = await analyzeReadiness(dir);
+  expect(tsStrict(r)?.present).toBe(false);
+  expect(r.claudeMd).toContain("extends `base-pkg`: extends chain exceeds 8 configs");
+});
+
+test("#4092: an extends entry that fails to resolve still spends the chain budget", async () => {
+  write("strict.json", STRICT);
+  // 7 uninstalled package bases spend the 7 base units left after the root; the strict base
+  // after them is never looked up.
+  tsRepo(JSON.stringify({ extends: [...Array(7).fill("missing-pkg"), "./strict.json"] }));
+  const r = await analyzeReadiness(dir);
+  expect(tsStrict(r)?.present).toBe(false);
+  expect(r.claudeMd).toContain("extends `./strict.json`: extends chain exceeds 8 configs");
+});
+
+test("#4092: a strict child overrides a loose package base", async () => {
+  tsRepo('{ "extends": "base-pkg", "compilerOptions": { "strict": true } }');
+  write("node_modules/base-pkg/tsconfig.json", LOOSE);
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(true);
+  write("tsconfig.json", '{ "extends": "base-pkg" }');
+  expect(tsStrict(await analyzeReadiness(dir))?.present).toBe(false);
 });
 
 test("#4080: Shepherd's own repo scores ts_strict present", async () => {

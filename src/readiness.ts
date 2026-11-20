@@ -24,7 +24,7 @@ import { constants, open, readdir, stat, type FileHandle } from "node:fs/promise
 import { basename, dirname, join } from "node:path";
 import { INTENT_ISSUE_TEMPLATE } from "./intent-shape";
 import { SHEPHERD_IGNORE_GLOB } from "./shepherd-exclude";
-import { tsconfigStrictness, type TsConfigStrictness } from "./readiness-tsconfig";
+import { mergeTsconfigs, tsconfigStrictness, type TsConfigStrictness } from "./readiness-tsconfig";
 
 export type GuardrailId =
   | "formatter"
@@ -520,8 +520,9 @@ async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan
 
   const probes = await probeSurface(dir, pkgRoots);
   const { has, glob, roots } = probes;
+  const rootConfigs = roots.map((root) => join(root, "tsconfig.json"));
   const [tsconfigs, eslintText] = await Promise.all([
-    Promise.all(roots.map((root) => tsconfigStrictness(dir, join(root, "tsconfig.json")))),
+    Promise.all(rootConfigs.map((rel) => tsconfigStrictness(dir, rel))),
     readEslintConfigs(dir, probes),
   ]);
   const pins: string[] = [];
@@ -540,7 +541,7 @@ async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan
       if (!texts) throw new Error(`readiness: readText(${rel}) was not precomputed`);
       return texts;
     },
-    tsconfigs: tsconfigs.flat(),
+    tsconfigs: mergeTsconfigs(rootConfigs, tsconfigs),
   };
 }
 
@@ -1390,7 +1391,7 @@ const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>>
     const next = "fix the resulting type errors; `noUncheckedIndexedAccess` is the next step.";
     if (!s.tsconfigs.length)
       return [
-        `No tsconfig.json found — create one with \`"strict": true\` in \`compilerOptions\` and ${next}`,
+        `No tsconfig.json at the repository root — create one with \`"strict": true\` in \`compilerOptions\` (in a workspace monorepo, a solution-style root with \`"files": []\` and \`references\` to each package's tsconfig.json, which are then each checked) and ${next}`,
       ];
     return [
       ...s.tsconfigs.filter((c) => c.strict !== "strict").map((c) => `\`${c.path}\`: ${c.reason}.`),

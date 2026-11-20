@@ -141,7 +141,7 @@ function safeClose(ws: ServerWebSocket<BrowserWsData>, code?: number, reason?: s
   try {
     ws.close(code, reason?.slice(0, MAX_REASON_CHARS));
   } catch {
-    // already closed
+    // best-effort: socket already closed
   }
 }
 

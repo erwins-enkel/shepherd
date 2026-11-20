@@ -125,7 +125,7 @@ async function fetchChunk(run: GhRunner, slugs: string[]): Promise<FingerprintRe
       try {
         return parseFingerprintResponse(stdout, slugs);
       } catch {
-        // no usable partial data — fall through to the original error
+        // best-effort: no usable partial data — fall through to the original error
       }
     }
     throw err;

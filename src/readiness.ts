@@ -482,8 +482,8 @@ function collectManifest(
   try {
     pkg = JSON.parse(text);
   } catch {
-    // Malformed or unreadable package.json (findPackageRoots guarantees the file exists):
-    // still a JS/TS repo, just no resolvable deps/scripts.
+    // best-effort: malformed or unreadable package.json (findPackageRoots guarantees the file
+    // exists): still a JS/TS repo, just no resolvable deps/scripts.
   }
   for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
   for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);

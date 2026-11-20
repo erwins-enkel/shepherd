@@ -313,7 +313,7 @@ export class EgressWatcher {
       });
       this.deps.emit?.("session:egress-drop", { id: sessionId, host });
     } catch {
-      // Never let a signal-store error propagate.
+      // best-effort: never let a signal-store error propagate out of the watch tick.
     }
     this.#noteAgent(sessionId, state, host);
 
@@ -338,9 +338,9 @@ export class EgressWatcher {
     }
     const steer = this.deps.steer;
     if (!steer) return;
-    // Best-effort: a dead pane, shelved session or capacity gate drops it.
     void Promise.resolve()
       .then(() => steer(sessionId, note))
+      // best-effort: a dead pane, shelved session or capacity gate drops it.
       .catch(() => {});
   }
 

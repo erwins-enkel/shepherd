@@ -5398,6 +5398,7 @@ export class SessionService {
         // bypass race) — close the tab so nothing orphans.
         // allowLastTab: undoing OUR just-created tab, so the last-tab guard (#2039) must not
         // leave it orphaned — the same contract as the drivers' spawn rollback.
+        // best-effort: rollback only; the row-insert error rethrown below is what surfaces
         await this.deps.herdr.closeTab(shell.tabId, { allowLastTab: true }).catch(() => {});
         throw err;
       }
@@ -5449,6 +5450,7 @@ export class SessionService {
         this.deps.store.addTaskAmendment(session.id, text, now + i);
       emitSessionAmendments(this.deps.events, this.deps.store, session.id);
     } catch (e) {
+      // best-effort: rollback only; the amendment error rethrown below is what surfaces
       await this.archive(session.id).catch(() => {});
       throw e;
     }
@@ -5669,7 +5671,7 @@ export class SessionService {
             baseBranch: input.baseBranch,
           });
         } catch {
-          /* ignore */
+          /* best-effort: rollback; surface the original spawn failure, not the cleanup error */
         }
       }
       throw e;
@@ -5694,7 +5696,7 @@ export class SessionService {
         try {
           fallback = raw ? (JSON.parse(raw).fallback ?? null) : null;
         } catch {
-          /* legacy conversation */
+          /* best-effort: legacy conversation (non-JSON setting) has no fallback */
         }
         return [
           s.id,
@@ -5918,7 +5920,7 @@ export class SessionService {
 
   private serializeAssistant<T>(run: () => Promise<T>): Promise<T> {
     const next = this.assistantChain.then(run, run);
-    this.assistantChain = next.catch(() => {});
+    this.assistantChain = next.catch(() => {}); // best-effort: the caller gets the rejection via `next`
     return next;
   }
 
@@ -6127,6 +6129,7 @@ export class SessionService {
         );
       } catch (e) {
         // The agent runs but has no row — stop it so nothing orphans.
+        // best-effort: rollback only; the row error rethrown below is what surfaces
         await this.deps.herdr.stop(outcome.terminalId).catch(() => {});
         throw e;
       }
@@ -6150,9 +6153,12 @@ export class SessionService {
   private async retireReplacedAssistant(id: string): Promise<void> {
     this.emitAssistantRuntimeUpdate();
     const old = this.deps.store.get(id);
+    // best-effort: the replaced agent may already be gone
     if (old?.herdrAgentId) await this.deps.herdr.stop(old.herdrAgentId).catch(() => {});
     this.deps.events?.emit("session:archived", { id });
-    await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch(() => {});
+    await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch((err) => {
+      console.warn(`[operator-assistant] ingress spawn file cleanup failed for ${id}:`, err);
+    });
     if (old) this.cleanupAssistantConversation(old);
   }
 
@@ -6163,7 +6169,9 @@ export class SessionService {
   ): Promise<void> {
     if (provider === "codex") removeCodexAssistantSecrets(dir, id);
     this.deps.store.deleteSetting(`assistantHandoff:${id}`);
-    await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch(() => {});
+    await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch((err) => {
+      console.warn(`[operator-assistant] ingress spawn file cleanup failed for ${id}:`, err);
+    });
   }
 
   private cleanupAssistantConversation(s: Session): void {
@@ -6478,7 +6486,7 @@ export class SessionService {
       try {
         await this.archive(newSession.id);
       } catch {
-        /* ignore cleanup error; surface the original failure */
+        /* best-effort: ignore cleanup error; surface the original failure */
       }
       throw e;
     }
@@ -6927,7 +6935,7 @@ export class SessionService {
       try {
         await this.deps.herdr.stop(target);
       } catch {
-        /* held until runtime can be reconciled */
+        /* best-effort: held until runtime can be reconciled */
       }
     }
     record.phase = target && ["sent", "uncertain"].includes(record.phase) ? "uncertain" : "failed";
@@ -7938,7 +7946,7 @@ export class SessionService {
           // retry fail with branch_gone).
           this.deps.worktree.remove(s.worktreePath);
         } catch {
-          /* best-effort rollback */
+          /* best-effort: rollback; the spawn refusal is already logged above */
         }
       }
       return null;
@@ -8622,7 +8630,7 @@ export class SessionService {
         await this.deps.herdr.send(agent.terminalId, "\x1b");
         halted++;
       } catch {
-        /* dead / raced pane — skip it, the herd-wide stop carries on */
+        /* best-effort: dead / raced pane — skip it, the herd-wide stop carries on */
       }
     }
     const result = { halted };
@@ -8708,7 +8716,7 @@ export class SessionService {
           live.herdrAgentId !== s.herdrAgentId
         )
           return false;
-        const agent = await this.liveAgentFor(id).catch(() => null);
+        const agent = await this.liveAgentFor(id).catch(() => null); // best-effort: unresolvable = not live
         return agent?.terminalId === s.herdrAgentId;
       };
       if (!(await valid())) return null;
@@ -9230,7 +9238,7 @@ export class SessionService {
     const screen = base === null ? null : await this.#readVisible(target);
     if (screen === null || base === null) return false;
     if (countMatches(screen, marker) <= countMatches(base, marker)) return true;
-    await this.deps.herdr.send(target, "\x1b").catch(() => {});
+    await this.deps.herdr.send(target, "\x1b").catch(() => {}); // best-effort: picker stays reported as not closed
     return false;
   }
 
@@ -9270,6 +9278,7 @@ export class SessionService {
         }
       }
     } catch {
+      // best-effort: the sequence already failed; report "died" either way
       await this.deps.herdr.send(target, "\x1b").catch(() => {});
       return "died"; // a send threw mid-sequence: never re-paste into whatever is open
     }
@@ -9293,7 +9302,7 @@ export class SessionService {
   async #readVisible(target: string): Promise<string | null> {
     const reader = this.deps.herdr.readAsync;
     if (!reader) return null;
-    const read = reader.call(this.deps.herdr, target, "visible").catch(() => null);
+    const read = reader.call(this.deps.herdr, target, "visible").catch(() => null); // best-effort: unreadable = null
     return withTimeout(read, SessionService.effortSwitchTiming.readMs, () => null);
   }
 
@@ -9780,7 +9789,7 @@ export class SessionService {
       // already bypasses the last-tab guard (#2039) — teardown must actually tear down, or
       // archiving a terminal session would silently leave its tab behind.
       if (s.terminalTabId)
-        await this.deps.herdr.closeTab(s.terminalTabId, { allowLastTab: true }).catch(() => {});
+        await this.deps.herdr.closeTab(s.terminalTabId, { allowLastTab: true }).catch(() => {}); // best-effort: tab may be gone
     } else {
       await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     }
@@ -9897,7 +9906,7 @@ export class SessionService {
           leftovers += await this.archive(id, keys, reason); // count what was reaped, not what was detected
           cleared.push(id);
         } catch {
-          // skip this one; its row stays active and gets no archived event
+          // best-effort: skip this one; its row stays active and gets no archived event
         }
       }
     } finally {

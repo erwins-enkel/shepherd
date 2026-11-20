@@ -104,7 +104,7 @@ async function lookupLatest(
         swift: p.ecosystem === "swift" ? [p.name] : [],
         swiftToolchain: false,
       })
-      .catch(() => null);
+      .catch(() => null); // best-effort: registry lookup failure → unknown latest version
     const version = res?.ok ? (res[p.ecosystem][0]?.version ?? null) : null;
     return [driftKey(p.ecosystem, p.name), version] as const;
   });
@@ -154,7 +154,7 @@ async function dependabotSignal(forge: GitForge | null) {
 /** The repo's Dependabot config, `.yml` winning over `.yaml`; empty when there is none. */
 async function readDependabotConfig(dir: string): Promise<string> {
   for (const file of ["dependabot.yml", "dependabot.yaml"]) {
-    const text = await readFile(join(dir, ".github", file), "utf8").catch(() => null);
+    const text = await readFile(join(dir, ".github", file), "utf8").catch(() => null); // best-effort: absent file → try the next name
     if (text !== null) return text;
   }
   return "";
@@ -169,7 +169,7 @@ export async function frameworkDrift(dir: string, deps: DriftDeps): Promise<Fram
     lookupLatest(packages, deps.resolver),
     dependabotSignal(forge),
     (deps.listEpicBranches ?? gitEpicBranches)(dir).catch(() => []),
-    forge ? openStory(forge).catch(() => null) : null,
+    forge ? openStory(forge).catch(() => null) : null, // best-effort: optional signal; forge failure → no story
     readDependabotConfig(dir),
   ]);
   const rows = driftRows(packages, latest, bumps, dependabotMajorHolds(dependabotConfig));

@@ -172,6 +172,7 @@ export function createPoller(deps: PollerDeps): Poller {
   async function previousClosed(sentryId: string): Promise<boolean> {
     const f = readFiled(state, sentryId);
     if (!f) return true;
+    // best-effort: unreadable issue counts as not closed, so no duplicate re-file
     const gh = await deps.issues.get(f.repo, f.number).catch(() => null);
     return gh?.state === "closed";
   }

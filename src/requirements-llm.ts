@@ -85,7 +85,7 @@ function defaultStageScreenshots(images: readonly string[], cwd: string): string
       copyFileSync(src, join(cwd, name));
       names.push(name);
     } catch {
-      // swept or unreadable: read the task without it
+      // best-effort: swept or unreadable — read the task without it
     }
   }
   return names;

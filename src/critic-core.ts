@@ -1070,7 +1070,7 @@ export async function defaultComputePatchId(
       );
       ref = "FETCH_HEAD";
     } catch {
-      /* offline or no origin remote — fall through to the local base ref */
+      /* best-effort: offline or no origin remote — fall through to the local base ref */
     }
     // Resolve the base to a concrete immutable SHA NOW: FETCH_HEAD is transient (a later
     // in-worktree fetch moves it; undefined on a failed fetch), so capturing the rev-parsed

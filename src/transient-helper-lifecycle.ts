@@ -87,7 +87,7 @@ export function cleanupHelperDir(cwd: string): void {
   try {
     rmSync(cwd, { recursive: true, force: true });
   } catch {
-    /* best-effort */
+    /* best-effort: teardown must not throw; a leftover helper dir is harmless */
   }
 }
 
@@ -107,7 +107,7 @@ export async function reapHelperRun(
     try {
       await herdr.stop(terminalId);
     } catch {
-      /* best-effort */
+      /* best-effort: helper pane may already be gone; cwd cleanup below still runs */
     }
   }
   if (cwd) cleanup(cwd);

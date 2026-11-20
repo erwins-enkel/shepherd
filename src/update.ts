@@ -481,7 +481,7 @@ export class UpdateService {
     try {
       mtimeMs = statSync(this.logPath).mtimeMs;
     } catch {
-      /* keep 0 → treated as stale below only if a log somehow existed */
+      /* best-effort: no log → keep 0 → treated as stale below only if a log somehow existed */
     }
     if (mtimeMs && Date.now() - mtimeMs > DEPLOY_STALE_MS) {
       return {

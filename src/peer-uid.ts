@@ -82,7 +82,7 @@ export async function loopbackPeerUid(
 ): Promise<number | null | "unavailable"> {
   if (platform !== "linux") return "unavailable";
   const tables = await Promise.all(
-    ["/proc/net/tcp", "/proc/net/tcp6"].map((file) => readFile(file, "utf8").catch(() => null)),
+    ["/proc/net/tcp", "/proc/net/tcp6"].map((file) => readFile(file, "utf8").catch(() => null)), // best-effort: missing table (no IPv6) → null; all-null → "unavailable"
   );
   if (tables.every((t) => t === null)) return "unavailable";
   let uid: number | null = null;
@@ -117,7 +117,7 @@ async function holdsSocket(procRoot: string, pid: string, link: string): Promise
   const fdDir = join(procRoot, pid, "fd");
   const fds = await readdir(fdDir).catch(() => [] as string[]);
   for (const fd of fds) {
-    if ((await readlink(join(fdDir, fd)).catch(() => null)) === link) return true;
+    if ((await readlink(join(fdDir, fd)).catch(() => null)) === link) return true; // best-effort: fd closed mid-scan / unreadable → no match
   }
   return false;
 }

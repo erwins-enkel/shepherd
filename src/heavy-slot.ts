@@ -530,7 +530,7 @@ export class HeavySlotService {
     if (jobs.length === 0) return () => null;
     const found = await (this.#deps.scanMarkersDarwin ?? scanMarkersDarwin)(
       new Set(jobs.map((j) => j.id)),
-    ).catch(() => null);
+    ).catch(() => null); // best-effort: scan failure ⇒ group liveness decides below
     if (found) {
       for (const job of jobs) {
         const stat = found.get(job.id);

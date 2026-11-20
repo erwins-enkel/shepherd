@@ -119,6 +119,7 @@ export interface GreenfieldDeps {
 
 async function defaultPull(dir: string, forge: GitForge | null): Promise<string | null> {
   const branch = await resolveDefaultBranch(dir, {
+    // best-effort: forge failure ⇒ resolveDefaultBranch falls back to local refs
     forgeDefault: forge ? () => forge.defaultBranch().catch(() => null) : undefined,
   });
   if (!branch) return null;

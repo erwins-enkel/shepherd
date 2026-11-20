@@ -39,7 +39,7 @@ export async function readSubagentDescription(
   if (!path) return undefined;
   // One handle for the size check and the read, so the file checked is the file read; O_NONBLOCK so
   // a FIFO planted at the path can't park the open.
-  const fh = await open(path, constants.O_RDONLY | constants.O_NONBLOCK).catch(() => null);
+  const fh = await open(path, constants.O_RDONLY | constants.O_NONBLOCK).catch(() => null); // best-effort: missing/unopenable meta → no description
   if (!fh) return undefined;
   try {
     const st = await fh.stat();
@@ -50,6 +50,6 @@ export async function readSubagentDescription(
   } catch {
     return undefined;
   } finally {
-    await fh.close().catch(() => {});
+    await fh.close().catch(() => {}); // best-effort: result already decided; close failure not actionable
   }
 }

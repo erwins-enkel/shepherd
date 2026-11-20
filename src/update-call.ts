@@ -293,7 +293,7 @@ async function consumeClaimed(claimed: string): Promise<string[]> {
     return size > JOURNAL_MAX_BYTES ? lines.slice(1) : lines;
   } finally {
     await handle.close();
-    await unlink(claimed).catch(() => {});
+    await unlink(claimed).catch(() => {}); // best-effort: already gone is fine; a stuck file is re-consumed next tick
   }
 }
 

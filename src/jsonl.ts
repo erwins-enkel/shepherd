@@ -7,7 +7,7 @@ export function* eachJsonlObject(text: string): Iterable<unknown> {
     try {
       yield JSON.parse(t);
     } catch {
-      /* skip malformed line */
+      /* best-effort: skip malformed line */
     }
   }
 }

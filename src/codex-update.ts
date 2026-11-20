@@ -790,7 +790,7 @@ export class CodexUpdateService {
 
       await this.loadExactReleases(progress, budget, controller.signal, 2 - githubRequests);
     } catch {
-      // The public contract is total: accumulated notes remain available.
+      // best-effort: the public contract is total; accumulated notes remain available.
     } finally {
       clearTimeout(timeout);
       progress.nextAttemptAt = Math.max(

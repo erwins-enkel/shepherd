@@ -113,7 +113,7 @@ export class HerdrUsageProbe implements UsageProbe {
       try {
         await this.herdr.stop(a.terminalId);
       } catch {
-        /* best-effort */
+        /* best-effort: probe tab may already be gone */
       }
     }
   }
@@ -202,10 +202,10 @@ export class HerdrUsageProbe implements UsageProbe {
       try {
         proc.kill();
       } catch {
-        /* noop */
+        /* best-effort: probe process may already have exited */
       }
-      void pump.catch(() => {});
-      void drainErr.catch(() => {});
+      void pump.catch(() => {}); // best-effort: stream torn down by kill above
+      void drainErr.catch(() => {}); // best-effort: stderr drain torn down by kill above
       // Sweep by name rather than stop(terminalId): closes this probe AND any straggler, and
       // doesn't depend on terminalId having resolved. Awaited: `sweep`'s `herdr.listAsync()` loop
       // header can throw synchronously (outside the per-item try), so an un-awaited call here

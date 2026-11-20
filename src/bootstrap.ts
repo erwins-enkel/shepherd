@@ -108,7 +108,7 @@ export async function hasProjectManifest(dir: string): Promise<boolean> {
       await access(join(dir, f));
       return true;
     } catch {
-      /* absent — try the next manifest */
+      /* best-effort: absent — try the next manifest */
     }
   }
   return false;

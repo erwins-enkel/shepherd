@@ -1521,7 +1521,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     model: string | null;
   }): Promise<void> {
     const terminalId = await this.resolveTerminal(sp.worktreePath);
-    void this.deps.herdr.stop(terminalId).catch(() => {});
+    void this.deps.herdr.stop(terminalId).catch(() => {}); // best-effort: orphan pane may already be gone
     try {
       const usage = await this.readUsage(
         sp.worktreePath,
@@ -2146,7 +2146,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     this.starting.delete(sessionId);
     const f = this.inflight.get(sessionId);
     if (f) {
-      void this.deps.herdr.stop(f.terminalId).catch(() => {});
+      void this.deps.herdr.stop(f.terminalId).catch(() => {}); // best-effort: teardown; pane may already be gone
       this.deps.worktree.remove(f.worktreePath);
       this.dropInflight(sessionId, f);
       this.deps.onReviewing?.(sessionId, false);

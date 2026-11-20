@@ -144,7 +144,7 @@ export class BranchPruner {
       try {
         execGitSync(["worktree", "prune"], { cwd: repo, stdio: "pipe" });
       } catch {
-        /* best-effort */
+        /* best-effort: stale worktree metadata is pruned again on the next sweep */
       }
     }
     return checks;

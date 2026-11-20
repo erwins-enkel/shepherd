@@ -118,7 +118,7 @@ export function scrubStaleVerdictArtifacts(worktreePath: string, ...resultFiles:
     try {
       rmSync(join(worktreePath, f), { force: true });
     } catch {
-      /* best-effort — a pre-seed we can't remove still fails closed via the read path's validators */
+      /* best-effort: a pre-seed we can't remove still fails closed via the read path's validators */
     }
   }
 }

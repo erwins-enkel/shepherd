@@ -318,7 +318,7 @@ export async function scratchpadHasFiles(
       const entries = await fsp.readdir(dir);
       if (entries.length > 0) return true;
     } catch {
-      // missing/unreadable candidate — try the next
+      // best-effort: missing/unreadable candidate — try the next
     }
   }
   return false;
@@ -1056,7 +1056,7 @@ export async function removeWorktreeScratch(
     try {
       await rm(dir, { recursive: true, force: true });
     } catch {
-      /* best-effort — continue to the next candidate */
+      /* best-effort: scratch cleanup — continue to the next candidate */
     }
   }
 }
@@ -1086,7 +1086,7 @@ export async function removeHelperScratch(
     try {
       await rm(dir, { recursive: true, force: true });
     } catch {
-      /* best-effort — continue to the next candidate */
+      /* best-effort: scratch cleanup — continue to the next candidate */
     }
   }
 }
@@ -1135,7 +1135,7 @@ async function reapOrphanSidecar(
     await ctx.ops.stat(dir);
     return 0; // dir still there — the dir pass owns this sidecar
   } catch {
-    /* dir gone ⇒ orphan */
+    /* best-effort: stat failed ⇒ dir gone ⇒ orphan */
   }
   try {
     return await removeIfStale(sidecar, await ctx.ops.stat(sidecar), ctx);
@@ -1165,7 +1165,7 @@ async function reapFallowEntry(root: string, ent: Dirent, ctx: ReapFallowCtx): P
     if (wasRemoved) {
       // Best-effort removal of sidecars; ignore individual failures.
       for (const s of FALLOW_SIDECARS) {
-        await ctx.ops.rm(`${p}${s}`, { recursive: false, force: true }).catch(() => {});
+        await ctx.ops.rm(`${p}${s}`, { recursive: false, force: true }).catch(() => {}); // best-effort: sidecar may not exist
       }
       return 1;
     }
@@ -1309,7 +1309,7 @@ async function resolveAllRealpaths(
     try {
       out.push(await realpath(p));
     } catch {
-      /* unresolvable (gone / broken) — drop */
+      /* best-effort: unresolvable (gone / broken) — drop */
     }
   }
   return [...new Set(out)];

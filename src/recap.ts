@@ -630,7 +630,7 @@ export class RecapService {
         this.generatingTerminals.get(cwd) ?? (await this.resolveTerminal(cwd)),
       );
     } catch {
-      /* best-effort */
+      /* best-effort: pane teardown; an already-gone pane is fine */
     } finally {
       this.generatingTerminals.delete(cwd);
     }

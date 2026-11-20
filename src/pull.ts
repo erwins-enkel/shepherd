@@ -42,7 +42,7 @@ export async function resolveDefaultBranch(
       await git(dir, ["rev-parse", "--verify", "--quiet", `origin/${opts.hint}`]);
       return opts.hint;
     } catch {
-      /* hint ref missing — fall through */
+      /* best-effort: hint ref missing — fall through */
     }
   }
 
@@ -51,7 +51,7 @@ export async function resolveDefaultBranch(
     const ref = await git(dir, ["rev-parse", "--abbrev-ref", "origin/HEAD"]);
     if (ref) return ref.replace(/^origin\//, "");
   } catch {
-    /* origin/HEAD unset — fall through */
+    /* best-effort: origin/HEAD unset — fall through */
   }
 
   // 3. forge
@@ -59,7 +59,7 @@ export async function resolveDefaultBranch(
     const fromForge = await opts.forgeDefault?.();
     if (fromForge) return fromForge;
   } catch {
-    /* forge lookup failed — fall through */
+    /* best-effort: forge lookup failed — fall through */
   }
 
   // 4. nothing

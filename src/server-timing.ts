@@ -88,7 +88,7 @@ export function withServerTiming(res: Response, appMs: number): Response {
   try {
     res.headers.set("Server-Timing", serverTimingValue(appMs));
   } catch {
-    /* immutable headers — skip */
+    /* best-effort: immutable headers — timing is a hint, skip */
   }
   return res;
 }

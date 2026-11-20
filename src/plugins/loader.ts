@@ -338,7 +338,7 @@ export class PluginRegistry {
         if (await exists(p)) return p;
       }
     } catch {
-      // no package.json — fall through to index.* resolution
+      // best-effort: no/invalid package.json — fall through to index.* resolution
     }
     for (const cand of ["index.ts", "index.js", "index.mjs", "index.tsx"]) {
       const p = join(dir, cand);
@@ -728,7 +728,7 @@ export class PluginRegistry {
         try {
           unsub();
         } catch {
-          /* ignore */
+          // best-effort: one failing unsubscribe must not abort teardown of the rest
         }
       }
       if (rec.teardown) {
@@ -786,7 +786,7 @@ async function writeConfigFile(dir: string, contents: string): Promise<void> {
     await writeFile(tmp, contents, "utf8");
     await rename(tmp, join(dir, "config.json"));
   } catch (e) {
-    await rm(tmp, { force: true }).catch(() => {});
+    await rm(tmp, { force: true }).catch(() => {}); // best-effort: temp cleanup; the write error is rethrown
     throw e;
   }
 }
@@ -822,7 +822,7 @@ async function pluginFolders(root: string): Promise<string[]> {
       try {
         if ((await stat(join(root, e.name))).isDirectory()) names.push(e.name);
       } catch {
-        /* dangling symlink — skip */
+        // best-effort: dangling symlink — skip
       }
     }
   }

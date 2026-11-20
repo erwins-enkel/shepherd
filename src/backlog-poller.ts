@@ -52,7 +52,9 @@ export class BacklogPoller {
     const due = this.listRepos()
       .map((r) => r.path)
       .filter((path) => this.isForgeBacked(path) && !this.skipRepo(path) && this.isWarm(path));
+    // best-effort: one repo failing to warm must not block the others; next tick retries
     await Promise.all(due.map((path) => this.warm(path).catch(() => null)));
+    // best-effort: a failed broadcast is superseded by the next tick's
     if (this.onWarmed) await Promise.resolve(this.onWarmed()).catch(() => null);
   }
 

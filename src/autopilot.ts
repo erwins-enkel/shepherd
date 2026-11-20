@@ -757,7 +757,7 @@ export class AutopilotService {
     try {
       tail = await this.deps.readTail(id);
     } catch {
-      // empty tail still classifies (→ likely "unknown" → surface), which is safe
+      // best-effort: empty tail still classifies (→ likely "unknown" → surface), which is safe
     }
     await this.consider(id, tail, `${AUTOPILOT_LABEL}${id}`);
   }

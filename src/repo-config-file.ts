@@ -147,11 +147,11 @@ export function repoConfigGitContext(dir: string): GitContext | null {
         "",
       );
     } catch {
-      /* unset symref: same fallback as repo roles */
+      /* best-effort: unset symref — same fallback as repo roles */
     }
     value = { key: git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), branch };
   } catch {
-    /* local-only repository or non-git path */
+    /* best-effort: local-only repository or non-git path → no context */
   }
   contexts.set(dir, { value, at: Date.now() });
   return value;
@@ -214,7 +214,7 @@ const writes = new Map<string, Promise<unknown>>();
 export async function withRepoConfigLock<T>(dir: string, work: () => Promise<T>): Promise<T> {
   const key = repoConfigGitContext(dir)?.key ?? dir;
   const previous = writes.get(key) ?? Promise.resolve();
-  const current = previous.catch(() => {}).then(work);
+  const current = previous.catch(() => {}).then(work); // best-effort: previous writer's caller owns its error; only serialize
   writes.set(key, current);
   try {
     return await current;
@@ -311,7 +311,7 @@ export async function pushRepoConfigDefault(
   try {
     await repoConfigGit(dir, ["update-ref", ref, commit, base]);
   } catch {
-    /* already updated by push, or advanced by another fetch */
+    /* best-effort: already updated by push, or advanced by another fetch */
   }
   for (const [path, hit] of contexts) {
     if (hit.value?.key === context.key) files.delete(path);

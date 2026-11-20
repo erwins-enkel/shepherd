@@ -847,7 +847,7 @@ export function backfillCodexSpawnUsage(
       const usage = parseCodexUsage(readFileSync(hit.path, "utf8"), row.model);
       if (store.backfillReviewerSpawnUsage(row.reviewerSessionId, usage)) filled += 1;
     } catch {
-      /* one bad row must not abort the sweep */
+      /* best-effort: one bad row must not abort the sweep */
     }
   }
   if (filled > 0) console.log(`[codex-activity] backfilled token totals for ${filled} spawn(s)`);

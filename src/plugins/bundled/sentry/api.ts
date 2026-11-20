@@ -284,11 +284,11 @@ async function sentryRequest(
     return { ok: false, status: 0, headers: new Headers(), error: (e as Error).name || "fetch" };
   }
   if (!res.ok) {
-    await res.body?.cancel().catch(() => {});
+    await res.body?.cancel().catch(() => {}); // best-effort: discarding an unused body; the error result is returned regardless
     return { ok: false, status: res.status, headers: res.headers, error: `HTTP ${res.status}` };
   }
   if (num(res.headers.get("content-length")) > MAX_BODY_BYTES) {
-    await res.body?.cancel().catch(() => {});
+    await res.body?.cancel().catch(() => {}); // best-effort: discarding an unused body; the error result is returned regardless
     return { ok: false, status: 0, headers: res.headers, error: "response too large" };
   }
   try {

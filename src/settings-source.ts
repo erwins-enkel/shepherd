@@ -480,10 +480,10 @@ export class SettingsSourceService {
     );
     if (!res.ok) return UNREACHABLE;
     if (!res.response.ok) {
-      await res.response.body?.cancel().catch(() => {});
+      await res.response.body?.cancel().catch(() => {}); // best-effort: drain error body; FAILED returned regardless
       return FAILED;
     }
-    return { ok: true, body: await res.response.json().catch(() => undefined) };
+    return { ok: true, body: await res.response.json().catch(() => undefined) }; // best-effort: non-JSON body → undefined
   }
 
   private storeSteers(list: Steer[]): void {

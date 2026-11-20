@@ -642,7 +642,7 @@ export class PreviewService {
       try {
         this.onChange?.(sessionId, previewPort);
       } catch {
-        /* observer side-effect must not break allocation */
+        /* best-effort: observer side-effect must not break allocation */
       }
       return previewPort;
     }
@@ -663,15 +663,15 @@ export class PreviewService {
     // `onChange` below and strand the listener half-torn-down.
     try {
       void listener.server?.stop(true).catch(() => {
-        /* already gone */
+        /* best-effort: server already gone */
       });
     } catch {
-      /* already gone */
+      /* best-effort: server already gone */
     }
     try {
       this.onChange?.(sessionId, null);
     } catch {
-      /* observer side-effect must not break teardown */
+      /* best-effort: observer side-effect must not break teardown */
     }
   }
 
@@ -701,10 +701,10 @@ export class PreviewService {
       // must not abort the loop and leave `listeners`/`slotOwner` uncleared below.
       try {
         void listener.server?.stop(true).catch(() => {
-          /* already gone */
+          /* best-effort: server already gone */
         });
       } catch {
-        /* already gone */
+        /* best-effort: server already gone */
       }
     }
     this.listeners.clear();
@@ -1110,7 +1110,7 @@ function safeSend(
     // Both Bun's ServerWebSocket and the client WebSocket expose `.send`.
     (sock as { send: (d: unknown) => void }).send(data);
   } catch {
-    /* peer gone */
+    /* best-effort: peer gone */
   }
 }
 
@@ -1125,6 +1125,6 @@ function safeClose(
     if (safe === null) (sock as { close: (c?: number, r?: string) => void }).close();
     else (sock as { close: (c?: number, r?: string) => void }).close(safe, reason || undefined);
   } catch {
-    /* peer gone */
+    /* best-effort: peer gone */
   }
 }

@@ -851,6 +851,7 @@ export class StatusPoller {
       // forget — awaiting it would extend tick()'s awaited critical section by a socket
       // round-trip and shift the microtask timing the classify paths' floating promises ride
       // on. Overlap is impossible: the throttle stamp is taken synchronously before the await.
+      // best-effort: per-tick sweep is fail-closed and retries next throttle window
       void this.maybeSweepTerminalPanes(sessions).catch(() => {});
     } finally {
       this.ticking = false;
@@ -1284,6 +1285,7 @@ export class StatusPoller {
   private async reconcileCodexQuestions(s: Session): Promise<boolean> {
     if (s.agentProvider !== "codex" || !this.codexQuestions) return false;
     await this.codexQuestions.refresh(s);
+    // best-effort: unreadable pane keeps the last known ask state (polled every tick)
     const visible = await this.herdr.readAsync(s.herdrAgentId, "visible").catch(() => null);
     if (visible === null) return !!this.lastBlockReason.get(s.id)?.asks;
     const asks = this.codexQuestions.observe(s, visible);
@@ -1498,7 +1500,7 @@ export class StatusPoller {
         this.store.setHaltReason(s.id, "usage_limit", at);
         this.onHaltCb(s.id, "usage_limit", at);
       } catch {
-        /* unreadable rollout: no inferred capacity failure */
+        /* best-effort: unreadable rollout means no inferred capacity failure */
       }
       return;
     }
@@ -1520,7 +1522,7 @@ export class StatusPoller {
         this.onHaltCb(s.id, reason, haltedAt);
       }
     } catch {
-      // file may not exist for a never-run session; degrade silently
+      // best-effort: file may not exist for a never-run session
     }
   }
 
@@ -2668,7 +2670,7 @@ export class StatusPoller {
         this.maybePushAgentState(id);
       }
     } catch {
-      // best-effort; retry next cadence
+      // best-effort: retry next cadence
     }
   }
 

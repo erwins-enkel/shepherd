@@ -83,7 +83,7 @@ async function ensureSpawnDir(): Promise<string> {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     if (await isOwnPrivateDir(dir)) return dir;
   } catch {
-    /* occupied by a non-directory (or uncreatable) — the fallback below is the answer */
+    /* best-effort: occupied by a non-directory (or uncreatable) — the fallback below is the answer */
   }
   return privateFallbackDir();
 }
@@ -137,11 +137,11 @@ async function reapStaleScripts(dir: string, now: number): Promise<void> {
       try {
         if (now - (await stat(path)).mtimeMs > STALE_SCRIPT_MS) await rm(path, { force: true });
       } catch {
-        /* raced with the script's own self-delete — nothing to do */
+        /* best-effort: raced with the script's own self-delete — nothing to do */
       }
     }
   } catch {
-    /* unreadable dir — a spawn must not fail because cleanup could not run */
+    /* best-effort: unreadable dir — a spawn must not fail because cleanup could not run */
   }
 }
 

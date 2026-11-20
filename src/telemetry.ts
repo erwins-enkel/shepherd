@@ -182,7 +182,7 @@ export class TelemetryService {
     try {
       this.persist?.(next);
     } catch {
-      // ignored on purpose — see above
+      // best-effort: durable health copy only — see above
     }
   }
 

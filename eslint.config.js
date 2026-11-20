@@ -35,9 +35,7 @@ export default [
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
       // Fail closed (#4076): no silent `catch {}`, empty `.catch()` or `.catch(() => null)`.
-      // A deliberate swallow needs a `best-effort: <why>` comment. Pre-existing sites are
-      // baselined in eslint-suppressions.json; it only shrinks (an unused entry fails lint —
-      // run `bunx eslint --prune-suppressions src` after fixing one).
+      // A deliberate swallow needs a `best-effort: <why>` comment.
       "shepherd/no-silent-catch": "error",
     },
   },

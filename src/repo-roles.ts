@@ -168,7 +168,7 @@ function defaultBranchLocal(repoPath: string): string {
     const out = git(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim();
     branch = out.replace(/^origin\//, "") || "main";
   } catch {
-    /* unset symref → fall back to main */
+    /* best-effort: unset symref → fall back to main */
   }
   defBranchCache.set(repoPath, branch);
   return branch;
@@ -201,7 +201,7 @@ function readRolesFromRef(repoPath: string): RepoRoles {
     try {
       return parseRoles(git(repoPath, ["show", `${ref}:${ROLES_PATH}`]));
     } catch {
-      /* ref or file absent / bad JSON → try next, else empty */
+      /* best-effort: ref or file absent / bad JSON → try next, else empty */
     }
   }
   return EMPTY;
@@ -340,7 +340,7 @@ async function buildRolesCommit(
   try {
     await gitAsync(repoPath, ["fetch", "origin", defaultBranch], { timeout: FETCH_TIMEOUT_MS });
   } catch {
-    /* offline / no remote — base off whatever local ref we have */
+    /* best-effort: offline / no remote — base off whatever local ref we have */
   }
   let base = "";
   for (const ref of [`origin/${defaultBranch}`, defaultBranch]) {
@@ -348,7 +348,7 @@ async function buildRolesCommit(
       base = await gitAsync(repoPath, ["rev-parse", "--verify", `${ref}^{commit}`]);
       break;
     } catch {
-      /* try next */
+      /* best-effort: ref missing — try next */
     }
   }
   if (!base) throw new Error(`cannot resolve default branch '${defaultBranch}'`);
@@ -485,7 +485,7 @@ async function dropRolesPrMarker(repoPath: string): Promise<void> {
   try {
     await gitAsync(repoPath, ["update-ref", "-d", ROLES_PR_MARKER]);
   } catch {
-    /* already gone */
+    /* best-effort: marker already gone */
   }
 }
 
@@ -494,7 +494,7 @@ async function refreshCommittedRoles(repoPath: string, forge: GitForge): Promise
     const def = await forge.defaultBranch();
     await gitAsync(repoPath, ["fetch", "origin", def], { timeout: FETCH_TIMEOUT_MS });
   } catch {
-    /* offline — the next fetch catches up */
+    /* best-effort: offline — the next fetch catches up */
   }
   rolesCache.delete(repoPath);
 }

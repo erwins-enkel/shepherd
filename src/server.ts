@@ -1891,7 +1891,7 @@ async function readCappedText(req: Request, max: number): Promise<string | null>
     if (done) break;
     size += value.byteLength;
     if (size > max) {
-      void reader.cancel().catch(() => {});
+      void reader.cancel().catch(() => {}); // best-effort: the 413 is already decided
       return null;
     }
     chunks.push(value);
@@ -1990,7 +1990,7 @@ async function readPairBody(req: Request): Promise<{ code: unknown; name: string
   try {
     body = JSON.parse(text);
   } catch {
-    // falls through to the invalid-body 400 below
+    // best-effort: malformed JSON falls through to the invalid-body 400 below
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return json({ error: "invalid body" }, 400);
@@ -2160,7 +2160,7 @@ async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | nul
   if (sessErr) return sessErr;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
+  const parsed = parseInstanceNamePatch(await readJsonBody(req));
   if ("error" in parsed) return json(parsed, 400);
   setInstanceName(deps.store, parsed.name);
   for (const repo of listRepos(config.repoRoot)) repoLeitrechner(deps).publish(repo.realPath);
@@ -2186,7 +2186,7 @@ const instanceOr404 = (instance: unknown) =>
 async function connectRemoteInstance(req: Request, svc: RemoteInstanceService): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const parsed = parseConnectRequest(await req.json().catch(() => null));
+  const parsed = parseConnectRequest(await readJsonBody(req));
   if ("error" in parsed) return json(parsed, 400);
   const result = await svc.connect(parsed);
   if (result.ok) return json({ instance: result.instance }, 201);
@@ -2203,7 +2203,7 @@ async function patchRemoteInstance(
 ): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const parsed = parseLabelPatch(await req.json().catch(() => null));
+  const parsed = parseLabelPatch(await readJsonBody(req));
   if ("error" in parsed) return json(parsed, 400);
   return instanceOr404(svc.rename(id, parsed.label));
 }
@@ -2317,6 +2317,7 @@ async function relayOutcome(
   const body = (await res
     .clone()
     .json()
+    // best-effort: a non-JSON relay body just carries no error code
     .catch(() => null)) as { error?: unknown } | null;
   const error = body?.error;
   if (res.status === 409 && error === "no update available")
@@ -2339,7 +2340,7 @@ async function applyMachineUpdate(
 ): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { discard?: unknown; sig?: unknown } | null;
+  const body = (await readJsonBody(req)) as { discard?: unknown; sig?: unknown } | null;
   if (!isRecord(body)) return json({ error: "invalid_body" }, 400);
   if (body.discard !== undefined && typeof body.discard !== "boolean")
     return json({ error: "body.discard must be a boolean" }, 400);
@@ -2656,7 +2657,7 @@ async function manualStepDone(
   sessionId: string,
   stepId: string,
 ): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { done?: unknown } | null;
+  const body = (await readJsonBody(req)) as { done?: unknown } | null;
   if (!body || typeof body.done !== "boolean")
     return json({ error: "body.done must be a boolean" }, 400);
   const updated = deps.store.setPostMergeStepDone(sessionId, stepId, body.done);
@@ -3088,7 +3089,7 @@ async function redirectWaitingTask(ctx: Ctx, id: string): Promise<Response> {
   const { req, deps } = ctx;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const instanceId = parseRedirectTarget(await req.json().catch(() => null));
+  const instanceId = parseRedirectTarget(await readJsonBody(req));
   if (!instanceId) return json({ error: "body must be {target: {instanceId: string}}" }, 400);
   const current = remoteDispatcher(deps).get(id);
   if (!current) return json({ error: "not found" }, 404);
@@ -3239,7 +3240,7 @@ async function routeIssueCreate<T extends StandardCreateInput>(
 async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
-  const payload = parseUpNextStartPayload(await req.json().catch(() => null));
+  const payload = parseUpNextStartPayload(await readJsonBody(req));
   if (payload instanceof Response) return payload;
   const { items, choice } = payload;
 
@@ -3729,7 +3730,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     }
   | Response
 > {
-  const body = (await req.json().catch(() => null)) as RepoCfgBody | null;
+  const body = (await readJsonBody(req)) as RepoCfgBody | null;
   if (!body || hasBadBoolField(body)) {
     return json(
       {
@@ -3850,10 +3851,7 @@ async function handleRepoConfig(ctx: Ctx): Promise<Response | null> {
 }
 
 async function parseRepoLeader(req: Request): Promise<{ leitrechner?: string | null } | Response> {
-  const raw: unknown = await req
-    .clone()
-    .json()
-    .catch(() => null);
+  const raw: unknown = await readJsonBody(req.clone());
   if (!isRecord(raw) || raw.leitrechner === undefined) return {};
   if (!isLeitrechner(raw.leitrechner)) return json({ error: "invalid leitrechner" }, 400);
   return { leitrechner: raw.leitrechner };
@@ -4056,10 +4054,7 @@ async function parseTargetedRepoPatch(
   deps: AppDeps,
   leaf: RepoConfigLeaf,
 ): Promise<Record<string, unknown> | Response> {
-  const value: unknown = await req
-    .clone()
-    .json()
-    .catch(() => null);
+  const value: unknown = await readJsonBody(req.clone());
   if (!isRecord(value)) return json({ error: "body must be an object" }, 400);
   if (leaf === "project") return projectRepoPatchError(value) ?? value;
   if (leaf === "roles") {
@@ -4383,7 +4378,11 @@ function applyRepoBootstrapPut(
   const phase = patch.phase ?? (entering ? 1 : cur.phase);
   store.setRepoBootstrap(dir, { state: "active", phase });
   // #3107: entering active scans the greenfield profile at once (its exit check runs on landing).
-  if (entering) void deps.greenfield?.refresh(dir).catch(() => {});
+  if (entering) {
+    void deps.greenfield
+      ?.refresh(dir)
+      .catch((err: unknown) => console.warn(`[greenfield] scan failed repo=${dir}:`, err));
+  }
   const next = store.getRepoBootstrap(dir);
   if (bootstrapExitReached(next, bootstrapMustHaves(deps, dir)))
     store.setRepoBootstrap(dir, { state: "done", phase: BOOTSTRAP_LAST_PHASE });
@@ -4449,7 +4448,7 @@ function listSchedules(url: URL, deps: AppDeps): Response {
 async function createSchedule(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const parsed = validateScheduleInput(await req.json().catch(() => null), config.repoRoot);
+  const parsed = validateScheduleInput(await readJsonBody(req), config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   const s = deps.store.insertSchedule(parsed.value, Date.now());
   deps.events.emit("schedules:changed", { repoPath: s.repoPath });
@@ -4462,7 +4461,7 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
   if (!s) return json({ error: "not found" }, 404);
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJsonBody(req);
   if (!isRecord(body)) return json({ error: "body must be a non-null object" }, 400);
   if ("repoPath" in body) return json({ error: "repoPath cannot change" }, 400);
   const current = {
@@ -4514,7 +4513,7 @@ async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Resp
   if (route !== "PUT " && route !== "POST override") return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as unknown;
+  const body = (await readJsonBody(req)) as unknown;
   const err =
     route === "PUT " ? putRepoBootstrap(deps, dir, body) : overrideRepoBootstrap(deps, dir, body);
   if (err) return err;
@@ -4646,7 +4645,7 @@ async function setRepoRoles(
   me: string | null,
   deps: AppDeps,
 ): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as Partial<RepoRoles> | null;
+  const body = (await readJsonBody(req)) as Partial<RepoRoles> | null;
   if (!body) return json({ error: "invalid body" }, 400);
   // Host state first: finding the roles PR merged refreshes the committed roles read below.
   const { pending, settings } = await readRolesHostState(dir, forge);
@@ -4885,7 +4884,7 @@ function parsePushRelay(body: {
 async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     endpoint?: unknown;
     keys?: { p256dh?: unknown; auth?: unknown };
     locale?: unknown;
@@ -4924,7 +4923,7 @@ async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
 async function pushApnsRegister(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     token?: unknown;
     environment?: unknown;
     locale?: unknown;
@@ -4963,7 +4962,7 @@ async function pushApnsRegister(req: Request, deps: AppDeps): Promise<Response> 
 }
 
 async function pushUnsubscribe(req: Request, deps: AppDeps): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
+  const body = (await readJsonBody(req)) as { endpoint?: unknown } | null;
   if (!body || typeof body.endpoint !== "string") {
     return json({ error: "body must be {endpoint: string}" }, 400);
   }
@@ -4983,7 +4982,7 @@ function pushPrefsRead(url: URL, deps: AppDeps): Response {
 async function pushPrefsWrite(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     endpoint?: unknown;
     categories?: { agent?: unknown; reviews?: unknown; ci?: unknown };
   } | null;
@@ -5031,6 +5030,12 @@ function findPushDevice(deps: AppDeps, id: string): StoredPushSub | null {
   return deps.store.listPushSubs().find((row) => pushDeviceId(row.endpoint) === id) ?? null;
 }
 
+/** An inbound request's JSON body, or null when it is absent or malformed — callers validate it
+ *  (answering 400) or treat a missing body as "no options". */
+async function readJsonBody(req: Request): Promise<unknown> {
+  return req.json().catch(() => null); // best-effort: malformed body → null; every caller validates it
+}
+
 /** The JSON-object body of a write, or the response refusing it (415 / 400 with `error`). */
 async function readJsonObject(
   req: Request,
@@ -5038,7 +5043,7 @@ async function readJsonObject(
 ): Promise<Record<string, unknown> | Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body: unknown = await req.json().catch(() => null);
+  const body: unknown = await readJsonBody(req);
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error }, 400);
   return body as Record<string, unknown>;
 }
@@ -5063,7 +5068,7 @@ async function putApnsConfig(req: Request, settings: Pick<ApnsSettings, "save">)
 async function pushDevicePatch(req: Request, deps: AppDeps, row: StoredPushSub) {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     categories?: { agent?: unknown; reviews?: unknown; ci?: unknown };
   } | null;
   const c = body?.categories;
@@ -5511,7 +5516,7 @@ async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
   }
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const target = splitTarget(await req.json().catch(() => null), deps.store);
+  const target = splitTarget(await readJsonBody(req), deps.store);
   if ("error" in target) return json({ error: target.error }, 400);
   const parsed = validatePlacementPreview(target.body, config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
@@ -5575,7 +5580,7 @@ async function handleRequirementsDerive(ctx: Ctx): Promise<Response | null> {
   if (req.method !== "POST") return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const parsed = validateRequirementsDerive(await req.json().catch(() => null), config.repoRoot);
+  const parsed = validateRequirementsDerive(await readJsonBody(req), config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   const { repoPath, task } = parsed.value;
   const repoErr = repositoryInputError(token, { repoPath });
@@ -5623,7 +5628,7 @@ async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
   if (ctErr) return ctErr;
   const dispatchId = readDispatchKey(req.headers.get(IDEMPOTENCY_KEY_HEADER));
   if (dispatchId === null) return json({ error: "invalid Idempotency-Key" }, 400);
-  const raw: unknown = await req.json().catch(() => null);
+  const raw: unknown = await readJsonBody(req);
   // The machine is chosen BEFORE any local check (#2763): a task for a connected machine never
   // reaches this machine's path validation, hold gate or spawn.
   const target = splitTarget(raw, deps.store);
@@ -6702,7 +6707,7 @@ async function handleSessionsClearMerged({
     );
   }
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
-  const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;
+  const body = (await readJsonBody(req)) as { ids?: unknown } | null;
   const explicit = Array.isArray(body?.ids)
     ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string")
     : null;
@@ -6745,7 +6750,7 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
   // this claims every DELETE under the session — so a sub-resource delete (e.g. retracting one
   // amendment) would silently archive the whole session instead.
   if (!(req.method === "DELETE" && parts[2] && !parts[3])) return null;
-  const body = (await req.json().catch(() => null)) as { reap?: unknown } | null;
+  const body = (await readJsonBody(req)) as { reap?: unknown } | null;
   const reap = Array.isArray(body?.reap)
     ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
     : undefined;
@@ -6802,7 +6807,7 @@ async function handleSessionSettleIntegrated({ req, parts, deps }: Ctx): Promise
   if (!settler) return json({ error: "not found" }, 404);
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { prNumber?: unknown } | null;
+  const body = (await readJsonBody(req)) as { prNumber?: unknown } | null;
   const pr = body?.prNumber;
   if (
     body === null ||
@@ -6834,7 +6839,7 @@ async function handleSessionReply({
   if (!(req.method === "POST" && parts[2] && parts[3] === "reply")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   if (!body || typeof (body as { text?: unknown }).text !== "string") {
     return json({ error: "body must be {text: string}" }, 400);
   }
@@ -6888,7 +6893,7 @@ async function handleSessionAmendmentCreate({ req, parts, deps }: Ctx): Promise<
   if (!(req.method === "POST" && parts[2] && parts[3] === "amendments" && !parts[4])) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { text?: unknown; steer?: unknown } | null;
+  const body = (await readJsonBody(req)) as { text?: unknown; steer?: unknown } | null;
   if (!body || typeof body.text !== "string") {
     return json({ error: "body must be {text: string, steer?: boolean}" }, 400);
   }
@@ -6940,7 +6945,7 @@ async function handleSessionCiRestart({ req, parts, deps }: Ctx): Promise<Respon
     return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { job?: unknown } | null;
+  const body = (await readJsonBody(req)) as { job?: unknown } | null;
   if (typeof body?.job !== "string" || !body.job) return json({ error: "job required" }, 400);
   const s = deps.store.get(parts[2]);
   if (!s || s.status === "archived") return json({ error: "no session" }, 404);
@@ -6996,7 +7001,7 @@ async function handleSessionRecommend({ req, parts, deps }: Ctx): Promise<Respon
   if (!(req.method === "POST" && parts[2] && parts[3] === "recommend-prompt")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const provider = (body as { provider?: unknown } | null)?.provider;
   const model = (body as { model?: unknown } | null)?.model;
   if ((provider !== "claude" && provider !== "codex") || typeof model !== "string" || !model) {
@@ -7013,7 +7018,7 @@ async function handleSessionRecommend({ req, parts, deps }: Ctx): Promise<Respon
 // switch was busy/unconfirmed answers 409 with that `code`.
 async function handleSessionGo({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "go")) return null;
-  const body = (await req.json().catch(() => null)) as { skipEffortSwitch?: unknown } | null;
+  const body = (await readJsonBody(req)) as { skipEffortSwitch?: unknown } | null;
   const skipEffortSwitch = body?.skipEffortSwitch === true;
   if (await deps.service.releasePlanGate(parts[2], { skipEffortSwitch })) return json({ ok: true });
   const code = deps.store.getPlanGate(parts[2])?.effortSwitchError;
@@ -7031,7 +7036,7 @@ async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Respon
   if (!(req.method === "POST" && parts[2] && parts[3] === "answer-ask" && !parts[4])) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     toolUseId?: unknown;
     answers?: unknown;
   } | null;
@@ -7073,7 +7078,7 @@ async function handleSessionAnswerPlanQuestions({
   if (!(req.method === "POST" && parts[2] && parts[3] === "answer-plan-questions")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const answers = (body as { answers?: unknown } | null)?.answers;
   if (
     !Array.isArray(answers) ||
@@ -7308,7 +7313,7 @@ async function handleSessionPlanEdits({ req, parts, deps }: Ctx): Promise<Respon
   if (!(req.method === "POST" && parts[2] && parts[3] === "plan-edits")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = parsePlanEditsRequest(await req.json().catch(() => null));
+  const body = parsePlanEditsRequest(await readJsonBody(req));
   if ("error" in body) return json({ error: body.error, code: "invalid_body" }, 400);
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
@@ -7345,7 +7350,7 @@ function previewLauncher(deps: AppDeps): NonNullable<AppDeps["previewLauncher"]>
 type PreviewLauncher = NonNullable<AppDeps["previewLauncher"]>;
 
 async function parsePreviewStartCommand(req: Request): Promise<string | undefined> {
-  const body = (await req.json().catch(() => null)) as { command?: unknown } | null;
+  const body = (await readJsonBody(req)) as { command?: unknown } | null;
   const rawCommand = body && typeof body.command === "string" ? body.command.trim() : undefined;
   return rawCommand || undefined;
 }
@@ -7646,7 +7651,7 @@ async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Respo
 // no review is in flight (an unknown id answers the same).
 async function handleSessionReviewHold({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "review-hold")) return null;
-  const body = (await req.json().catch(() => null)) as { held?: unknown } | null;
+  const body = (await readJsonBody(req)) as { held?: unknown } | null;
   if (typeof body?.held !== "boolean") return json({ error: "body must be {held: boolean}" }, 400);
   const kind = deps.reviewControl?.hold(parts[2], body.held) ?? null;
   if (!kind) return json({ error: "no review in flight" }, 409);
@@ -7709,7 +7714,7 @@ async function handleSessionRecapRegenerate({ req, parts, deps }: Ctx): Promise<
 async function parseRenameName(req: Request): Promise<string | Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const raw = (body as { name?: unknown })?.name;
   if (typeof raw !== "string" || raw.trim() === "") {
     return json({ error: "body must be {name: string}" }, 400);
@@ -7873,7 +7878,7 @@ async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response 
 // still backs the worktree (agent exited but its herdr tab survived).
 async function handleSessionResume({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "resume")) return null;
-  const body = (await req.json().catch(() => null)) as { force?: unknown } | null;
+  const body = (await readJsonBody(req)) as { force?: unknown } | null;
   const s = await deps.service.resume(parts[2], { force: body?.force === true });
   if (!s) {
     const code = deps.service.resumeRefusalCode(parts[2]);
@@ -7889,7 +7894,7 @@ async function handleSessionReady({ req, parts, deps }: Ctx): Promise<Response |
   if (!(req.method === "POST" && parts[2] && parts[3] === "ready")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { ready?: unknown } | null;
+  const body = (await readJsonBody(req)) as { ready?: unknown } | null;
   if (!body || typeof body.ready !== "boolean") {
     return json({ error: "body must be {ready: boolean}" }, 400);
   }
@@ -7903,7 +7908,7 @@ async function handleSessionShelve({ req, parts, deps }: Ctx): Promise<Response 
   if (!(req.method === "POST" && parts[2] && parts[3] === "shelve")) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { shelved?: unknown } | null;
+  const body = (await readJsonBody(req)) as { shelved?: unknown } | null;
   if (!body || typeof body.shelved !== "boolean") {
     return json({ error: "body must be {shelved: boolean}" }, 400);
   }
@@ -8099,7 +8104,7 @@ async function reResolveRelaunchIssue(
 async function parseRelaunchOverrides(
   req: Request,
 ): Promise<{ overrides: RelaunchOverrides | null } | { error: Response }> {
-  const rawBody = (await req.json().catch(() => null)) as unknown;
+  const rawBody = (await readJsonBody(req)) as unknown;
   const validated = validateRelaunchOverrides(rawBody, config.repoRoot);
   if (!validated.ok) return { error: json({ error: validated.error }, 400) };
   return { overrides: rawBody === null ? null : validated.value };
@@ -8375,7 +8380,7 @@ async function handleSessionHandoff({
     return json({ error: "not found" }, 404);
   const id = parts[2]!;
   if (!deps.store.get(id)) return json({ error: "not found" }, 404);
-  const body = (await req.json().catch(() => null)) as unknown;
+  const body = (await readJsonBody(req)) as unknown;
   return action(deps, id, isRecord(body) ? body : {});
 }
 
@@ -8497,7 +8502,7 @@ function remoteMoveSource(
       );
       if (res.kind === "no_answer") {
         // It may have stopped and pushed: bring its agent back rather than leave it held.
-        await abort().catch(() => {});
+        await abort().catch(() => {}); // best-effort: undo a half-prepared move; the answer stands
         return {
           ok: false,
           status: 502,
@@ -8510,7 +8515,7 @@ function remoteMoveSource(
       }
       const handoff = res.status === 200 ? parseHandoffPrepared(res.body) : null;
       if (handoff) return { ok: true, handoff };
-      if (res.status === 200) await abort().catch(() => {});
+      if (res.status === 200) await abort().catch(() => {}); // best-effort: release the held agent
       const body = isRecord(res.body) ? res.body : { error: `${host.name} refused the move` };
       return {
         ok: false,
@@ -8527,9 +8532,10 @@ function remoteMoveSource(
       );
       if (!res.ok) return false;
       if (res.response.status !== 200) {
-        await res.response.body?.cancel().catch(() => {});
+        await res.response.body?.cancel().catch(() => {}); // best-effort: drain a refused download
         return false;
       }
+      // best-effort: a broken download reports false, like any other failed transfer
       const bytes = await res.response.arrayBuffer().catch(() => null);
       if (!bytes || bytes.byteLength > MAX_UPLOAD_BYTES) return false;
       await Bun.write(dest, bytes);
@@ -8649,7 +8655,7 @@ async function handleSessionMove({
   if (!sessionLeafPost(req, parts, "move", 4)) return null;
   if (agentIngress) return json({ error: "not found" }, 404);
   const id = parts[2]!;
-  const parsed = validateSessionMove((await req.json().catch(() => null)) as unknown);
+  const parsed = validateSessionMove((await readJsonBody(req)) as unknown);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   if (inFlightMove.has(id))
     return json({ error: "move already in progress", code: "in_progress" }, 409);
@@ -8799,7 +8805,7 @@ type ReplaceAgentChoice = Extract<
 async function parseModelChoice(
   req: Request,
 ): Promise<{ ok: true; value: ModelChoice } | { ok: false; res: Response }> {
-  const body = (await req.json().catch(() => null)) as unknown;
+  const body = (await readJsonBody(req)) as unknown;
   const choice = validateModelChoice(body);
   return choice.ok
     ? { ok: true, value: choice.value }
@@ -8809,7 +8815,7 @@ async function parseModelChoice(
 async function parseReplaceAgentChoice(
   req: Request,
 ): Promise<{ ok: true; value: ReplaceAgentChoice } | { ok: false; res: Response }> {
-  const body = (await req.json().catch(() => null)) as unknown;
+  const body = (await readJsonBody(req)) as unknown;
   const choice = validateReplaceAgentChoice(body);
   return choice.ok
     ? { ok: true, value: choice.value }
@@ -8941,7 +8947,7 @@ function jsonApplied<T>(res: ApplyResult<T>): Response {
 async function putBuildQueue(req: Request, deps: AppDeps, id: string): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  return jsonApplied(applyQueueWrite(deps, id, await req.json().catch(() => null)));
+  return jsonApplied(applyQueueWrite(deps, id, await readJsonBody(req)));
 }
 
 // POST /api/sessions/:id/queue/steps/:stepId — set a single step's status.
@@ -8953,7 +8959,7 @@ async function postBuildStepStatus(
 ): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  return jsonApplied(applyQueueStep(deps, id, stepId, await req.json().catch(() => null)));
+  return jsonApplied(applyQueueStep(deps, id, stepId, await readJsonBody(req)));
 }
 
 // POST /api/sessions/:id/queue/approve — human gate: approve + steer the agent.
@@ -9004,7 +9010,7 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   const session = deps.store.get(id);
   if (!session) return json({ error: "session not found" }, 404);
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const raw = validateHookEvent(body);
   if (!raw) return json({ error: "invalid hook event" }, 400);
 
@@ -9068,7 +9074,7 @@ async function egressNotes(deps: AppDeps, id: string): Promise<string | null> {
   const egress = deps.egress;
   if (!egress) return null;
   await withTimeout(
-    egress.flush(id).catch(() => {}),
+    egress.flush(id).catch(() => {}), // best-effort: a bounded courtesy flush before reading
     EGRESS_FLUSH_WAIT_MS,
     () => undefined,
   );
@@ -9121,7 +9127,7 @@ async function putEpicDraft(req: Request, deps: AppDeps, id: string): Promise<Re
   if (ctErr) return ctErr;
   // Structural + semantic validation, the frozen-after-draft guard, and the event all live in
   // applyEpicDraft — shared with the `epic_draft` tool.
-  return jsonApplied(applyEpicDraft(deps, id, await req.json().catch(() => null)));
+  return jsonApplied(applyEpicDraft(deps, id, await readJsonBody(req)));
 }
 
 // POST /api/sessions/:id/epic-draft/approve — the HARD GATE. Materializes the draft into GitHub
@@ -9300,7 +9306,9 @@ function advanceBootstrapAfterEpic(deps: AppDeps, session: Session): void {
   if (!advanceAfterEpicApproved(deps.store, dir)) return;
   deps.onBootstrapAdvance?.(dir, BOOTSTRAP_LAST_PHASE, session.id);
   deps.events?.emit("repo-bootstrap:update", { repoPath: dir });
-  void deps.greenfield?.refresh(dir).catch(() => {});
+  void deps.greenfield
+    ?.refresh(dir)
+    .catch((err: unknown) => console.warn(`[greenfield] scan failed repo=${dir}:`, err));
   if (deps.drain) kickDrain(deps.drain, "bootstrap");
 }
 
@@ -9339,7 +9347,7 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   const spawning = row ? null : deps.service.spawningAgentCapabilities(id);
   if (!row && !spawning) return json({ error: "session not found" }, 404);
 
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const outcome = await handleMcpRequest(mcpDeps(deps), id, body, spawning, req.signal);
   if (outcome.body === null) return new Response(null, { status: outcome.status });
   return json(outcome.body, outcome.status);
@@ -9428,6 +9436,7 @@ function operatorActionDeps(deps: AppDeps): OperatorActionDeps {
           ...(body !== undefined && { body: JSON.stringify(body) }),
         }),
       );
+      // best-effort: a non-JSON reply keeps its status; callers read the body defensively
       return { status: res.status, body: await res.json().catch(() => null) };
     },
     // What a firing would spawn under, through the validator a firing uses — and the repo's own.
@@ -10138,7 +10147,7 @@ async function forgeRequestReview(
   if (forge.kind !== "github" || !forge.requestReview) {
     return json({ code: "review_request_unsupported" }, 400);
   }
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     prNumber?: unknown;
     reviewer?: unknown;
   } | null;
@@ -10424,7 +10433,7 @@ async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Respon
   if (req.method !== "POST" || parts.length !== 3) return null;
   if (parts[2] === "operator") return handleHeavySlotOperator(req, deps, token);
   if (parts[2] !== "release") return null;
-  const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
+  const body = (await readJsonBody(req)) as { sessionId?: unknown } | null;
   if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
   if (!(await deps.heavySlot?.release(body.sessionId))) return json({ error: "not_holding" }, 404);
   return json({ released: true });
@@ -10858,7 +10867,11 @@ async function handleHerdrRestart({ req, parts, deps }: Ctx): Promise<Response |
     return null;
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
-  const body = await req.json().catch(() => null);
+  const body = (await readJsonBody(req)) as {
+    confirmed?: unknown;
+    installedVersion?: unknown;
+    serverVersion?: unknown;
+  } | null;
   if (
     !body ||
     body.confirmed !== true ||
@@ -10961,7 +10974,7 @@ async function handleRestart({ req, parts, deps }: Ctx): Promise<Response | null
     const body = (await req.json()) as { herdr?: unknown };
     herdr = body?.herdr === true;
   } catch {
-    // an empty/absent body is a plain shepherd-only restart
+    // best-effort: an empty/absent body is a plain shepherd-only restart
   }
   const r = deps.restart.apply({ herdr });
   if (r.started) return json({ started: true }, 202);
@@ -11093,7 +11106,7 @@ async function handleDiagnosticsFix({ req, parts, deps }: Ctx): Promise<Response
   }
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   if (!deps.diagnostics) return json({ error: "diagnostics unavailable" }, 503);
-  const body = (await req.json().catch(() => null)) as { checkId?: string } | null;
+  const body = (await readJsonBody(req)) as { checkId?: string } | null;
   const checkId = body?.checkId;
   if (!checkId) return json({ error: "missing checkId" }, 400);
   let snapshot;
@@ -11127,7 +11140,7 @@ async function runStarPromptAction(
   req: Request,
   sp: NonNullable<AppDeps["starPrompt"]>,
 ): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { action?: string } | null;
+  const body = (await readJsonBody(req)) as { action?: string } | null;
   switch (body?.action) {
     case "dismiss":
       return json(sp.dismiss());
@@ -11156,7 +11169,7 @@ async function handleProviderFailover({ req, parts, deps }: Ctx): Promise<Respon
   if (req.method === "GET") return json(providerFailoverStatus());
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  const body = (await req.json().catch(() => null)) as { action?: string } | null;
+  const body = (await readJsonBody(req)) as { action?: string } | null;
   if (body?.action === "release") {
     const from = config.providerFailoverFrom;
     if (from === null) return json(providerFailoverStatus());
@@ -11208,7 +11221,7 @@ async function cloneRepoFromRequest(req: Request): Promise<Response> {
   if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { url?: unknown } | null;
+  const body = (await readJsonBody(req)) as { url?: unknown } | null;
   const parsed = validateCloneUrl(body?.url);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   const r = await cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
@@ -11232,7 +11245,7 @@ async function forkRepoFromRequest(req: Request, ghRunner?: GhRunner): Promise<R
   if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { target?: unknown } | null;
+  const body = (await readJsonBody(req)) as { target?: unknown } | null;
   const parsed = validateForkTarget(body?.target);
   if (!parsed.ok) return json({ error: parsed.error }, FORK_ERROR_STATUS[parsed.error] ?? 400);
   const r = await forkRepo(parsed.value, config.repoRoot, ghRunner);
@@ -11267,8 +11280,9 @@ async function readProjectRequest(
   if (type !== "multipart/form-data") {
     const ctErr = requireJsonContentType(req);
     if (ctErr) return ctErr;
-    return { body: (await req.json().catch(() => null)) as unknown, docs: [] };
+    return { body: (await readJsonBody(req)) as unknown, docs: [] };
   }
+  // best-effort: a malformed form leaves `project` missing, which validateNewProject rejects
   const form = await req.formData().catch(() => null);
   const project = form?.get("project");
   if (!form || typeof project !== "string")
@@ -11279,7 +11293,7 @@ async function readProjectRequest(
   try {
     body = JSON.parse(project);
   } catch {
-    /* validateNewProject rejects null */
+    /* best-effort: malformed JSON stays null, which validateNewProject rejects */
   }
   return { body, docs: docs.docs };
 }
@@ -11307,7 +11321,9 @@ async function createProjectFromRequest(
   const dir = safeRepoDir(r.entry.path, config.repoRoot);
   if (dir) {
     store.setRepoBootstrap(dir, { state: "active", phase: 1 });
-    void greenfield?.refresh(dir).catch(() => {});
+    void greenfield
+      ?.refresh(dir)
+      .catch((err: unknown) => console.warn(`[greenfield] scan failed repo=${dir}:`, err));
   }
   return json(r.warning ? { ...r.entry, warning: r.warning } : r.entry, 201);
 }
@@ -11612,7 +11628,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
   }
   if (req.method === "PATCH") return patchSetting(req, deps);
   if (req.method === "PUT") {
-    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    const body = (await readJsonBody(req)) as Record<string, unknown> | null;
     // A standalone field patch carries exactly one setting and no repoRoot; dispatch by
     // the first matching field. Anything else is a repo-root change. One row per setting.
     if (body && body.repoRoot === undefined) {
@@ -11626,7 +11642,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
 }
 
 async function patchSetting(req: Request, deps: Ctx["deps"]): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readJsonBody(req)) as Record<string, unknown> | null;
   if (!body || Array.isArray(body) || typeof body !== "object" || Object.keys(body).length !== 1) {
     return json({ error: "exactly one setting is required" }, 400);
   }
@@ -12031,7 +12047,11 @@ function putAssistantRuntime(value: unknown, deps: Ctx["deps"]): Response {
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   deps.store.setSetting("assistantRuntime", JSON.stringify(parsed.value));
   config.assistantRuntime = parsed.value;
-  if (!parsed.value.enabled) void deps.service.switchOperatorAssistants().catch(() => {});
+  if (!parsed.value.enabled) {
+    void deps.service
+      .switchOperatorAssistants()
+      .catch((err: unknown) => console.warn("[assistant] switch after disable failed:", err));
+  }
   emitOperatorAssistantUpdate(deps);
   return json({ assistantRuntime: config.assistantRuntime });
 }
@@ -12317,7 +12337,7 @@ async function handleSettingsSource({ req, parts, deps }: Ctx): Promise<Response
   if (denied) return denied;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const instanceId = parseSettingsSourceBody(await req.json().catch(() => null));
+  const instanceId = parseSettingsSourceBody(await readJsonBody(req));
   if (instanceId === undefined) return json({ error: "invalid_body" }, 400);
   const result = settingsSource(deps).set(instanceId);
   return result.ok ? json({ source: result.view }) : json({ error: "not found" }, 404);
@@ -12342,7 +12362,7 @@ async function putSteers(
 ): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const steers = validateSteers(body);
   if (!steers) return json({ error: "invalid steers payload" }, 400);
   if (source) return settingsSourceResponse(await source.putSteers(steers));
@@ -12368,7 +12388,7 @@ async function putProjectIcon(
 ): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const patch = validateIconPatch(body);
   if (!patch) return json({ error: "invalid project-icon payload" }, 400);
   if (source) return settingsSourceResponse(await source.putIcon(patch.path, patch.emoji));
@@ -12383,7 +12403,7 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
     if (req.method === "POST") {
       const ctErr = requireJsonContentType(req);
       if (ctErr) return ctErr;
-      const body = await req.json().catch(() => null);
+      const body = await readJsonBody(req);
       const parsed = validateBroadcast(body);
       if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
       return json(await deps.service.broadcast(parsed.ids, parsed.text));
@@ -12523,7 +12543,7 @@ async function handleHeld({ req, parts, deps, token }: Ctx): Promise<Response | 
   if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
     const b = firstRunBlock();
     if (b) return b;
-    const body = await req.json().catch(() => null);
+    const body = await readJsonBody(req);
     return heldSpawn(parts[2], deps, body, token);
   }
 
@@ -12531,7 +12551,7 @@ async function handleHeld({ req, parts, deps, token }: Ctx): Promise<Response | 
   if (req.method === "PATCH" && parts[2] && !parts[3]) {
     const ctErr = requireJsonContentType(req);
     if (ctErr) return ctErr;
-    const body = await req.json().catch(() => null);
+    const body = await readJsonBody(req);
     return heldUpdate(parts[2], deps, body, token);
   }
 
@@ -12547,7 +12567,7 @@ async function handleRetry({ req, parts, deps }: Ctx): Promise<Response | null> 
     if (req.method === "POST") {
       const ctErr = requireJsonContentType(req);
       if (ctErr) return ctErr;
-      const body = await req.json().catch(() => null);
+      const body = await readJsonBody(req);
       const parsed = validateRetry(body);
       if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
       return json(await deps.service.retryHalted(parsed.ids, parsed.text));
@@ -12684,6 +12704,7 @@ async function listIssuesWithBlockers(forge: GitForge): Promise<Issue[]> {
   const [issues, blockedByOpen] = await Promise.all([
     forge.listIssues(),
     Promise.resolve(forge.listBlockedByOpen?.())
+      // best-effort: blocked-by edges are optional enrichment; an empty map degrades gracefully
       .catch(() => null)
       .then((m) => m ?? new Map<number, number[]>()),
   ]);
@@ -12703,7 +12724,7 @@ function initEmptyCommit(dir: string, branch: string): { branch: string } {
     });
     return { branch };
   } catch {
-    // no existing base commit; create the minimal root commit below
+    // best-effort: no existing base commit; create the minimal root commit below
   }
   execGitSync(["checkout", "-B", branch], { cwd: dir, stdio: "pipe" });
   execGitSync(["commit", "--allow-empty", "-m", "Initial commit"], {
@@ -12852,7 +12873,7 @@ async function handleIssueCreate({ req, parts, deps, token }: Ctx): Promise<Resp
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "issues" || parts[2]) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as {
+  const body = (await readJsonBody(req)) as {
     repo?: string;
     title?: string;
     body?: string;
@@ -12895,7 +12916,7 @@ async function handleShepherdIssueCreate({ req, parts, deps }: Ctx): Promise<Res
   if (parts[2] !== "issues" || parts[3]) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as { title?: unknown; body?: unknown } | null;
+  const body = (await readJsonBody(req)) as { title?: unknown; body?: unknown } | null;
   if (!body) return json({ error: "invalid json" }, 400);
   const { title, body: issueBody } = body;
   const inputErr = issueCreateInputError(title, issueBody);
@@ -12946,7 +12967,7 @@ async function issueDrainTarget({
   const number = Number(parts[2]);
   if (!/^[1-9][0-9]*$/.test(parts[2] ?? "") || !Number.isSafeInteger(number))
     return json({ error: "invalid issue number" }, 400);
-  const operation = parseIssueDrainOperation(await req.json().catch(() => null));
+  const operation = parseIssueDrainOperation(await readJsonBody(req));
   if (!operation) return json({ error: "invalid drain operation or unexpected fields" }, 400);
   const forge = deps.resolveForge?.(dir);
   if (
@@ -13026,7 +13047,7 @@ async function handleIssueDrain(ctx: Ctx): Promise<Response | null> {
       logIssueDrainRelease(dir, issue, updated);
     } finally {
       invalidateIssuePeek(dir, number);
-      void deps.refreshBacklog?.(dir).catch(() => {});
+      void deps.refreshBacklog?.(dir).catch(() => {}); // best-effort: the warm poller reconciles
     }
     if (deps.drain) kickDrain(deps.drain, "issue labels");
     return json({ ...operation, ...issueDrainState(updated, autoLabel) });
@@ -13309,12 +13330,16 @@ async function manualMergePrStatus(
   number: number,
   deps: AppDeps,
 ): Promise<PrStatus | null> {
+  // best-effort: a missing snapshot falls back to the direct reads below
   const snap = await deps.openPrSnapshot?.get(forge).catch(() => null);
   for (const status of snap?.statuses.values() ?? []) if (status.number === number) return status;
   const rows = snap?.prs ?? (await forge.listPullRequests().catch(() => []));
   const head = rows.find((pr) => pr.number === number)?.headRefName;
   if (!head) return null;
-  return await forge.prStatus(head).catch(() => null);
+  return await forge.prStatus(head).catch((err: unknown) => {
+    console.warn(`[merge] PR #${number} status read failed:`, err);
+    return null;
+  });
 }
 
 /** Resolve + validate a backlog merge request: repo, PR number, forge, and the operator's
@@ -13383,7 +13408,7 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
     // hiccup must not fail the response, and the GraphQL refetch must not delay the
     // "merged" feedback. Pushes the merged PR (and any auto-closed linked issue) out
     // of the backlog counters + headline now; the warm poller reconciles regardless.
-    void deps.refreshBacklog?.(dir).catch(() => {});
+    void deps.refreshBacklog?.(dir).catch(() => {}); // best-effort: the warm poller reconciles
     return json({ ok: true });
   } catch (e) {
     return (
@@ -13407,6 +13432,7 @@ async function handleRepoPull({ req, parts, deps }: Ctx): Promise<Response | nul
   const forge = deps.resolveForge?.(dir) ?? null;
   const branch = await resolveDefaultBranch(dir, {
     hint: body.branch,
+    // best-effort: resolveDefaultBranch falls back to local git when the forge cannot answer
     forgeDefault: forge ? () => forge.defaultBranch().catch(() => null) : undefined,
   });
   if (!branch) return json({ ok: false, reason: "error" }, 502);
@@ -13464,8 +13490,9 @@ async function handleSyncFork({ req, parts, deps }: Ctx): Promise<Response | nul
   // synced fork tip. A fail-closed FF state (dirty/diverged local tree) is NOT a
   // sync failure — the remote fork is already current — so we still report ok.
   const branch = await resolveDefaultBranch(dir, {
-    forgeDefault: () => forge.defaultBranch().catch(() => null),
+    forgeDefault: () => forge.defaultBranch().catch(() => null), // best-effort: local git fallback
   });
+  // best-effort: the remote fork is already current, so a local sync failure still reports ok
   if (branch) await fastForwardDefaultBranch(dir, branch).catch(() => undefined);
   return json({ ok: true, branch: branch ?? undefined });
 }
@@ -13652,6 +13679,7 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
   // read is local git only (origin/HEAD, no forge call); any failure degrades to null.
   const [countsArr, defaultBranches] = await Promise.all([
     Promise.all(uniqueRepos.map((r) => inputs.counts(r.path))),
+    // best-effort: a repo whose default branch cannot be resolved shows without one
     Promise.all(uniqueRepos.map((r) => resolveDefaultBranch(r.path, {}).catch(() => null))),
   ]);
 
@@ -13745,7 +13773,7 @@ async function handleShape({ req, parts, deps }: Ctx): Promise<Response | null> 
     return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readJsonBody(req)) as Record<string, unknown> | null;
   const input = parseShapeBody(body);
   if (!input) {
     return json(
@@ -13775,7 +13803,7 @@ async function handleShapeBrief({ req, parts }: Ctx): Promise<Response | null> {
     return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readJsonBody(req)) as Record<string, unknown> | null;
   const block = body?.block as { questions?: unknown } | undefined;
   const round = normalizeRound({ draft: body?.draft, questions: block?.questions });
   if (!round) return json({ error: "invalid round" }, 400);
@@ -13822,7 +13850,7 @@ async function handleReadinessForge({ req, parts, url, deps }: Ctx): Promise<Res
   const forge = deps.resolveForge?.(dir) ?? null;
   const autoLabel = deps.store.getRepoConfig(dir).autoLabel;
   if (!apply) return forgeRoute("read", () => forgeReadiness(dir, forge, autoLabel));
-  const body = (await req.json().catch(() => null)) as { check?: unknown } | null;
+  const body = (await readJsonBody(req)) as { check?: unknown } | null;
   const check = body?.check;
   if (!isForgeCheckId(check)) return json({ error: "invalid check" }, 400);
   return forgeRoute("apply", () => applyForgeCheck(dir, forge, autoLabel, check));
@@ -13925,7 +13953,7 @@ function todoRead(repoParam: string): Response {
 }
 
 async function todoWrite(repoParam: string, req: Request): Promise<Response> {
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   if (
     body === null ||
     typeof body !== "object" ||
@@ -14790,7 +14818,7 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
   if (!Number.isInteger(parentNumber) || parentNumber <= 0)
     return json({ error: "parent must be a positive integer" }, 400);
   if (!deps.drain) return json({ error: "drain unavailable" }, 503);
-  const body = await req.json().catch(() => null);
+  const body = await readJsonBody(req);
   const patch = validateEpicRunPatch(body);
   if (patch === null) return json({ error: "invalid epic run patch" }, 400);
   if (stopsAnotherEpicsLead(deps.store, dir, parentNumber, patch))
@@ -15031,7 +15059,7 @@ async function handleEpicAutoFix({ req, parts, url, deps, token }: Ctx): Promise
   const { dir, parent, drain } = target;
   if (req.method === "GET")
     return json(drain.autoBlockers(dir, runForParent(deps.store, dir, parent)));
-  const body = validateEpicAutoFixRequest(await req.json().catch(() => null));
+  const body = validateEpicAutoFixRequest(await readJsonBody(req));
   if (!body) return json({ error: "invalid auto-fix request" }, 400);
   // Read after the body's await, so the write builds on the settings as they are now.
   const base = runForParent(deps.store, dir, parent);
@@ -15088,7 +15116,7 @@ async function handleEpicQueueReorder({ req, parts, url, deps }: Ctx): Promise<R
   if (parts[3]) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  const order = parseQueueOrder(await req.json().catch(() => null));
+  const order = parseQueueOrder(await readJsonBody(req));
   if (!order) return json({ error: "order must be an array of positive integers" }, 400);
   if (!deps.drain) return json({ error: "drain unavailable" }, 503);
   if (!deps.store.reorderEpicQueue(dir, order)) return json({ error: "queue changed" }, 409);
@@ -15229,6 +15257,7 @@ async function cachedLinkedPrs(repo: string, forge: GitForge): Promise<Map<numbe
   const hit = epicLinkedPrCache.get(repo);
   const now = Date.now();
   if (hit && now - hit.ts < COMPLETED_EPICS_LIST_TTL_MS) return hit.linked;
+  // best-effort: a failure caches an empty map; the pill degrades to assignee/author signals
   const linked = (await forge.listOpenPrLinkedIssues?.().catch(() => null)) ?? new Map();
   epicLinkedPrCache.set(repo, { linked, ts: now });
   return linked;
@@ -15322,7 +15351,7 @@ async function completedEpicPost(
     parts[3] === action
   ))
     return null;
-  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
+  const body = (await readJsonBody(req)) as { repo?: string; parent?: number } | null;
   const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const parent = body?.parent;
@@ -15475,7 +15504,7 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
     parts[3] === "land"
   ))
     return null;
-  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
+  const body = (await readJsonBody(req)) as { repo?: string; parent?: number } | null;
   const r = await resolveLandTarget(deps, body);
   if ("error" in r) return r.error;
   const { dir, parent, row, forge, pr } = r;
@@ -15532,7 +15561,7 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
       };
       deps.events?.emit("epic:completed", completed);
     } catch {
-      // best-effort emit; a bad childrenJson must not fail the land endpoint
+      // best-effort: a bad childrenJson must not fail the land endpoint
     }
   }
 
@@ -16627,7 +16656,7 @@ export function serve(deps: AppDeps, port: number) {
         if (m.active === true) sendTerminalOwners(ws);
       }
     } catch {
-      /* ignore malformed frames */
+      /* best-effort: a malformed client frame is dropped; the socket stays usable */
     }
   }
   function onBrowserViewMessage(

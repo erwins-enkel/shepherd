@@ -278,10 +278,10 @@ async function annotatedSessionAnswer(
 ): Promise<Response> {
   const machine = route.host.name;
   if (!/^application\/json(;|$)/i.test(response.headers.get("content-type") ?? "")) {
-    await response.body?.cancel().catch(() => {});
+    await response.body?.cancel().catch(() => {}); // best-effort: discarding an unread body; bad_response is returned regardless
     return machineFailure(machine, "bad_response");
   }
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = await response.json().catch(() => null); // best-effort: unparseable body → bad_response below
   const session = isRecord(body) && nested ? body.session : body;
   if (!isRecord(body) || !isRecord(session) || typeof session.id !== "string")
     return machineFailure(machine, "bad_response");
@@ -327,7 +327,7 @@ function passBack(leaf: string, res: Response): Response | null {
 async function machineAnswer(machine: string, leaf: string, res: Response): Promise<Response> {
   const answer = passBack(leaf, res);
   if (answer) return answer;
-  await res.body?.cancel().catch(() => {});
+  await res.body?.cancel().catch(() => {}); // best-effort: discarding an unread body; bad_response is returned regardless
   return machineFailure(machine, "bad_response");
 }
 
@@ -443,9 +443,10 @@ async function clearOnMachine(
   );
   if (!res.ok) return res.failure.reason;
   if (!res.response.ok) {
-    await res.response.body?.cancel().catch(() => {});
+    await res.response.body?.cancel().catch(() => {}); // best-effort: discarding an unread body
     return "bad_response";
   }
+  // best-effort: unparseable body → bad_response
   return parseResult(await res.response.json().catch(() => null)) ?? "bad_response";
 }
 

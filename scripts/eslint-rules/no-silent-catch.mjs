@@ -4,7 +4,7 @@
 //   • a `.catch(handler)` whose handler has an empty body, or only yields null/undefined/void 0.
 // A deliberate swallow passes only with a `best-effort: <why>` comment (colon + reason). Where it
 // goes: inside the catch block / the `.catch(...)` call, trailing on the call's last line, or on
-// its own line directly above `.catch`. Existing sites are baselined in eslint-suppressions.json.
+// its own line directly above `.catch`.
 //
 // Plain ESM (not TS) so eslint.config.js — run by node — imports it without a build step.
 

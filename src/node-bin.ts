@@ -74,7 +74,7 @@ export function resolveBunBin(opts: ResolveBunOpts = {}): string | null {
       const real = realpath(candidate);
       if (basename(real) === "bun") return real;
     } catch {
-      // missing/broken path: try the next candidate
+      // best-effort: missing/broken path — try the next candidate
     }
   }
   return null;

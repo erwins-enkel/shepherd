@@ -107,7 +107,9 @@ export class ApiErrorRetry implements SessionConsumer {
       await this.deps.handBack(id);
     } catch (e) {
       this.log(`[api-retry] fire ${id} failed: ${String(e)}`);
-      await this.deps.handBack(id).catch(() => {});
+      await this.deps.handBack(id).catch((err) => {
+        this.log(`[api-retry] hand-back ${id} failed: ${String(err)}`);
+      });
     }
   }
 

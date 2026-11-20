@@ -175,7 +175,7 @@ export class NetnsDevForwarder {
    */
   forward(sessionId: string, port: number): Promise<number | null> {
     const pending = this.#inflight.get(sessionId);
-    if (pending) return pending.catch(() => null).then(() => this.forward(sessionId, port));
+    if (pending) return pending.catch(() => null).then(() => this.forward(sessionId, port)); // best-effort: in-flight caller owns its error; we only wait, then retry
     const run = this.#forward(sessionId, port).finally(() => this.#inflight.delete(sessionId));
     this.#inflight.set(sessionId, run);
     return run;
@@ -217,7 +217,7 @@ export class NetnsDevForwarder {
       await this.#slirpCall(socket, {
         execute: "remove_hostfwd",
         arguments: { id: cached.id },
-      }).catch(() => {});
+      }).catch(() => {}); // best-effort: stale hostfwd may already be gone; re-added below
     for (let attempt = 1; attempt <= ADD_ATTEMPTS; attempt++) {
       try {
         const hostPort = await this.#allocPort();

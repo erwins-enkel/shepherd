@@ -90,7 +90,7 @@ export function clearApiKeyHelper(dir: string): void {
   try {
     rmSync(scriptPath, { force: true });
   } catch {
-    // best-effort; ignore missing file or dir
+    // best-effort: missing file or dir means there is nothing to remove
   }
 }
 

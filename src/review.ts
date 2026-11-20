@@ -2497,7 +2497,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       row.reviewerSessionId,
       row.reviewerProvider,
       row.model,
-    ).catch(() => null);
+    ).catch(() => null); // best-effort: unreadable usage records NULL tokens (backfillable)
     this.deps.store.completeReviewerSpawn(row.reviewerSessionId, usage, this.now());
     this.codexResolver.reset(row.reviewerSessionId); // row closed → drop its resolver entry
 
@@ -2570,7 +2570,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     this.starting.delete(sessionId);
     const f = this.inflight.get(sessionId);
     if (f) {
-      void this.deps.herdr.stop(f.terminalId).catch(() => {});
+      void this.deps.herdr.stop(f.terminalId).catch(() => {}); // best-effort: teardown; pane may already be gone
       this.deps.worktree.remove(f.worktreePath);
       this.dropInflight(sessionId, f);
       this.deps.onReviewing?.(sessionId, false);

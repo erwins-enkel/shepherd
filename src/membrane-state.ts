@@ -301,7 +301,7 @@ export function removeMembraneState(sessionId: string): void {
   try {
     rmSync(join(membraneStateRoot(), sessionId), { recursive: true, force: true });
   } catch {
-    // best-effort
+    // best-effort: teardown; a leftover copy must not fail session teardown
   }
 }
 

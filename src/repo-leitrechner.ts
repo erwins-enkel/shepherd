@@ -77,7 +77,7 @@ export class RepoLeitrechnerService {
             await (this.deps.fetch ?? refreshRepoConfigFile)(repo);
             ok = true;
           } catch {
-            // Known ownership fails closed on fetch errors; never disclose Git credentials.
+            // best-effort: known ownership fails closed on fetch errors (ok=false); never disclose Git credentials.
           }
           this.refreshed.set(key, { at: (this.deps.now ?? Date.now)(), ok });
         })();

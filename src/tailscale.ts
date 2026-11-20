@@ -94,7 +94,7 @@ const defaultIdentity = (): ServeIdentity => {
   try {
     username = userInfo().username;
   } catch {
-    /* no passwd entry — leave the name empty */
+    /* best-effort: no passwd entry — leave the name empty */
   }
   return { uid: process.getuid?.() ?? -1, username };
 };
@@ -145,7 +145,7 @@ export class TailscaleServeService {
   }
 
   private enqueue(op: () => Promise<void>): Promise<void> {
-    const next = this.queue.catch(() => {}).then(op);
+    const next = this.queue.catch(() => {}).then(op); // best-effort: prior op's caller owns its error; only serialize
     this.queue = next;
     return next;
   }
@@ -241,7 +241,7 @@ export class TailscaleServeService {
       try {
         runSync(["serve", `--https=${port}`, "off"]);
       } catch {
-        /* best effort */
+        /* best-effort: sync shutdown; one failed port must not block the rest */
       }
     }
     this.byId.clear();
@@ -316,7 +316,7 @@ export class TailscaleServeService {
         this.denied = false;
       }
     } catch {
-      /* prefs unreadable — keep the observed denial rather than guess */
+      /* best-effort: prefs unreadable — keep the observed denial rather than guess */
     }
     return this.denied;
   }

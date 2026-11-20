@@ -336,7 +336,8 @@ export class CodexResetCoordinator {
       this.save();
       await this.refresh();
     } catch {
-      /* Keep the same durable operation and key; never assume failure means no spend. */
+      /* best-effort: keep the same durable operation and key for the backed-off retry; never assume
+         failure means no spend. */
     }
   }
   snapshot(): { measurement: CodexAccountSnapshot | null; resetStatus: CodexResetStatus } {

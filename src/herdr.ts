@@ -876,7 +876,7 @@ export async function awaitPaneLeftShell(deps: {
     try {
       if ((await deps.procs()).some((name) => !SHELLS.has(name))) return true;
     } catch {
-      /* a transient process-info failure is no evidence either way — look again */
+      /* best-effort: a transient process-info failure is no evidence either way — look again */
     }
     if (deps.signal?.aborted) throw new SpawnCanceled();
     if (deps.now() >= deadline) return false;
@@ -949,7 +949,7 @@ export async function stopViaRecordedTab(
     try {
       tabs = await driver.tabsAsync();
     } catch {
-      /* transient tab-list failure — fall back to the agent-list path below */
+      /* best-effort: transient tab-list failure — fall back to the agent-list path below */
     }
     if (tabs) {
       const tab = tabs.find((t) => t.tabId === known.tabId);
@@ -1257,12 +1257,14 @@ export class HerdrDriver implements IHerdrDriver {
       // A half-created tab must not linger — roll it back so a failed create leaves nothing.
       // allowLastTab: undoing OUR own just-created tab, so the last-tab guard (#2039) must not
       // turn "leaves nothing" into a permanent orphan.
+      // best-effort: rollback only; the incomplete-pane error below is what surfaces
       if (tabId) await this.closeTab(tabId, { allowLastTab: true }).catch(() => {});
       throw new Error(`herdr: tab create returned an incomplete shell pane for ${label}`);
     }
     try {
       recordPowerPane(paneId);
     } catch (error) {
+      // best-effort: rollback only; the recordPowerPane error rethrown below is what surfaces
       await this.closeTab(tabId, { allowLastTab: true }).catch(() => {});
       throw error;
     }
@@ -1687,7 +1689,7 @@ export class HerdrDriver implements IHerdrDriver {
       try {
         await this.asyncRunner(["agent", "rename", renameTarget, agentLabel]);
       } catch {
-        /* best-effort */
+        /* best-effort: agent rename is cosmetic; a failure keeps the old label */
       }
     }
     if (agent.tabId) {
@@ -1697,7 +1699,7 @@ export class HerdrDriver implements IHerdrDriver {
         // tab (the stop() fallback refuses to close on a label mismatch, #1852).
         this.ledger.relabel(terminalId, newName);
       } catch {
-        /* best-effort */
+        /* best-effort: tab rename is cosmetic; the ledger keeps the old, still-matching label */
       }
     }
   }
@@ -1769,9 +1771,13 @@ export class HerdrDriver implements IHerdrDriver {
       try {
         await this.asyncRunner(["tab", "close", tabId]);
       } catch {
-        /* best-effort; tab may already be gone */
+        /* best-effort: tab may already be gone */
       }
-      if (restore) await this.ensureWorkspace(restore.cwd).catch(() => {});
+      if (restore) {
+        await this.ensureWorkspace(restore.cwd).catch((err) => {
+          console.warn("[herdr] workspace restore after tab close failed:", err);
+        });
+      }
     });
   }
 

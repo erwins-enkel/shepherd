@@ -109,6 +109,7 @@ export async function checkDestination(
   const host = normalizeDestHost(rawHost);
   if (LOOPBACK_NAMES.has(host)) {
     if (port === policy.previewPort()) return { allow: true, address: "127.0.0.1", port };
+    // best-effort: a failed dev-forward lookup fails closed (port refused below)
     const hostPort = (await policy.devForward?.(port).catch(() => null)) ?? null;
     return hostPort !== null
       ? { allow: true, address: "127.0.0.1", port: hostPort }

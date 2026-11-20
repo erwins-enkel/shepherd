@@ -45,7 +45,7 @@ export class PtyBridge {
         this.ws.send(chunk);
       }
     })().catch(() => {
-      /* stream torn down — onExit closes the ws */
+      /* best-effort: stream torn down — onExit closes the ws */
     });
   }
 

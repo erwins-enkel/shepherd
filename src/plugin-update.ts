@@ -162,7 +162,7 @@ export class PluginUpdateService {
         try {
           if ((await stat(join(this.pluginsDir, e.name))).isDirectory()) names.push(e.name);
         } catch {
-          /* dangling symlink — skip */
+          // best-effort: dangling symlink — skip
         }
       }
     }
@@ -211,7 +211,7 @@ export class PluginUpdateService {
         const parsed = JSON.parse(await readFile(join(dir, "plugin.json"), "utf8"));
         if (isRawManifest(parsed) && parsed.id === id) return { folder, dir, manifest: parsed };
       } catch {
-        /* not a plugin folder — skip */
+        // best-effort: not a plugin folder — skip
       }
     }
     return null;
@@ -275,7 +275,7 @@ export class PluginUpdateService {
     }
 
     // 5. refresh the snapshot so current()/the badge reflect the new on-disk version
-    await this.check(now).catch(() => {});
+    await this.check(now).catch(() => {}); // best-effort: update is applied; a later check recomputes the snapshot
     return { ok: true, folder, updatedTo };
   }
 
@@ -321,7 +321,7 @@ export class PluginUpdateService {
       // the operator's local config.json across the swap.
       await rm(join(scratch, ".git"), { recursive: true, force: true });
       await cp(join(dir, "config.json"), join(scratch, "config.json")).catch(() => {
-        /* no local config.json to preserve */
+        // best-effort: no local config.json to preserve
       });
       // Swap behind a backup: move the live folder aside, move the new one in, and on
       // failure put the original back so the folder is never left missing/partial.
@@ -330,12 +330,14 @@ export class PluginUpdateService {
       try {
         await rename(scratch, dir);
       } catch (e) {
-        await rename(backup, dir).catch(() => {});
+        await rename(backup, dir).catch((err) => {
+          console.warn(`[plugin-update] restoring ${dir} from backup failed:`, err);
+        });
         throw e;
       }
-      await rm(backup, { recursive: true, force: true }).catch(() => {});
+      await rm(backup, { recursive: true, force: true }).catch(() => {}); // best-effort: new version is live; a leftover backup dir is harmless
     } finally {
-      await rm(scratch, { recursive: true, force: true }).catch(() => {});
+      await rm(scratch, { recursive: true, force: true }).catch(() => {}); // best-effort: cleanup must not mask the update's own outcome
     }
   }
 

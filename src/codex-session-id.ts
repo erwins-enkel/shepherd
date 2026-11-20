@@ -146,7 +146,7 @@ export function backfillCodexProviderSessionIds(
       );
       if (id && store.fillProviderSessionId(row.id, row.codexLaunchId, id)) filled += 1;
     } catch {
-      /* one bad row must not abort the sweep */
+      /* best-effort: one bad row must not abort the sweep */
     }
   }
   if (filled > 0) console.log(`[codex-session-id] backfilled native ids for ${filled} row(s)`);
@@ -185,7 +185,7 @@ function rolloutHasLaunchMarker(path: string, marker: string): boolean {
         return true;
     }
   } catch {
-    // A malformed or incomplete record cannot establish launch provenance.
+    // best-effort: a malformed or incomplete record cannot establish launch provenance.
   }
   return false;
 }
@@ -240,6 +240,6 @@ function closeSyncQuiet(fd: number): void {
   try {
     closeSync(fd);
   } catch {
-    /* already closed */
+    /* best-effort: fd already closed */
   }
 }

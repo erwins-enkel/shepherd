@@ -162,7 +162,7 @@ function failureReporter(warn: NonNullable<ClassifierDeps["warn"]>): ReportFailu
     try {
       warn(message, err);
     } catch {
-      /* logging must not change the classifier verdict or teardown */
+      /* best-effort: logging must not change the classifier verdict or teardown */
     }
   };
 }

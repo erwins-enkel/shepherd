@@ -209,7 +209,7 @@ export class WorktreeMgr {
           encoding: "utf8",
         }).trim() || null;
     } catch {
-      /* unrelated histories or an unreadable base: recorded as unknown */
+      /* best-effort: unrelated histories or an unreadable base: recorded as unknown */
     }
     return { worktreePath, branch, isolated: true, baseCommit };
   }
@@ -263,7 +263,7 @@ export class WorktreeMgr {
       await execGit(["cat-file", "-e", `${sha}^{commit}`], { cwd: repoPath });
       return;
     } catch {
-      // not present locally — fetch it below
+      // best-effort: existence probe; not present locally — fetch it below
     }
     try {
       await timedAsync("git fetch", () =>
@@ -436,13 +436,13 @@ export class WorktreeMgr {
     }
     try {
       if (existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      console.warn(`[worktree] cleanup: could not remove partial ${worktreePath}:`, err);
     }
     try {
       execGitSync(["worktree", "prune"], { cwd: repoPath, stdio: "pipe" });
     } catch {
-      /* best-effort */
+      /* best-effort: a stale registration is pruned by the next successful prune */
     }
   }
 
@@ -614,7 +614,7 @@ export class WorktreeMgr {
       });
       checkedOutHere = stdout.trim() === baseBranch;
     } catch {
-      // detached HEAD or error → treat as not checked out here
+      // best-effort: detached HEAD or error → treat as not checked out here
     }
 
     if (checkedOutHere) {
@@ -626,7 +626,7 @@ export class WorktreeMgr {
         });
         dirty = stdout.trim().length > 0;
       } catch {
-        // can't determine → treat as dirty (safe)
+        // best-effort: can't determine → treat as dirty (safe)
       }
 
       if (dirty) {
@@ -687,7 +687,7 @@ export class WorktreeMgr {
         execGit(["fetch", "origin", "--", baseBranch], { cwd: worktreePath, pin }),
       );
     } catch {
-      /* offline / no origin — compare against whatever base ref is local */
+      /* best-effort: offline / no origin — compare against whatever base ref is local */
     }
     // Prefer the just-fetched remote ref; fall back to a local base branch.
     const candidates = [`origin/${baseBranch}`, baseBranch];
@@ -728,7 +728,7 @@ export class WorktreeMgr {
         execGit(["fetch", "origin", "--", baseBranch], { cwd: repoPath, timeout: 60_000 }),
       );
     } catch {
-      /* offline / no origin — compare against whatever remote ref is local */
+      /* best-effort: offline / no origin — compare against whatever remote ref is local */
     }
     try {
       const { stdout } = await execGit(
@@ -890,7 +890,7 @@ export class WorktreeMgr {
           stdio: "pipe",
         });
       } catch {
-        /* git refused (locked/edge/not-a-worktree); fall through to filesystem cleanup */
+        /* best-effort: git refused (locked/edge/not-a-worktree); fall through to filesystem cleanup */
       }
     }
     // guarantee the workspace is gone even if `git worktree remove` failed or was skipped
@@ -900,7 +900,7 @@ export class WorktreeMgr {
       try {
         execGitSync(["worktree", "prune"], { cwd: mainRepo, stdio: "pipe" });
       } catch {
-        /* best-effort */
+        /* best-effort: a stale registration is pruned by the next successful prune */
       }
       // delete the branch only once it's merged into its base; keep unmerged work
       if (opts?.branch && opts.baseBranch) {
@@ -910,13 +910,14 @@ export class WorktreeMgr {
     // Compose can reconstruct the project from labels after its files are gone. Keep this
     // asynchronous: an unavailable daemon must never hold up archival or the Bun event loop.
     try {
+      // best-effort: an unavailable compose daemon must never fail archival
       void this.cleanupCompose?.(worktreePath).catch(() => {});
     } catch {
-      /* best-effort, including a synchronously throwing injected hook */
+      /* best-effort: same, including a synchronously throwing injected hook */
     }
     // best-effort reclamation of the nested claude scratch dir for this worktree;
     // never blocks or fails archival (fire-and-forget, removeWorktreeScratch never throws).
-    void removeWorktreeScratch(worktreePath).catch(() => {});
+    void removeWorktreeScratch(worktreePath).catch(() => {}); // best-effort: scratch reclamation only
   }
 
   /** Detached worktree at a specific commit, fetching it from origin first so a
@@ -971,7 +972,7 @@ export class WorktreeMgr {
         execGit(["fetch", "origin", "--", branch], { cwd: repoPath }),
       );
     } catch {
-      /* offline / no origin — the sha may already be local; let worktree add decide */
+      /* best-effort: offline / no origin — the sha may already be local; let worktree add decide */
     }
     if (pullRef !== undefined) {
       try {
@@ -982,7 +983,7 @@ export class WorktreeMgr {
           execGit(["fetch", "origin", "--", pullRef], { cwd: repoPath }),
         );
       } catch {
-        /* offline / no origin / ref gone — let worktree add decide */
+        /* best-effort: offline / no origin / ref gone — let worktree add decide */
       }
     }
     // A prior critic run interrupted by a restart can leave this path behind;
@@ -1061,7 +1062,7 @@ export class WorktreeMgr {
     try {
       execGitSync(["branch", "-D", branch], { cwd: mainRepo, stdio: "pipe" });
     } catch {
-      /* best-effort */
+      /* best-effort: the branch is merged, so a failed delete loses no work */
     }
   }
 }

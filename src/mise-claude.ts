@@ -112,7 +112,7 @@ async function defaultListOnPath(name: string): Promise<string[]> {
       await access(candidate, constants.X_OK);
       if (!hits.includes(candidate)) hits.push(candidate);
     } catch {
-      // not here — keep walking PATH, exactly as execvp does.
+      // best-effort: not here — keep walking PATH, exactly as execvp does.
     }
   }
   return hits;
@@ -132,7 +132,7 @@ async function defaultListNative(dir: string): Promise<{ path: string; bytes: nu
       const st = await stat(path);
       if (st.isFile()) out.push({ path, bytes: st.size });
     } catch {
-      // vanished mid-scan / unreadable — not evidence of anything.
+      // best-effort: vanished mid-scan / unreadable — not evidence of anything.
     }
   }
   return out;

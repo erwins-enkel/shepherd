@@ -567,7 +567,7 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
           try {
             await inFlight;
           } catch {
-            /* previous cycle's failure is already logged; issue a fresh one */
+            /* best-effort: previous cycle's failure is already logged; issue a fresh one */
           }
         }
         const p = doRefresh().finally(() => {

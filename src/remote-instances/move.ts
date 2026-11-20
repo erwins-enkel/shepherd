@@ -164,7 +164,9 @@ export async function runMove(run: MoveRun): Promise<MoveReply> {
         },
       };
     case "failed":
-      await source.abort().catch(() => {});
+      await source.abort().catch((err) => {
+        console.warn(`[remote-move] resuming the original after a failed move failed:`, err);
+      });
       return { status: outcome.status, body: outcome.body };
   }
 }

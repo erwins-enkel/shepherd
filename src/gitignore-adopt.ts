@@ -107,7 +107,7 @@ export class GitignoreAdopter {
     try {
       await this.git(repoPath, ["fetch", "origin", "--", base]);
     } catch {
-      /* offline / no origin — createAdoptWorktree falls back to the local base ref */
+      /* best-effort: offline / no origin — createAdoptWorktree falls back to the local base ref */
     }
 
     // Short-circuit the common post-merge re-click: if the managed block already

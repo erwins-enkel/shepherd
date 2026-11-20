@@ -39,7 +39,7 @@ export async function loadOrCreateBrowserBrokerKey(path: string): Promise<Buffer
     if (!isCode(err, "EEXIST")) throw err;
     return readKey(path);
   } finally {
-    await unlink(tmp).catch(() => {});
+    await unlink(tmp).catch(() => {}); // best-effort: temp may already be gone; leftover is harmless
   }
 }
 

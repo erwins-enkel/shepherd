@@ -98,7 +98,10 @@ export class IntegratedChildSettler {
     const meta = await this.deps
       .resolveForge(s.repoPath)
       ?.prReviewMeta?.(own)
-      .catch(() => null);
+      .catch((err) => {
+        console.warn(`[settle] PR #${own} of ${s.id} unreadable; refusing as not merged:`, err);
+        return null;
+      });
     if (meta?.state !== "merged") return "not_merged";
     if (!isEpicIntegrationBranch(meta.baseRefName)) return "not_epic_child";
     return { number: own, title: git?.title ?? "" };

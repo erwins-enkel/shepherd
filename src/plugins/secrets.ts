@@ -133,7 +133,7 @@ export async function writeSecretsFile(path: string, contents: string): Promise<
     await rename(tmp, path);
     await chmod(path, 0o600);
   } catch (e) {
-    await rm(tmp, { force: true }).catch(() => {});
+    await rm(tmp, { force: true }).catch(() => {}); // best-effort: temp cleanup; the write error is rethrown
     throw e;
   }
 }

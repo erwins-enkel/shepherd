@@ -89,7 +89,7 @@ function resolveBin(bin: string, env: NodeJS.ProcessEnv): string | null {
       accessSync(candidate, constants.X_OK);
       return realpathSync(candidate);
     } catch {
-      // Continue to the next PATH entry.
+      // best-effort: not executable here — continue to the next PATH entry.
     }
   }
   return null;
@@ -614,7 +614,7 @@ export function runHerdrRecovery(options: {
         if (child.pid) process.kill(-child.pid, signal);
         else child.kill(signal);
       } catch {
-        // The worker exited between observing the signal and killing its process group.
+        // best-effort: the worker exited between observing the signal and killing its process group.
       }
     };
     const aborted = () => {

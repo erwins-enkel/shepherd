@@ -502,7 +502,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       try {
         await this.client.request("agent.rename", { target: renameTarget, name: agentLabel });
       } catch {
-        /* best-effort */
+        /* best-effort: agent rename is cosmetic; a failure keeps the old label */
       }
     }
     if (agent.tabId) {
@@ -511,7 +511,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
         // Mirror the successful TAB rename into the ledger — see the CLI driver (#1852).
         this.ledger.relabel(terminalId, newName);
       } catch {
-        /* best-effort */
+        /* best-effort: tab rename is cosmetic; the ledger keeps the old, still-matching label */
       }
     }
   }
@@ -536,9 +536,13 @@ export class SocketHerdrDriver implements IHerdrDriver {
       try {
         await this.client.request("tab.close", { tab_id: tabId });
       } catch {
-        /* best-effort; tab may already be gone */
+        /* best-effort: tab may already be gone */
       }
-      if (restore) await this.ensureWorkspace(restore.cwd).catch(() => {});
+      if (restore) {
+        await this.ensureWorkspace(restore.cwd).catch((err) => {
+          console.warn("[herdr] workspace restore after tab close failed:", err);
+        });
+      }
     });
   }
 

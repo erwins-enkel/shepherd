@@ -23,7 +23,7 @@ function runDocker(args: string[], timeoutMs: number, env: NodeJS.ProcessEnv): P
       try {
         if (child.pid) process.kill(-child.pid, "SIGKILL");
       } catch {
-        /* process group already gone */
+        /* best-effort: process group already gone */
       }
     };
     const finish = (error?: Error) => {

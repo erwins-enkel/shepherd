@@ -44,7 +44,7 @@ export async function resolveDiffBase(
         if (st.state === "none") return { base: session.baseBranch, resolved: true };
       }
     } catch {
-      // transient gh/forge failure — not authoritative; fall through to the stored base.
+      // best-effort: transient gh/forge failure — not authoritative; fall through to the stored base.
     }
   }
 

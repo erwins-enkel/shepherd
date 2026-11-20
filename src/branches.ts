@@ -33,7 +33,7 @@ export function listBranches(repoDir: string): BranchList {
         .toString()
         .trim() || null;
   } catch {
-    /* detached HEAD or other — leave null */
+    /* best-effort: detached HEAD or other — leave null */
   }
   // Repo default branch from the local origin/HEAD symref (no network). Resolved fresh per
   // call — /api/branches is not hot, and a cached value would go stale if origin/HEAD moves.
@@ -48,7 +48,7 @@ export function listBranches(repoDir: string): BranchList {
         .trim()
         .replace(/^origin\//, "") || null;
   } catch {
-    /* origin/HEAD unset — leave null; caller falls back to current */
+    /* best-effort: origin/HEAD unset — leave null; caller falls back to current */
   }
   return { branches, current, default: def };
 }

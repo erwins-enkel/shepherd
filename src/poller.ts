@@ -96,6 +96,10 @@ const DIALOG_PAINT_GRACE_MS = 10_000;
 const STOP_WINDOW_MAX_MS = 30_000;
 /** A Claude agent reaped within this long of its spawn with no transcript died at launch. */
 const LAUNCH_FAIL_WINDOW_MS = 120_000;
+/** A Shepherd-owned session never observed working reads `working` for this long after its
+ *  creation: a fresh spawn boots before its first spinner or hook lands. Past it, an unobserved
+ *  session (one found at rest after a Shepherd restart) gets the normal idle confirm. */
+const SPAWN_WORKING_GRACE_MS = 60_000;
 
 /** Clean-terminal pane sweep cadence: `pane list` costs a herdr round-trip, and shell-exit
  *  detection tolerates seconds of latency (archive needs 2 confirmed-gone sweeps anyway). */
@@ -2192,14 +2196,16 @@ export class StatusPoller {
   /** True when the session shows a FRESH active turn — a hook activity OR a probe/transcript activity
    *  emit within the last two probe cadences. The `lastActiveTurnAt` half is set in `emitActivity`,
    *  which runs on the `maybeProbe` path that drives the frozen-`working` route, so this does not
-   *  depend on hooks being on. A session we have NEVER observed a turn for reads working (not idle):
-   *  it was just registered `working`, and a spawning agent works before it rests — so this avoids a
-   *  spurious `working→idle→working` flap at startup, before the first probe/activity lands.
+   *  depend on hooks being on. A session we have NEVER observed a turn for reads working only within
+   *  `SPAWN_WORKING_GRACE_MS` of its creation: it was just registered `working`, and a spawning agent
+   *  works before it rests — so this avoids a spurious `working→idle→working` flap at startup. An
+   *  older unobserved session (at rest when Shepherd restarted) reads idle, so the terminal confirm
+   *  settles it instead of an assumed `working` sticking forever.
    *  A lapse alone does not push `idle`: `maybePushAgentState` first has the terminal confirm it. */
-  private isActiveTurnFresh(id: string, now: number): boolean {
-    if (this.hookActivityFresh(id, now)) return true;
-    const at = this.lastActiveTurnAt.get(id);
-    if (at === undefined) return true;
+  private isActiveTurnFresh(s: Session, now: number): boolean {
+    if (this.hookActivityFresh(s.id, now)) return true;
+    const at = this.lastActiveTurnAt.get(s.id);
+    if (at === undefined) return now - s.createdAt < SPAWN_WORKING_GRACE_MS;
     return now - at < 2 * this.probeCheckMs;
   }
 
@@ -2227,7 +2233,7 @@ export class StatusPoller {
     if (!s || !this.ownsAgentState(s)) return;
     const state = deriveHerdrState({
       blocked: this.lastBlockReason.has(id),
-      working: this.isActiveTurnFresh(id, this.now()),
+      working: this.isActiveTurnFresh(s, this.now()),
     });
     if (this.lastPushedState.get(id) === state) return;
     if (state === "idle" && !this.idleConfirmed(id)) {

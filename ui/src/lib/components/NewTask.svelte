@@ -4997,6 +4997,13 @@
       position: sticky;
       top: 0;
       z-index: 1;
+      min-height: 44px;
+      box-sizing: border-box;
+    }
+    /* Rows scrolled into view (open, arrow keys, typing) land below the stuck filter:
+       44px filter + .sheet-body's 12px top padding, which the sticky filter sits under. */
+    .ctx-sheet :global(.rs-list > li) {
+      scroll-margin-top: calc(44px + 12px);
     }
     .ctx-sheet .ctx-branch-select {
       background: var(--color-inset);

@@ -4177,7 +4177,11 @@ const LATE_PRIOR = {
 
 function lateHarness(
   findings: unknown[],
-  over: { prior?: any; writeBaselinePlan?: (wt: string, plan: string) => void } = {},
+  over: {
+    prior?: any;
+    writeBaselinePlan?: (wt: string, plan: string) => void;
+    readPlan?: () => string;
+  } = {},
 ) {
   const written: { wt: string; plan: string }[] = [];
   const h = harness({
@@ -4186,6 +4190,7 @@ function lateHarness(
     writeBaselinePlan:
       over.writeBaselinePlan ?? ((wt: string, plan: string) => written.push({ wt, plan })),
     readVerdict: () => ({ decision: "request-changes", summary: "s", body: "## Review", findings }),
+    ...(over.readPlan ? { readPlan: over.readPlan } : {}),
   });
   return { h, written };
 }
@@ -4280,3 +4285,22 @@ test("an early round never writes a baseline or demotes", async () => {
   await h.svc.tick();
   expect((h.store as any).gate.decision).toBe("changes_requested");
 });
+
+test.skipIf(!onLinux)(
+  "a clamped CURRENT plan: the reviewer may not see the changed span, demotion suspended",
+  async () => {
+    // The baseline is usable (written, previous review un-clamped), but THIS run's prompt elides the
+    // plan's middle — exactly where a change that makes a point a regression could sit.
+    const plan = bigPlan(200_000);
+    const { h, written } = lateHarness([NEW_POINT], { readPlan: () => plan });
+    await h.svc.consider(planningSession() as any);
+    expect(written).toHaveLength(1);
+    const p = promptOf(h);
+    expect(p).toMatch(/\[… \d+ bytes elided …\]/);
+    expect(p).not.toContain("Shepherd records NEW points");
+    expect(p).not.toContain(".shepherd-plan-previous.md");
+    await h.svc.tick();
+    expect((h.store as any).gate.decision).toBe("changes_requested");
+    expect((h.store as any).gate.findings).toEqual(["Cover the empty-input case."]);
+  },
+);

@@ -1085,7 +1085,16 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
         language,
         anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
         staleness && staleness.behind > 0 ? staleness : undefined,
-        { round, cap: this.cap, planClamped, amendments, operatorEdits, baseline },
+        {
+          round,
+          cap: this.cap,
+          planClamped,
+          amendments,
+          operatorEdits,
+          // A clamped CURRENT plan can elide exactly the changed span that makes a point a
+          // regression, so the reviewer could not classify origins: no enforced wording either.
+          baseline: baseline && !planClamped,
+        },
       );
   }
 
@@ -1300,7 +1309,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       this.deps.worktree.remove(path),
     );
     const round = this.briefedRound(session, prior);
-    const demotionActive = this.resolvePlanBaseline(session, prior, round, wt.worktreePath);
+    const baselineReady = this.resolvePlanBaseline(session, prior, round, wt.worktreePath);
     const composePrompt = this.composeReviewerPrompt(
       session,
       taskPrompt,
@@ -1309,7 +1318,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       { sha, anchored, ahead },
       plan,
       round,
-      demotionActive,
+      baselineReady,
     );
     const prompt = composePrompt(plan);
     // ONE pinned reviewer session id for every argv this spawn builds (#1944). reviewerArgv mints
@@ -1407,7 +1416,11 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     if (!fitted.ok) {
       return this.refuseOversizedSpawn(session, planHash, wt.worktreePath, fitted);
     }
+    // Demotion holds only when the reviewer saw the WHOLE current plan — the composer above drops
+    // the enforced wording on a clamped render by the same rule, so prompt and finalize agree.
+    let demotionActive = baselineReady;
     if (fitted.clamps.length) {
+      demotionActive = false;
       this.recordClamp(session, "plan", fitted.clamps);
     } else if (this.deps.store.clearSpawnNotice(session.id, "plan")) {
       // A spawn that needed NO clamp is the all-clear: drop any stale notice (and, with it, the

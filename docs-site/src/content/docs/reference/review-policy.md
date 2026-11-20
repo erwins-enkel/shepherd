@@ -86,8 +86,29 @@ Every point the critic raises is declared with a **severity** and a **pass**.
   review; the rest are discarded, so the critic is asked to pick the five worth reading.
 
 The **pass** names where the point came from — `bug`, `security`, `compliance` (a repo policy, house
-rule, or catalog requirement) or `scope`. It is classification only: nothing gates on it.
+rule, or catalog requirement) or `scope`. When `security` fits at all, it wins. Apart from the
+late-round rule below, it is classification only.
+
+Each point also declares its **origin** relative to the previous review round: `prior` (an earlier
+finding that is still not addressed), `regression` (caused by what changed since the previous
+review, including breakage in code that did not change) or `new` (anything the previous review could
+already have raised).
 
 A repository's policy can state which classes of issue matter more here, but it cannot change what
 the two severities mean, and an exclusion still may never suppress a verified correctness or
 security defect.
+
+## Late rework rounds
+
+Past the halfway point of the rework budget, a `new` point no longer blocks. Shepherd records it as a
+nit, tagged `late round` in the posted review, and does not send it back to the agent. A review left
+with nothing blocking is a comment, so the task can move on. Security points, unaddressed prior
+findings and regressions still block at any round.
+
+The plan gate applies the same rule. A demoted plan finding appears under the reviewer's suggestions,
+and a plan left with nothing blocking is approved.
+
+The rule only applies when Shepherd has a reliable baseline to compare against: the previous review
+requested changes, and its revision is available to the reviewer. After a technical failure, a
+force-push that removed the previous head, or a previous plan review that saw a truncated plan,
+the round runs without it.

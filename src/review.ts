@@ -42,8 +42,10 @@ import {
   defaultComputePatchId,
   defaultCollectBaseDelta,
   defaultReadReviewPolicy,
+  defaultHasCommit,
   scopeFindings,
   effectiveRound,
+  isLateRound,
   buildVerdictCore,
   normalizePlanDrift,
   normalizePlanDriftNote,
@@ -307,6 +309,10 @@ interface InFlight {
   /** #2155: an APPROVED PLAN block was in this run's prompt, so a plan-drift answer is meaningful.
    *  False ⇒ the critic had nothing to measure against and any drift it reports is discarded. */
   planShown: boolean;
+  /** A late rework round with a usable baseline (see ReviewService.resolveBaselineHead): this run's
+   *  NEW findings are demoted to nits at finalize. Fixed at begin() so the prompt the critic read
+   *  and the rule applied to its verdict can never disagree. */
+  demotionActive: boolean;
   /** RAW `readAsync(terminalId, "visible")` buffer from the previous tick — NOT the collapsed
    *  single-line `readPaneTail()` shape. Backs the unchanged-buffer half of the stuck-pane test,
    *  so it must be the same shape the detector classifies. */
@@ -518,6 +524,10 @@ export interface ReviewServiceDeps extends MembraneSeams {
     baseSha: string,
     repoPath?: string,
   ) => Promise<string | null>;
+  /** Injectable "does `sha` resolve to a commit in the critic worktree?" check (default: read-only
+   *  `git cat-file -e`). Gates the late-round demotion: a baseline head the critic cannot diff
+   *  against is no baseline. False on any failure. */
+  hasCommit?: (worktreePath: string, sha: string, repoPath?: string) => Promise<boolean>;
 }
 
 /** A PR no critic can act on any more: it merged, or it was closed unmerged. Either way the
@@ -599,6 +609,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     repoPath?: string,
   ) => Promise<string | null>;
   private worktreeExists: (p: string) => boolean;
+  private hasCommit: (worktreePath: string, sha: string, repoPath?: string) => Promise<boolean>;
 
   constructor(private deps: ReviewServiceDeps) {
     super();
@@ -624,6 +635,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
+    this.hasCommit = deps.hasCommit ?? defaultHasCommit;
   }
 
   /** Decide whether `git` warrants a fresh critic run for `session`, and start one. With
@@ -950,6 +962,12 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // `starting` re-check below, which must remain the LAST await-gated step before the spawn.
     const reviewPolicy = await this.resolveReviewPolicy(wt.worktreePath, baseSha, session.repoPath);
 
+    // #1948: the rework round the critic is briefed with — resolved HERE (it is synchronous) because
+    // the late-round baseline below needs it, and that check awaits git, so it must stay ahead of
+    // the `starting` re-check that has to remain the LAST await-gated step before the spawn.
+    const round = this.briefedRound(prior);
+    const baselineHead = await this.resolveBaselineHead(prior, round, wt.worktreePath, session);
+
     // forget() (session archived) may have fired during any await above (author-notes, issue-body
     // fetch, or the epic base-delta collection); it clears our `starting` claim as a tombstone.
     // Abort (reaping the worktree we allocated) before spawning so we don't run for — and re-post a
@@ -982,8 +1000,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // #2225: the operator's standing amendments to the task. Synchronous store read, resolved here
     // with the rest of the per-run context; retracted ones are already excluded at the source.
     const amendments = this.deps.store.listActiveTaskAmendments(session.id);
-    // #1948: the rework round the critic is briefed with.
-    const round = this.briefedRound(prior);
     const taskPrompt = prepareReviewerTaskPrompt(session.prompt, wt.worktreePath, (path) =>
       this.deps.worktree.remove(path),
     );
@@ -999,6 +1015,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       planCtx.approved,
       amendments,
       planCtx.provenance,
+      baselineHead,
     );
     const argvFor = (p: string): string[] =>
       this.criticArgvFor(p, reviewerEnv, criticSessionId, planCtx.planShown);
@@ -1066,6 +1083,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       ...priorStreakState(prior),
       seenNoteIds,
       planShown: planCtx.planShown,
+      demotionActive: baselineHead !== null,
     });
     // Persist the spawn row now (totals NULL until finalize) so review burn is attributable
     // even if the run crashes/times out before producing a verdict (issue #502).
@@ -1249,6 +1267,29 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     return effectiveRound(prior?.addressRound ?? 0, prior?.streakReviews ?? 0, this.cap);
   }
 
+  /** The late-round demotion BASELINE: the head of the previous review, or null ⇒ demotion is
+   *  suspended for this run and it behaves exactly as before. All three must hold:
+   *   - a late round (see {@link isLateRound}) — early rounds keep full latitude;
+   *   - the stored prior is a real `changes_requested` WITH findings. An `error` verdict carries
+   *     `findings: []` and the errored head, so after A changes_requested → error on B → retry on B
+   *     the priors and the last genuinely reviewed revision are both gone — no baseline;
+   *   - that head resolves in the critic worktree. `createDetached` only guarantees the current
+   *     head; a force-pushed-away one may be missing, and the critic could not diff against it. */
+  private async resolveBaselineHead(
+    prior: ReviewVerdict | null,
+    round: number,
+    worktreePath: string,
+    session: Session,
+  ): Promise<string | null> {
+    if (!isLateRound(round, this.cap)) return null;
+    if (prior?.decision !== "changes_requested" || !prior.findings.length) return null;
+    if (await this.hasCommit(worktreePath, prior.headSha, session.repoPath)) return prior.headSha;
+    console.warn(
+      `[review] late-round demotion suspended for ${session.id}: baseline ${prior.headSha} not in the critic worktree`,
+    );
+    return null;
+  }
+
   /** Build the read-only critic's argv — deliberately NOT --dangerously-skip-permissions. It
    *  inspects an UNTRUSTED PR diff, so a prompt-injection hidden in that diff must not be able
    *  to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
@@ -1343,6 +1384,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     planApproved: boolean,
     amendments: readonly TaskAmendment[],
     planProvenance: PlanProvenance | null,
+    baselineHead: string | null,
   ): (v: ComposeVars) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -1372,6 +1414,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
         reviewPolicy: v.reviewPolicy,
         amendments,
         planProvenance,
+        baselineHead,
       });
   }
 
@@ -2134,7 +2177,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     raw: RawVerdict | null,
     cause: NoVerdictCause | null = null,
   ): ReviewVerdict {
-    const core = buildVerdictCore(raw, f.baseSha, f.files, f.patchId, f.sessionId);
+    const core = buildVerdictCore(raw, f.baseSha, f.files, f.patchId, f.sessionId, {
+      late: f.demotionActive,
+    });
     const drift =
       f.planShown && core.decision !== "error" ? normalizePlanDrift(raw?.planDrift) : null;
     return {

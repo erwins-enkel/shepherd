@@ -1098,10 +1098,16 @@ export type ReviewDecision = "changes_requested" | "commented" | "error";
  *  recorded, rendered into the posted review body, and never steered. */
 export type FindingSeverity = "important" | "nit";
 
-/** #2165 — the named review pass a finding came out of (the playbook's taxonomy). Classification
- *  only: nothing gates on it. `compliance` covers repo policy / house rules / catalog parity;
- *  `scope` covers "does not satisfy the task" and explicit-boundary violations. */
+/** #2165 — the named review pass a finding came out of (the playbook's taxonomy). `compliance`
+ *  covers repo policy / house rules / catalog parity; `scope` covers "does not satisfy the task"
+ *  and explicit-boundary violations. Classification only, with ONE exception: in a late rework
+ *  round `security` keeps a NEW finding blocking (see `buildVerdictCore`'s `late` option). */
 export type FindingPass = "bug" | "security" | "compliance" | "scope";
+
+/** How a finding relates to the PREVIOUS review round: `prior` re-raises an unaddressed prior
+ *  finding, `regression` is caused by what changed since that review, `new` is anything the
+ *  previous review could already have raised. Drives the late-round demotion only. */
+export type FindingOrigin = "prior" | "regression" | "new";
 
 /** #2165 — one critic finding as the verdict declares it. `text` keeps the existing
  *  `<path>: <finding>` convention the scope backstop and the Diff tab parse, so severity is
@@ -1110,6 +1116,9 @@ export interface CriticFinding {
   text: string;
   severity: FindingSeverity;
   pass: FindingPass;
+  /** Present ONLY when the critic explicitly declared a valid severity, pass AND origin for this
+   *  entry — an incomplete entry never carries one, so it can never be demoted. */
+  origin?: FindingOrigin;
 }
 
 /** Why a critic run produced no usable verdict. A SERVER-authored reason, so it travels as a

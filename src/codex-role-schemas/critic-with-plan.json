@@ -5,9 +5,10 @@
       "properties": {
         "text": { "type": "string", "pattern": "\\S" },
         "severity": { "type": "string", "enum": ["important", "nit"] },
-        "pass": { "type": "string", "enum": ["bug", "security", "compliance", "scope"] }
+        "pass": { "type": "string", "enum": ["bug", "security", "compliance", "scope"] },
+        "origin": { "type": "string", "enum": ["prior", "regression", "new"] }
       },
-      "required": ["text", "severity", "pass"],
+      "required": ["text", "severity", "pass", "origin"],
       "additionalProperties": false
     },
     "nullableString": {

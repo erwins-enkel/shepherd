@@ -130,11 +130,31 @@ describe("Codex role output schemas", () => {
 
     const planReview = readJson(join(FIXTURE_DIR, "plan-review.json")) as Record<string, unknown>;
     expect(compiled.get("planReview")!({ ...planReview, decision: "comment" })).toBe(false);
+    // Plan findings are objects whose origin + boolean security drive the late-round demotion.
+    const planFinding = { text: "Name the migration step.", origin: "new", security: false };
+    expect(compiled.get("planReview")!({ ...planReview, findings: [planFinding] })).toBe(true);
+    expect(compiled.get("planReview")!({ ...planReview, findings: ["bare string"] })).toBe(false);
+    expect(
+      compiled.get("planReview")!({
+        ...planReview,
+        findings: [{ ...planFinding, security: "no" }],
+      }),
+    ).toBe(false);
+    expect(
+      compiled.get("planReview")!({ ...planReview, findings: [{ ...planFinding, origin: "old" }] }),
+    ).toBe(false);
 
     const critic = readJson(join(FIXTURE_DIR, "critic.json")) as Record<string, unknown>;
     const criticFindings = structuredClone(critic.findings) as Record<string, unknown>[];
     criticFindings[0]!.severity = "warning";
     expect(compiled.get("critic")!({ ...critic, findings: criticFindings })).toBe(false);
+    // `origin` drives the late-round demotion, so the schema must force a valid one.
+    const badOrigin = structuredClone(critic.findings) as Record<string, unknown>[];
+    badOrigin[0]!.origin = "old";
+    expect(compiled.get("critic")!({ ...critic, findings: badOrigin })).toBe(false);
+    const noOrigin = structuredClone(critic.findings) as Record<string, unknown>[];
+    delete noOrigin[0]!.origin;
+    expect(compiled.get("critic")!({ ...critic, findings: noOrigin })).toBe(false);
 
     const recap = readJson(join(FIXTURE_DIR, "recap.json")) as Record<string, unknown>;
     const recapBlocks = structuredClone(recap.blocks) as Record<string, unknown>[];

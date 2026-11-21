@@ -47,6 +47,7 @@ import { issuesFreshness } from "./repo-freshness";
 import { headBatcherFor, headKey } from "./github-head-batch";
 import { currentGhCaller } from "./gh-caller";
 import { readEpicStructureByParts } from "./epic-structure";
+import { downloadGithubArtifactZip } from "./github-artifact";
 import { Semaphore } from "../semaphore";
 import { backoffDelay, sleep as defaultSleep } from "../async";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
@@ -72,6 +73,7 @@ import type {
   ForgeDependabotAlert,
   ForgeRepoVisibility,
   ForgeRun,
+  ForgeRunArtifact,
   ForgeRunJob,
   GitForge,
   Issue,
@@ -2411,6 +2413,38 @@ export class GithubForge implements GitForge {
   ): Promise<{ job: string; step: string; lines: string[] }[]> {
     const out = await this.run(["run", "view", String(runId), "--repo", this.slug, "--log-failed"]);
     return parseFailedLog(out);
+  }
+
+  async listRunArtifacts(runId: number): Promise<ForgeRunArtifact[]> {
+    const out = await this.run([
+      "api",
+      `repos/${this.slug}/actions/runs/${runId}/artifacts?per_page=100`,
+    ]);
+    const parsed = JSON.parse(out || "{}") as {
+      artifacts?: Array<{ id?: number; name?: string; size_in_bytes?: number; expired?: boolean }>;
+    };
+    return (parsed.artifacts ?? []).map((a) => ({
+      id: a.id ?? 0,
+      name: a.name ?? "",
+      sizeBytes: a.size_in_bytes ?? 0,
+      expired: a.expired ?? false,
+    }));
+  }
+
+  async runLogText(runId: number, o: { jobId?: number }): Promise<string> {
+    return o.jobId === undefined
+      ? this.run(["run", "view", String(runId), "--repo", this.slug, "--log-failed"])
+      : // Porcelain, not `gh api …/logs`: gh refuses raw logs carrying terminal escapes, and
+        // `run view` strips them.
+        this.run(["run", "view", "--job", String(o.jobId), "--repo", this.slug, "--log"]);
+  }
+
+  downloadArtifactZip(
+    artifactId: number,
+    destFile: string,
+    o: { maxBytes: number; signal?: AbortSignal },
+  ): Promise<number> {
+    return downloadGithubArtifactZip(this.slug, artifactId, destFile, o);
   }
 
   /** Open code scanning alerts on the default branch (the API's default `ref`). */

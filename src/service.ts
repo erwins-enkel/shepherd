@@ -54,6 +54,7 @@ import type { EventHub } from "./events";
 import {
   agentMcpConfigArg,
   browserLoginAllowed,
+  ciDownloadAllowed,
   hasAgentTools,
   isNonCodeMode,
   OPERATOR_ASSISTANT_CAPABILITIES,
@@ -4549,6 +4550,11 @@ export class SessionService {
       operatorDiag: false,
       operatorActions: false,
       scheduleNoop: Boolean(input.scheduleId) && !input.plain,
+      ciDownload: ciDownloadAllowed({
+        plain: input.plain,
+        profile,
+        repoMode: repoConfig.repoMode,
+      }),
     };
     // #3337: `--settings` / `--mcp-config` as 0600 file paths carrying the ingress key.
     argv.push(

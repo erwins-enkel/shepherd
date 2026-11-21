@@ -700,6 +700,14 @@ export interface OpenPrSnapshot {
   source?: "graphql" | "rest";
 }
 
+/** One workflow-run artifact, for `ci_download`. `name` comes from the repo's CI config. */
+export interface ForgeRunArtifact {
+  id: number;
+  name: string;
+  sizeBytes: number;
+  expired: boolean;
+}
+
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
@@ -766,6 +774,18 @@ export interface GitForge {
   getRunDetail?(runId: number): Promise<ForgeRun | null>;
   /** Raw jobs of one run, for summary rows from {@link listDefaultBranchRuns}. */
   runJobs?(runId: number): Promise<ForgeRunJob[]>;
+  /** One run's artifacts (one REST page of 100). Optional: GitHub only (`ci_download`). */
+  listRunArtifacts?(runId: number): Promise<ForgeRunArtifact[]>;
+  /** Raw log text, untrusted: one job's full log when `jobId` is set, else the run's
+   *  failed-step logs. Optional: GitHub only (`ci_download`). */
+  runLogText?(runId: number, o: { jobId?: number }): Promise<string>;
+  /** Stream an artifact's zip into `destFile` (created exclusively) under `maxBytes`; resolves
+   *  with the byte count. Never extracts. Optional: GitHub only (`ci_download`). */
+  downloadArtifactZip?(
+    artifactId: number,
+    destFile: string,
+    o: { maxBytes: number; signal?: AbortSignal },
+  ): Promise<number>;
   /** Every failed step's full log lines, grouped by job + step in log order. Untrusted text. */
   failedRunStepLogs?(runId: number): Promise<{ job: string; step: string; lines: string[] }[]>;
   /** Open code scanning alerts on the default branch. Optional: GitHub only. Rejects on a

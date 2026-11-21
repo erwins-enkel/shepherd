@@ -26,6 +26,18 @@ can't reach the ingress get an automatic steer instead. The note goes out once
 per host, within `EGRESS_DROP_CAP` (20 distinct hosts per session), and tells
 the agent not to retry but to ask the operator to allow the host. The agent's
 `self_status` reports these hosts as `egressBlocked`.
+**CI logs and artifacts** (`src/ci-download.ts`): `gh run download` and
+`gh run view --log*` redirect to GitHub Actions blob storage
+(`productionresultssa<N>.blob.core.windows.net`, ~200 shared-IP Azure hosts, and
+`results-receiver.actions.githubusercontent.com`), which stays blocked. Autonomous
+Claude sessions instead get the `ci_download` MCP tool: the server fetches the run's
+failed-step logs, one job's log, or an artifact's raw zip (never extracted
+server-side, ≤512 MiB) for the session's own repo and writes it to
+`<worktree>/.shepherd-ci/run-<id>/` through held directory fds (`O_NOFOLLOW`
+per component, `O_EXCL` file), so a symlink planted or swapped in the
+agent-writable worktree can't redirect the write. A block on those hosts tells the
+agent to use `ci_download` instead of asking for an allowlist change. Linux only,
+like the egress backend.
 The operator reviews them under Repo settings › Agent › **Blocked hosts** (#3922,
 `GET /api/repo-egress-blocks`: the repo's `egress_drop` signals per host, minus
 hosts already on the effective allowlist). The block toast's **Review** action

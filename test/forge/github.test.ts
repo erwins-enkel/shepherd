@@ -4237,6 +4237,32 @@ test("GithubForge.failedRunStepLogs: groups --log-failed lines by job + step", a
   expect(calls.at(-1)).toEqual(["run", "view", "501", "--repo", "o/r", "--log-failed"]);
 });
 
+test("GithubForge.listRunArtifacts: maps one repo-scoped page", async () => {
+  const { run, calls } = runsRunner({
+    "repos/o/r/actions/runs/501/artifacts?per_page=100": JSON.stringify({
+      artifacts: [
+        { id: 9, name: "playwright-report", size_in_bytes: 1234, expired: false },
+        { id: 10, name: "old", size_in_bytes: 5, expired: true },
+      ],
+    }),
+  });
+  expect(await new GithubForge("o/r", {}, run).listRunArtifacts(501)).toEqual([
+    { id: 9, name: "playwright-report", sizeBytes: 1234, expired: false },
+    { id: 10, name: "old", sizeBytes: 5, expired: true },
+  ]);
+  expect(calls.at(-1)).toEqual(["api", "repos/o/r/actions/runs/501/artifacts?per_page=100"]);
+});
+
+test("GithubForge.runLogText: failed-step logs by default, one job's log with jobId", async () => {
+  const { run, calls } = runsRunner({ "run view": "log text" });
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.runLogText(501, {})).toBe("log text");
+  expect(calls.at(-1)).toEqual(["run", "view", "501", "--repo", "o/r", "--log-failed"]);
+  expect(await forge.runLogText(501, { jobId: 77 })).toBe("log text");
+  // Porcelain, so gh strips terminal escapes (raw `gh api …/logs` refuses them).
+  expect(calls.at(-1)).toEqual(["run", "view", "--job", "77", "--repo", "o/r", "--log"]);
+});
+
 /** Runner keyed on the full argv; a value of `null` rejects like gh on a 404. */
 function exactRunner(responses: Record<string, string | null>) {
   const calls: string[][] = [];

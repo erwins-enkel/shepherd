@@ -763,6 +763,12 @@ unconfined instead (a `full`-scope action). The full residual
 posture — the accepted in-membrane token-readability gap and the prompt-injection
 posture — is documented on the [Security](/reference/security/) page.
 
+GitHub Actions log and artifact storage (`productionresultssa<N>.blob.core.windows.net`,
+`results-receiver.actions.githubusercontent.com`) doesn't need allowing: Autonomous Claude sessions
+fetch CI logs and artifacts with Shepherd's `ci_download` tool, which downloads outside the sandbox
+into the session's worktree (`.shepherd-ci/`). Entries for those hosts you added before can be
+removed.
+
 **Blocked hosts.** Each host the `autonomous` egress firewall blocks shows once as a toast
 (**Review** opens the list) and lands in the repo settings under Agent environment › **Blocked
 hosts**: host, how often, how many sessions hit it and when, for the last 60 days. **Allow for this

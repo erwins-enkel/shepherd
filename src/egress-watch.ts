@@ -44,9 +44,32 @@ export const EGRESS_DROP_CAP = 20;
 const NOTE_HOST_UNSAFE = /[^a-z0-9._-]/g;
 const MAX_NOTE_HOST_CHARS = 253;
 
+/** GitHub Actions log/artifact storage, which `gh run download` / `gh run view --log*` redirect
+ *  to: `productionresultssa<N>.blob.core.windows.net` and `results-receiver.actions.githubusercontent.com`. */
+const ACTIONS_RESULTS_HOST =
+  /^(?:productionresultssa\d{1,3}\.blob\.core\.windows\.net|results-receiver\.actions\.githubusercontent\.com)$/;
+
+/** Whether `host` is GitHub Actions results storage (fetched for the agent by `ci_download`). */
+export function isActionsResultsHost(host: string): boolean {
+  return ACTIONS_RESULTS_HOST.test(host.toLowerCase());
+}
+
+/** The blocked note for Actions results storage: point at `ci_download` instead of an allowlist
+ *  change — allowing it means ~200 shared-IP Azure storage hosts. */
+function actionsResultsNote(host: string): string {
+  return (
+    `Shepherd: egress to ${noteHost(host)} (GitHub Actions log/artifact storage) was blocked by ` +
+    "the sandbox allowlist. This is not a network fault. Don't retry it and don't ask the " +
+    "operator to allow it: call Shepherd's `ci_download` tool with the run id (plus `artifact` " +
+    "or `jobId`) and Shepherd fetches the logs or artifact into your worktree. Only if you have " +
+    "no `ci_download` tool, tell the operator you could not fetch the CI output."
+  );
+}
+
 /** The note that tells the agent a host was blocked (#3921) — single source for the hook and
  *  steer channels. Agent-facing English, like Shepherd's other directives. */
 export function egressBlockedNote(host: string): string {
+  if (isActionsResultsHost(host)) return actionsResultsNote(host);
   return (
     `Shepherd: egress to ${noteHost(host)} was blocked by the sandbox allowlist (autonomous ` +
     "egress firewall). This is not a network fault. Don't retry or work around it. Tell the " +

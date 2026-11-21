@@ -6,6 +6,7 @@ import { test, expect } from "bun:test";
 import {
   agentMcpConfigArg,
   agentTools,
+  ciDownloadAllowed,
   applyEpicDraft,
   applyQueueStep,
   applyQueueWrite,
@@ -1178,3 +1179,67 @@ for (const agentProvider of ["claude", "codex"] as const) {
     expect(dispatched).toBe(1);
   });
 }
+
+// ── ci_download ──────────────────────────────────────────────────────────────
+
+test("ci_download is offered only to non-plain autonomous sessions outside lightweight repos", () => {
+  const names = (deps: AgentControlDeps, id: string) => agentTools(deps, id).map((t) => t.name);
+  const auto = harness({ sandboxApplied: "autonomous" });
+  expect(names(auto.deps, auto.sessionId)).toEqual([...READ_TOOLS, "ci_download"]);
+  for (const profile of ["trusted", "standard"] as const) {
+    const h = harness({ sandboxApplied: profile });
+    expect(names(h.deps, h.sessionId)).not.toContain("ci_download");
+  }
+  const plain = harness({ sandboxApplied: "autonomous", plain: true });
+  expect(names(plain.deps, plain.sessionId)).not.toContain("ci_download");
+  const light = harness({ sandboxApplied: "autonomous" });
+  light.store.setRepoConfig("/repo", {
+    ...light.store.getRepoConfig("/repo"),
+    repoMode: "lightweight",
+  });
+  expect(names(light.deps, light.sessionId)).not.toContain("ci_download");
+  expect(
+    ciDownloadAllowed({
+      plain: false,
+      profile: "autonomous",
+      repoMode: "forge",
+      agentProvider: "codex",
+    }),
+  ).toBe(false);
+});
+
+test("a non-autonomous session calling ci_download is the -32602 entitlement error", async () => {
+  const { deps, sessionId } = harness({ sandboxApplied: "standard" });
+  const body = (await call(deps, sessionId, "ci_download", { runId: 1 })).body as {
+    error: { code: number };
+  };
+  expect(body.error.code).toBe(-32602);
+});
+
+test("ci_download hands the caller's own repo + worktree to the broker", async () => {
+  const { deps, sessionId } = harness({ sandboxApplied: "autonomous" });
+  const seen: unknown[] = [];
+  deps.ciDownloads = {
+    request: async (session, args) => {
+      seen.push([session, args]);
+      return { ok: true, data: { status: "pending", message: "wait" } };
+    },
+  };
+  const { isError, payload } = toolPayload(
+    await call(deps, sessionId, "ci_download", { runId: 9 }),
+  );
+  expect(isError).toBe(false);
+  expect(payload.status).toBe("pending");
+  expect(seen).toEqual([
+    [{ id: sessionId, repoPath: "/repo", worktreePath: "/repo" }, { runId: 9 }],
+  ]);
+});
+
+test("ci_download without a broker is an isError result", async () => {
+  const { deps, sessionId } = harness({ sandboxApplied: "autonomous" });
+  const { isError, payload } = toolPayload(
+    await call(deps, sessionId, "ci_download", { runId: 9 }),
+  );
+  expect(isError).toBe(true);
+  expect(payload.error).toContain("unavailable");
+});

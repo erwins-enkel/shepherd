@@ -578,6 +578,7 @@ import {
   type ApplyResult,
   type GithubBackoff,
 } from "./agent-control";
+import { CiDownloads } from "./ci-download";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { ASSISTANT_INGRESS_HEADER } from "./assistant-ingress";
 import {
@@ -9353,6 +9354,17 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   return json(outcome.body, outcome.status);
 }
 
+/** One `ci_download` broker per app (it holds the in-flight downloads across MCP requests). */
+const ciDownloadBrokers = new WeakMap<AppDeps, CiDownloads>();
+function ciDownloadsFor(deps: AppDeps): CiDownloads {
+  let broker = ciDownloadBrokers.get(deps);
+  if (!broker) {
+    broker = new CiDownloads({ forgeFor: (dir) => deps.resolveForge?.(dir) ?? null });
+    ciDownloadBrokers.set(deps, broker);
+  }
+  return broker;
+}
+
 /** The control plane's deps: AppDeps plus the Operator Assistant's diagnostic reads and actions,
  *  and the Shared Browser tab opener `browser_request_login` needs (a tab remembered as the
  *  session's, so Browser View preselects it). */
@@ -9367,6 +9379,7 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
     operatorActions: operatorActionDeps(deps),
     sessionPhase: (s) => sessionPhases(deps).phaseOf(s),
     egressBlocked: (id) => deps.egress?.blockedHosts(id) ?? null,
+    ciDownloads: ciDownloadsFor(deps),
     scheduleNoop: {
       hasLocalWork,
       archive: (id) => archiveAndAnnounce(deps, id, undefined, "noop"),

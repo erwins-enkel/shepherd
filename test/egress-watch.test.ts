@@ -4,6 +4,7 @@ import {
   EGRESS_DROP_CAP,
   egressAllowedNote,
   egressBlockedNote,
+  isActionsResultsHost,
 } from "../src/egress-watch";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
@@ -538,4 +539,25 @@ test("a throwing isMuted mutes nothing", async () => {
   watcher.start(SESSION, opts);
   await watcher.tick(SESSION, opts);
   expect(signals).toHaveLength(1);
+});
+
+test("Actions results hosts get the ci_download note instead of an allow request", () => {
+  for (const host of [
+    "productionresultssa0.blob.core.windows.net",
+    "productionresultssa199.blob.core.windows.net",
+    "results-receiver.actions.githubusercontent.com",
+  ]) {
+    expect(isActionsResultsHost(host)).toBe(true);
+    const note = egressBlockedNote(host);
+    expect(note).toContain("ci_download");
+    expect(note).not.toContain("Extra allowed hosts");
+  }
+  for (const host of [
+    "evil.blob.core.windows.net",
+    "productionresultssa1.blob.core.windows.net.evil.com",
+    "xproductionresultssa1.blob.core.windows.net",
+  ]) {
+    expect(isActionsResultsHost(host)).toBe(false);
+    expect(egressBlockedNote(host)).toContain("Extra allowed hosts");
+  }
 });

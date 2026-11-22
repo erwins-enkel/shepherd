@@ -13,9 +13,10 @@ that remain, writes a `/delete-comment` skill and estimates how many lines this 
 
 **TL;DR: do not adopt the ban, and do not add it to Readiness or Onboarding.** We ran the
 classification half on a sample of Shepherd's own code. The comments the prompt targets are
-rare here: 9 of 120 sampled blocks (7.5%) are tautology or stale, and none are excuses. Most of
-the rest are local decision records, which have to sit next to the code to stop agents from
-undoing them. Keep a narrow, classify-only version as an optional one-off cleanup.
+rare here: 9 of 120 sampled blocks (7.5%) are tautology or stale, and none are excuses. Of the
+other 111, most (59) are API docs, and about 41 are local decision records, which have to sit
+next to the code to stop agents from undoing them. Keep a narrow, classify-only version as an
+optional one-off cleanup.
 
 ## What Shepherd's comments look like
 

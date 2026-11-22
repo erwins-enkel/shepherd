@@ -13,9 +13,9 @@ that remain, writes a `/delete-comment` skill and estimates how many lines this 
 
 **TL;DR: do not adopt the ban, and do not add it to Readiness or Onboarding.** We ran the
 classification half on a sample of Shepherd's own code. The comments the prompt targets are
-rare here: about 6% are tautology or stale, and none are excuses. Most of the rest are local
-decision records, which have to sit next to the code to stop agents from undoing them. Keep a
-narrow, classify-only version as an optional one-off cleanup.
+rare here: 9 of 120 sampled blocks (7.5%) are tautology or stale, and none are excuses. Most of
+the rest are local decision records, which have to sit next to the code to stop agents from
+undoing them. Keep a narrow, classify-only version as an optional one-off cleanup.
 
 ## What Shepherd's comments look like
 
@@ -30,6 +30,7 @@ Tests and generated code are excluded. A block is a run of whole-line comments.
 | Stale             | 1 (1.3%) | 1 (2.5%) |
 | Excuse            | 0        | 0        |
 | Issue/PR ref only | 1 (1.3%) | 0        |
+| eslint pragma     | 0        | 1 (2.5%) |
 
 How big the comments are, across all 464 non-test `src/*.ts` files:
 

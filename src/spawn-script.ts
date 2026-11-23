@@ -167,8 +167,14 @@ export async function writeSpawnScript(wrapped: string[]): Promise<string> {
   return path;
 }
 
-/** The command line typed into the pane for `wrapped` — `sh '<script path>'`. Both ≥0.7.5 drivers
- *  route through this, so the two transports stay one behavior. */
+/** The command line typed into the pane for `wrapped` — ` sh '<script path>'`. Both ≥0.7.5 drivers
+ *  route through this, so the two transports stay one behavior.
+ *
+ *  The leading space keeps the line out of the operator's shell history (#4111): every script path
+ *  is unique, so dedup options never collapse them, and a busy host evicts real commands within
+ *  weeks. zsh `HIST_IGNORE_SPACE`, bash `HISTCONTROL=ignorespace`/`ignoreboth` and fish skip
+ *  space-prefixed lines; shells without such an option run it unchanged. +1 byte, far under the
+ *  `MAX_INPUT` budget this transport exists for (#1967). */
 export async function spawnCommandLine(wrapped: string[]): Promise<string> {
-  return posixShellJoin(["sh", await writeSpawnScript(wrapped)]);
+  return " " + posixShellJoin(["sh", await writeSpawnScript(wrapped)]);
 }

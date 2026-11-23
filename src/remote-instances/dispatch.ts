@@ -380,6 +380,30 @@ export function waitingAttachments(
   return new Set(names);
 }
 
+/**
+ * A dispatcher that reconciles a machine's unconfirmed hand-offs (#2774) and sends its waiting
+ * tasks (#2775) after every probe of it — the wiring src/index.ts and the two-machine test fixture
+ * share. A failed reconcile is logged; the next probe retries it.
+ */
+export function startRemoteDispatcher(
+  deps: ConstructorParameters<typeof RemoteDispatcher>[0] & {
+    instances: Instances & Pick<RemoteInstanceService, "onChange">;
+  },
+): RemoteDispatcher {
+  const dispatcher = new RemoteDispatcher(deps);
+  deps.instances.onChange((instanceId) => {
+    dispatcher
+      .reconcile(instanceId)
+      .catch((err: unknown) =>
+        console.warn(
+          "[remote-dispatch] reconcile failed:",
+          err instanceof Error ? err.message : String(err),
+        ),
+      );
+  });
+  return dispatcher;
+}
+
 export class RemoteDispatcher {
   /** Sends running in this process, by dispatch ID — a concurrent duplicate waits for its outcome. */
   private readonly inflight = new Map<string, Promise<RemoteOutcome>>();

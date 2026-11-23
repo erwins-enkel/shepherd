@@ -13,13 +13,17 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
-import { chmod, mkdir, open, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
+import { chmod, mkdir, open, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
 import { EPHEMERAL_CLAUDE_DIRS, scanPath } from "./sandbox";
 import { execFileAsync } from "./instrument";
+import { agentGhAppTokenFromEnv, GithubAppConfigError, type AgentGhAppToken } from "./agent-gh-app";
+import { AGENT_GH_TOKEN_FILE_ENV, agentGhAppConfigured } from "./agent-gh-env";
+
+export { AGENT_GH_TOKEN_FILE_ENV };
 
 function membraneStateRoot(): string {
   return shepherdRuntimeDir("membrane");
@@ -127,11 +131,51 @@ export interface MembraneGhInputs {
   home: string;
   sessionId: string;
   key: string;
+  /** The session's repo dir: GitHub App mode scopes the token to its github.com `origin`. */
+  repoPath: string;
 }
 
 export interface MembraneGhDeps {
   /** The host's github.com token; default `gh auth token` (async, 5s cap). */
   ghToken?: () => Promise<string>;
+  /** The dedicated agent token, or null when none is configured; default
+   *  {@link agentGhTokenFromEnv}. Throws when one is configured but unusable. */
+  agentGhToken?: () => Promise<string | null>;
+  /** GitHub App mode (`SHEPHERD_AGENT_GH_APP_ID`): an installation token scoped to the repo at
+   *  `repoPath`, or null when App mode is not configured; default {@link agentGhAppTokenFromEnv}.
+   *  Throws when App mode is configured but no token can be minted for that repo. */
+  agentGhAppToken?: (repoPath: string) => Promise<AgentGhAppToken | null>;
+}
+
+/** gh's token alphabet (classic, OAuth, App and fine-grained `github_pat_` tokens). Token text
+ *  goes into YAML verbatim, so nothing else is accepted. */
+const GH_TOKEN_RE = /^[A-Za-z0-9_]+$/;
+
+/**
+ * The agent token from {@link AGENT_GH_TOKEN_FILE_ENV} — a file with the github.com token task
+ * agents get instead of the operator's own (`gh auth token`), e.g. a fine-grained PAT scoped to
+ * the repos Shepherd works on; the operator token usually carries far broader scopes (`admin:org`,
+ * every repo, `workflow`). GitHub App mode (`SHEPHERD_AGENT_GH_APP_ID`) wins over it. null when
+ * the var is unset/blank.
+ * Throws when it is set but the file is missing, not a regular file, readable by group/other,
+ * or not a single token — a configured-but-broken agent token must not silently fall back to
+ * the operator's.
+ */
+export async function agentGhTokenFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string | null> {
+  const path = env[AGENT_GH_TOKEN_FILE_ENV]?.trim();
+  if (!path) return null;
+  const st = await stat(path);
+  if (!st.isFile()) throw new Error(`${AGENT_GH_TOKEN_FILE_ENV}: ${path} is not a regular file`);
+  if (st.mode & 0o077) {
+    throw new Error(`${AGENT_GH_TOKEN_FILE_ENV}: ${path} is readable by group/other (chmod 600)`);
+  }
+  const token = (await readFile(path, "utf8")).trim();
+  if (!GH_TOKEN_RE.test(token)) {
+    throw new Error(`${AGENT_GH_TOKEN_FILE_ENV}: ${path} does not hold a single gh token`);
+  }
+  return token;
 }
 
 /** Env vars gh prefers over stored credentials (`gh help environment`). */
@@ -172,17 +216,63 @@ function ghHostField(raw: string, field: string, valid: RegExp): string | null {
  * github.com `hosts.yml` carrying the token, bound RO over the host file (task sessions only;
  * same in-membrane readability as a file-stored token, audit R3). null — no override — when the
  * host file is absent, already holds a token, or the token can't be read (best-effort).
+ *
+ * With an agent token configured the override always carries it instead — also over a host file
+ * that stores the operator token itself, and also when the host has no `hosts.yml` (or no
+ * `~/.config/gh`) at all: the agent token doesn't come from it, and sandbox.ts then binds this
+ * file without the host dir. Precedence: GitHub App mode (`SHEPHERD_AGENT_GH_APP_ID`, a token
+ * minted for this session's repo) > {@link AGENT_GH_TOKEN_FILE_ENV} > the operator token. If the
+ * winning agent source is configured but yields no usable token, the override carries no token at
+ * all (gh 401s in the membrane) rather than falling back to a lower one.
  */
 export async function prepareMembraneGhHosts(
   i: MembraneGhInputs,
   deps: MembraneGhDeps = {},
 ): Promise<string | null> {
-  let raw: string;
+  const raw = await readHostGhHosts(i.home);
+  const agentToken = await agentTokenFor(i.repoPath, deps);
+  // An agent token doesn't come from the host file: written even without one.
+  if (agentToken !== undefined) return writeGhHosts(i, raw ?? "", agentToken);
+  if (raw === null) return null;
+  const token = await operatorTokenFor(raw, deps);
+  return token === null ? null : writeGhHosts(i, raw, token);
+}
+
+/** The host's github.com `hosts.yml` text, or null when it can't be read. */
+function readHostGhHosts(home: string): Promise<string | null> {
+  // best-effort: a missing host file is a normal setup (keyring-less, or gh never logged in)
+  return readFile(join(home, ".config", "gh", "hosts.yml"), "utf8").catch(() => null);
+}
+
+/**
+ * This spawn's agent token: undefined when no agent mode is configured; null when the winning
+ * source (App mode, else the token file) is configured but yields no usable token — warned, and
+ * never a fallback to a lower source.
+ */
+async function agentTokenFor(
+  repoPath: string,
+  deps: MembraneGhDeps,
+): Promise<string | null | undefined> {
+  let token: string | null;
   try {
-    raw = await readFile(join(i.home, ".config", "gh", "hosts.yml"), "utf8");
-  } catch {
+    // The token file is consulted only when App mode is not configured (null, not a throw).
+    const app = await (deps.agentGhAppToken ?? agentGhAppTokenFromEnv)(repoPath);
+    token = app ? app.token : await (deps.agentGhToken ?? agentGhTokenFromEnv)();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[sandbox] agent gh token unusable; membrane gets no gh token: ${reason}`);
     return null;
   }
+  if (token === null) return undefined;
+  const t = token.trim();
+  if (GH_TOKEN_RE.test(t)) return t;
+  console.warn("[sandbox] agent gh token malformed; membrane gets none");
+  return null;
+}
+
+/** The operator's own token for a host file without one (keyring-stored); null — no override —
+ *  when the host file already holds a token or none can be read. */
+async function operatorTokenFor(raw: string, deps: MembraneGhDeps): Promise<string | null> {
   if (/^\s*oauth_token:/m.test(raw)) return null;
   let token: string;
   try {
@@ -191,17 +281,285 @@ export async function prepareMembraneGhHosts(
     console.warn("[sandbox] gh token unavailable for the membrane:", err);
     return null;
   }
-  // Token text goes into YAML verbatim: accept only gh's token alphabet.
-  if (!/^[A-Za-z0-9_]+$/.test(token)) return null;
+  return GH_TOKEN_RE.test(token) ? token : null;
+}
+
+/** The per-spawn gh hosts file of `sessionId`'s spawn `key` ({@link prepareMembraneGhHosts}). */
+export function membraneGhHostsPath(sessionId: string, key = "session"): string {
+  return join(membraneStateRoot(), sessionId, `${key}.gh-hosts.yml`);
+}
+
+/** The per-spawn 0600 github.com `hosts.yml`, keeping the host file's user/protocol; `token`
+ *  null writes one without any `oauth_token`. */
+function writeGhHosts(i: MembraneGhInputs, raw: string, token: string | null): Promise<string> {
+  return writeStateFile(i.sessionId, `${i.key}.gh-hosts.yml`, ghHostsContent(raw, token));
+}
+
+/** github.com `hosts.yml` text for `token` (null ⇒ no `oauth_token`), keeping the host file's
+ *  user/protocol. `token` must already match {@link GH_TOKEN_RE}. */
+function ghHostsContent(raw: string, token: string | null): string {
   const user = ghHostField(raw, "user", /^[A-Za-z0-9-]+$/);
   const protocol = ghHostField(raw, "git_protocol", /^[a-z]+$/);
   const lines = ["github.com:"];
-  if (user) lines.push("    users:", `        ${user}:`, `            oauth_token: ${token}`);
+  if (user) {
+    lines.push("    users:", `        ${user}:${token ? "" : " {}"}`);
+    if (token) lines.push(`            oauth_token: ${token}`);
+  }
   if (protocol) lines.push(`    git_protocol: ${protocol}`);
   if (user) lines.push(`    user: ${user}`);
-  lines.push(`    oauth_token: ${token}`);
-  return writeStateFile(i.sessionId, `${i.key}.gh-hosts.yml`, `${lines.join("\n")}\n`);
+  if (token) lines.push(`    oauth_token: ${token}`);
+  return `${lines.join("\n")}\n`;
 }
+
+/** How often a live membrane's App-minted token is checked. With the minter's 20-min reuse margin
+ *  (`TOKEN_REFRESH_MARGIN_MS`) the token in the file keeps ≥ 15 min, and an App config that turns
+ *  unusable (key removed or loosened, App uninstalled) empties the file within this interval. */
+export const GH_HOSTS_REFRESH_INTERVAL_MS = 5 * 60_000;
+
+/** Through transient refresh failures the file keeps its token while more than this remains.
+ *  Equal to the check interval, so a kept token is still valid when the next check drops it. */
+const GH_TOKEN_SAFETY_MARGIN_MS = GH_HOSTS_REFRESH_INTERVAL_MS;
+
+export interface GhHostsRefreshTarget {
+  home: string;
+  sessionId: string;
+  /** The session's repo dir — the App token is scoped to its github.com `origin`. */
+  repoPath: string;
+  /** The live spawn's gh hosts file ({@link membraneGhHostsPath}), rewritten in place. */
+  file: string;
+}
+
+export interface GhHostsRefresherDeps {
+  /** default {@link agentGhAppTokenFromEnv} (shares its minter and caches with the spawn path). */
+  agentGhAppToken?: (repoPath: string) => Promise<AgentGhAppToken | null>;
+  /** default `Date.now`. */
+  now?: () => number;
+  /** Is GitHub App mode configured? default `agentGhAppConfigured(process.env)`. */
+  appModeConfigured?: () => boolean;
+  /** Run `fn` every `ms`, returning its canceller; default an unref'd `setInterval`. */
+  every?: (fn: () => void, ms: number) => () => void;
+  /** default {@link GH_HOSTS_REFRESH_INTERVAL_MS}. */
+  intervalMs?: number;
+}
+
+interface GhHostsRefreshLoop {
+  target: GhHostsRefreshTarget;
+  cancel: () => void;
+  inflight: Promise<void> | null;
+  /** Expiry of the token this loop last wrote into the file; null when it wrote none (or has not
+   *  refreshed this file yet — then a transient failure cannot vouch for the file's token). */
+  expiresAt: number | null;
+  /** The last refresh's outcome when it failed, so a persistent failure warns once, not every tick. */
+  failure: string | null;
+}
+
+function everyUnref(fn: () => void, ms: number): () => void {
+  const timer = setInterval(fn, ms);
+  timer.unref?.(); // a refresh loop never keeps the server alive
+  return () => clearInterval(timer);
+}
+
+/**
+ * Replace `file`'s content IN PLACE: a live membrane's RO bind pins the inode, so the spawn path's
+ * tmp + rename would never reach it. One positional write of the whole content, padded with blank
+ * lines to at least the current size — the file never shrinks, so a concurrent reader (gh, the git
+ * credential helper) sees the old or the new text, never an empty or truncated one. No-op when
+ * unchanged. Opened without O_CREAT: a removed file is not resurrected (ENOENT).
+ */
+async function rewriteInPlace(file: string, content: string): Promise<void> {
+  const fh = await open(file, "r+");
+  try {
+    const current = await fh.readFile();
+    if (current.toString("utf8").trimEnd() === content.trimEnd()) return;
+    const body = Buffer.from(content);
+    const buf =
+      body.length >= current.length
+        ? body
+        : Buffer.concat([body, Buffer.alloc(current.length - body.length, "\n")]);
+    const { bytesWritten } = await fh.write(buf, 0, buf.length, 0);
+    if (bytesWritten !== buf.length) throw new Error(`short write (${bytesWritten}/${buf.length})`);
+  } finally {
+    await fh.close();
+  }
+}
+
+/** One refresh's answer from the App token source: a grant, or a classified failure. */
+type RefreshResult =
+  { ok: true; grant: AgentGhAppToken } | { ok: false; failure: string; configUnusable: boolean };
+
+/** Ask `source` for `repoPath`'s App token. Never throws: a failure comes back classified —
+ *  `configUnusable` for App mode gone or a {@link GithubAppConfigError}, else transient. */
+async function fetchRefresh(
+  source: (repoPath: string) => Promise<AgentGhAppToken | null>,
+  repoPath: string,
+): Promise<RefreshResult> {
+  try {
+    const g = await source(repoPath);
+    if (g === null) {
+      return {
+        ok: false,
+        failure: "GitHub App mode is no longer configured",
+        configUnusable: true,
+      };
+    }
+    const token = g.token.trim();
+    if (!GH_TOKEN_RE.test(token)) {
+      return { ok: false, failure: "minted token is malformed", configUnusable: false };
+    }
+    return { ok: true, grant: { token, expiresAt: g.expiresAt } };
+  } catch (err) {
+    const failure = err instanceof Error ? err.message : String(err);
+    return { ok: false, failure, configUnusable: err instanceof GithubAppConfigError };
+  }
+}
+
+/** After a failed refresh, may the file keep its token? Only through a transient failure, and
+ *  only while the token this loop vouched for has more than the safety margin left. */
+function keepTokenThroughFailure(
+  configUnusable: boolean,
+  expiresAt: number | null,
+  now: number,
+): boolean {
+  return !configUnusable && expiresAt !== null && expiresAt - now > GH_TOKEN_SAFETY_MARGIN_MS;
+}
+
+/**
+ * Keeps each live task membrane's gh hosts file carrying a fresh GitHub App token: installation
+ * tokens last 1 h, sessions run for many. GitHub App mode only — otherwise {@link start} is a
+ * no-op and the spawn-time token (token file / operator) stands. One loop per session; the
+ * session's teardown must {@link stop} it.
+ *
+ * Fail closed, never with a token-file or operator token: an unusable App config
+ * ({@link GithubAppConfigError} — vars, key, App not installed / refused) rewrites the file
+ * WITHOUT a token at once. A transient failure (network, timeout, 5xx, rate limit, malformed
+ * response) keeps the file's still-valid token and retries on the next check, dropping it only
+ * once ≤ {@link GH_TOKEN_SAFETY_MARGIN_MS} remain — or at once when this loop cannot vouch for it.
+ */
+export class GhHostsRefresher {
+  private readonly loops = new Map<string, GhHostsRefreshLoop>();
+
+  constructor(private readonly deps: GhHostsRefresherDeps = {}) {}
+
+  /**
+   * Start refreshing `target.file` (App mode + an existing file only). A later start for the same
+   * session — a resume's spawn — retargets the running loop instead of adding one. Either way it
+   * refreshes at once, learning the file's token expiry (after a spawn: the minter's cache hit,
+   * no request) — at boot the file may hold a token minted before the restart.
+   */
+  start(target: GhHostsRefreshTarget): void {
+    if (!(this.deps.appModeConfigured ?? agentGhAppConfigured)()) return;
+    if (!existsSync(target.file)) return;
+    const running = this.loops.get(target.sessionId);
+    if (running) {
+      Object.assign(running, { target, expiresAt: null, failure: null });
+    } else {
+      const loop: GhHostsRefreshLoop = {
+        target,
+        cancel: () => {},
+        inflight: null,
+        expiresAt: null,
+        failure: null,
+      };
+      this.loops.set(target.sessionId, loop);
+      loop.cancel = (this.deps.every ?? everyUnref)(
+        () => void this.refresh(target.sessionId),
+        this.deps.intervalMs ?? GH_HOSTS_REFRESH_INTERVAL_MS,
+      );
+    }
+    void this.refresh(target.sessionId);
+  }
+
+  /** Stop `sessionId`'s loop (teardown). Idempotent. */
+  stop(sessionId: string): void {
+    this.loops.get(sessionId)?.cancel();
+    this.loops.delete(sessionId);
+  }
+
+  /** Stop every loop (shutdown). */
+  stopAll(): void {
+    for (const id of [...this.loops.keys()]) this.stop(id);
+  }
+
+  /** Is a loop running for `sessionId`? */
+  isRunning(sessionId: string): boolean {
+    return this.loops.has(sessionId);
+  }
+
+  /** Refresh `sessionId`'s file now, after any in-flight refresh. Never throws; no-op when no
+   *  loop runs for it. */
+  refresh(sessionId: string): Promise<void> {
+    const loop = this.loops.get(sessionId);
+    if (!loop) return Promise.resolve();
+    loop.inflight ??= this.refreshOnce(loop).finally(() => {
+      loop.inflight = null;
+    });
+    return loop.inflight;
+  }
+
+  private async refreshOnce(loop: GhHostsRefreshLoop): Promise<void> {
+    const { sessionId, repoPath, home } = loop.target;
+    const result = await fetchRefresh(
+      this.deps.agentGhAppToken ?? agentGhAppTokenFromEnv,
+      repoPath,
+    );
+    // Without the host file the refreshed one just omits user/protocol.
+    const raw = (await readHostGhHosts(home)) ?? "";
+    if (this.loops.get(sessionId) !== loop) return; // stopped meanwhile: leave the file alone
+    const token = result.ok ? this.accept(loop, result.grant) : this.afterFailure(loop, result);
+    if (token !== undefined) await this.write(loop, ghHostsContent(raw, token));
+  }
+
+  /** Track a fresh grant; its token goes into the file. */
+  private accept(loop: GhHostsRefreshLoop, grant: AgentGhAppToken): string {
+    loop.expiresAt = grant.expiresAt;
+    loop.failure = null;
+    return grant.token;
+  }
+
+  /** A failed refresh: undefined keeps the file's still-valid token (retry on the next check),
+   *  null empties it. Warns once per outcome, not every tick. */
+  private afterFailure(
+    loop: GhHostsRefreshLoop,
+    f: { failure: string; configUnusable: boolean },
+  ): null | undefined {
+    const now = (this.deps.now ?? Date.now)();
+    const keep = keepTokenThroughFailure(f.configUnusable, loop.expiresAt, now);
+    const outcome = `${keep ? "keep" : "drop"}: ${f.failure}`;
+    if (outcome !== loop.failure) {
+      const prefix = `[sandbox] ${loop.target.sessionId}: gh token refresh failed;`;
+      const left = Math.floor(((loop.expiresAt ?? now) - now) / 60_000);
+      console.warn(
+        keep
+          ? `${prefix} keeping the current token (${left} min left), retrying: ${f.failure}`
+          : `${prefix} membrane gets no gh token: ${f.failure}`,
+      );
+    }
+    loop.failure = outcome;
+    if (keep) return undefined;
+    loop.expiresAt = null;
+    return null;
+  }
+
+  /** Rewrite the loop's file in place; a vanished file (membrane state removed) stops the loop. */
+  private async write(loop: GhHostsRefreshLoop, content: string): Promise<void> {
+    const { sessionId, file } = loop.target;
+    try {
+      await rewriteInPlace(file, content);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        this.stop(sessionId); // the session's membrane state is gone: nothing left to refresh
+        return;
+      }
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[sandbox] ${sessionId}: could not refresh the membrane gh hosts file: ${reason}`,
+      );
+    }
+  }
+}
+
+/** The process-wide refresher (wired into SessionService in index.ts). */
+export const ghHostsRefresher = new GhHostsRefresher();
 
 export interface MembraneGhBinDeps {
   /** Every executable `gh` on Shepherd's PATH, in order; default scans `process.env.PATH`. */

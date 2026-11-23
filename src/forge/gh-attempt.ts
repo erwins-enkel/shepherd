@@ -54,8 +54,9 @@ const REDACTIONS: Array<[RegExp, string]> = [
   [/\b((?:GH|GITHUB)(?:_ENTERPRISE)?_TOKEN\s*=\s*)[^\s]+/g, "$1<redacted>"],
   // GitHub App / installation JWTs (header.payload.signature).
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "<redacted>"],
-  // gh token literals: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained PATs.
-  [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, "<redacted>"],
+  // gh token literals: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained PATs. App installation tokens
+  // are `ghs_` + base64url segments joined by `.`: match the whole dotted run, not its head.
+  [/\bgh[pousr]_[A-Za-z0-9_-]{16,}(?:\.[A-Za-z0-9_-]+)*/g, "<redacted>"],
   [/\bgithub_pat_[A-Za-z0-9_]{16,}/g, "<redacted>"],
 ];
 

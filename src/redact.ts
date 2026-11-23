@@ -4,6 +4,8 @@
 
 /** Replace common credential shapes in `s` with `<redacted>`. Whitespace is left untouched. */
 export function redactSecretText(s: string): string {
+  // Token literals match dot-joined continuations too: App installation tokens are `ghs_` +
+  // base64url segments joined by `.`, so stopping at the first `.` would leave most in clear.
   return s
     .replace(
       /\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/g,
@@ -14,7 +16,10 @@ export function redactSecretText(s: string): string {
       "$1$2<redacted>",
     )
     .replace(/\bbearer\s+[^\s,;]+/gi, "Bearer <redacted>")
-    .replace(/\b(?:sk|gh[pousr]|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/gi, "<redacted>")
+    .replace(
+      /\b(?:sk|gh[pousr]|xox[baprs])[-_][A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)*\b/gi,
+      "<redacted>",
+    )
     .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "<redacted>")
     .replace(/:\/\/([^\s/:@]+):([^\s/@]+)@/g, "://$1:<redacted>@");
 }

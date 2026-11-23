@@ -37,6 +37,7 @@ import {
   makeAgentGhAppToken,
 } from "../src/agent-gh-app";
 import { generateKeyPairSync } from "node:crypto";
+import { CURRENT_GHS_TOKEN } from "./helpers/gh-token-shapes";
 
 let root: string;
 let prevXdg: string | undefined;
@@ -444,6 +445,21 @@ describe("prepareMembraneGhHosts", () => {
     expect(statSync(file!).mode & 0o777).toBe(0o600);
   });
 
+  test("App mode -> a current-format installation token (dotted base64url) is written", async () => {
+    writeHosts(operatorFileHosts);
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhAppToken: async () => ({
+        token: CURRENT_GHS_TOKEN,
+        expiresAt: Date.now() + 3_600_000,
+      }),
+      agentGhToken: noTokenFile,
+      ghToken: noOperatorToken,
+    });
+    const yml = readFileSync(file!, "utf8");
+    expect(yml).toContain(`oauth_token: ${CURRENT_GHS_TOKEN}\n`);
+    expect(yml).not.toContain("gho_operator");
+  });
+
   test("App mode configured but failing -> token-less override, reason warned, no fallback", async () => {
     const warns: string[] = [];
     const origWarn = console.warn;
@@ -454,6 +470,7 @@ describe("prepareMembraneGhHosts", () => {
           throw new Error("GitHub App is not installed on o/r (HTTP 404)");
         },
         async () => ({ token: "x\n    user: evil", expiresAt: Date.now() + 3_600_000 }),
+        async () => ({ token: "-ghs_leading_dash", expiresAt: Date.now() + 3_600_000 }),
       ]) {
         writeHosts(operatorFileHosts);
         const file = await prepareMembraneGhHosts(ghInputs, {
@@ -778,6 +795,18 @@ describe("GhHostsRefresher (App-token refresh of a live membrane)", () => {
     h.source.next = async () => ({ token: "x\n    user: evil", expiresAt: T0 + 90 * MIN });
     await warnsOf(() => h.r.refresh("s-1"));
     expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(1)));
+  });
+
+  test("a current-format installation token (dotted base64url) is written, no warning", async () => {
+    const target = spawned(tok(1));
+    const h = harness(async () => ({ token: CURRENT_GHS_TOKEN, expiresAt: T0 + 60 * MIN }));
+    const warns = await warnsOf(async () => {
+      h.r.start(target);
+      await h.r.refresh("s-1");
+    });
+    expect(warns).toEqual([]);
+    expect(readFileSync(target.file, "utf8")).toBe(withToken(CURRENT_GHS_TOKEN));
+    h.r.stop("s-1");
   });
 
   test("stop cancels the timer; later ticks and an in-flight refresh leave the file alone", async () => {

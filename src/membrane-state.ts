@@ -148,9 +148,11 @@ export interface MembraneGhDeps {
   agentGhAppToken?: (repoPath: string) => Promise<AgentGhAppToken | null>;
 }
 
-/** gh's token alphabet (classic, OAuth, App and fine-grained `github_pat_` tokens). Token text
- *  goes into YAML verbatim, so nothing else is accepted. */
-const GH_TOKEN_RE = /^[A-Za-z0-9_]+$/;
+/** gh's token alphabet: classic, OAuth and fine-grained `github_pat_` tokens are `[A-Za-z0-9_]`;
+ *  App installation tokens are now `ghs_` + base64url segments joined by `.` (~390 chars, with
+ *  `-` and `.`). Token text goes into YAML verbatim, so nothing else is accepted: no whitespace,
+ *  `:` or `#`, and an alphanumeric first character so it can never open a YAML indicator. */
+const GH_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 /**
  * The agent token from {@link AGENT_GH_TOKEN_FILE_ENV} — a file with the github.com token task

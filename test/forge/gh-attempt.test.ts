@@ -6,6 +6,7 @@ import {
   sanitizeDetail,
   type GhFetchAttempt,
 } from "../../src/forge/gh-attempt";
+import { CURRENT_GHS_TOKEN } from "../helpers/gh-token-shapes";
 
 /** execFile-shaped rejection: `gh` writes its diagnosis to stderr. */
 function ghError(stderr: string, extra: Record<string, unknown> = {}): Error {
@@ -80,6 +81,12 @@ test("sanitizeDetail: redacts token literals before they reach the browser", () 
   // The other four prefixes are credentials too, not just ghp_.
   expect(sanitizeDetail("gho_ABCDEFGHIJKLMNOPQRSTUV ghs_ABCDEFGHIJKLMNOPQRSTUV")).toBe(
     "<redacted> <redacted>",
+  );
+});
+
+test("sanitizeDetail: redacts a current-format App installation token whole, not just its head", () => {
+  expect(sanitizeDetail(`gh: HTTP 401 for ${CURRENT_GHS_TOKEN}.`)).toBe(
+    "gh: HTTP 401 for <redacted>.",
   );
 });
 

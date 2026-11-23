@@ -223,9 +223,11 @@ import {
 } from "./sandbox";
 import { defaultSandboxProfile } from "./sandbox-default";
 import {
+  membraneGhHostsPath,
   previewLogFile,
   removeMembraneState,
   sweepMembraneState,
+  type GhHostsRefresher,
   type MembraneGhInputs,
   type MembraneMiseInputs,
   type MembraneStateInputs,
@@ -540,9 +542,14 @@ export interface ServiceDeps {
   /** Write a task membrane's derived tools-only mise config; returns its path. Absent ⇒ none.
    *  Wired to `prepareMembraneMiseConfig` in index.ts. */
   prepareMembraneMiseConfig?: (i: MembraneMiseInputs) => Promise<string | null>;
-  /** Write a task membrane's gh `hosts.yml` carrying a keyring-stored token; returns its path.
-   *  Absent ⇒ none. Wired to `prepareMembraneGhHosts` in index.ts. */
+  /** Write a task membrane's gh `hosts.yml` carrying a keyring-stored or agent token (GitHub App
+   *  mode: minted for the session repo); returns its path. Absent ⇒ none. Wired to
+   *  `prepareMembraneGhHosts` in index.ts. */
   prepareMembraneGhHosts?: (i: MembraneGhInputs) => Promise<string | null>;
+  /** Keep a live task membrane's gh `hosts.yml` carrying a fresh GitHub App token (App mode only;
+   *  installation tokens last 1 h): started after a spawn that bound one, stopped at teardown,
+   *  resumed at boot. Absent ⇒ none. Wired to `ghHostsRefresher` in index.ts. */
+  ghHostsRefresh?: Pick<GhHostsRefresher, "start" | "stop">;
   /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
    *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
   prepareScratchpadBind?: (
@@ -3914,7 +3921,7 @@ export class SessionService {
           // This session's own ingress spawn files only (#3337) — read by claude at startup.
           ingressFiles: ingress.files,
           claudeJsonCopy: await this.prepareSessionClaudeState(ctx.sessionId, ctx.worktreePath),
-          ...(await this.prepareSessionForgeAndTools(ctx.sessionId, nodeBinReal)),
+          ...(await this.prepareSessionForgeAndTools(ctx.sessionId, ctx.repoPath, nodeBinReal)),
           scratchpadBind: await this.membraneScratchpadBind(ctx),
         }
       : ({} as MembraneInputs);
@@ -3959,6 +3966,7 @@ export class SessionService {
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
       signal: ctx.signal,
     });
+    this.startGhHostsRefresh(ctx, membrane);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
       this.deps.egressWatcher?.start(ctx.sessionId, {
@@ -4051,10 +4059,27 @@ export class SessionService {
     }
   }
 
+  /** The membrane now runs on this spawn's gh hosts file: keep its App token fresh (no-op unless
+   *  App mode, or when the spawn bound none). One loop per session — a resume retargets it. */
+  private startGhHostsRefresh(
+    ctx: { sessionId: string; repoPath: string },
+    membrane: MembraneInputs,
+  ): void {
+    if (!membrane.ghHostsFile) return;
+    this.deps.ghHostsRefresh?.start({
+      home: membrane.home,
+      sessionId: ctx.sessionId,
+      repoPath: ctx.repoPath,
+      file: membrane.ghHostsFile,
+    });
+  }
+
   /** This task spawn's derived mise config + gh hosts file + real gh binary. Best-effort like the
-   *  `.claude.json` copy: a failure leaves that field null (no bind) rather than failing the spawn. */
+   *  `.claude.json` copy: a failure leaves that field null (no bind) rather than failing the spawn.
+   *  `repoPath` scopes a GitHub App-minted agent token to the session's repo. */
   private async prepareSessionForgeAndTools(
     sessionId: string,
+    repoPath: string,
     nodeBinReal: string,
   ): Promise<{ miseConfigFile: string | null; ghHostsFile: string | null; ghBin: string | null }> {
     const base = { home: homedir(), sessionId, key: "session" };
@@ -4074,7 +4099,7 @@ export class SessionService {
         "mise config",
         mise ? () => mise({ ...base, pinnedBins: [nodeBinReal, config.bunBin] }) : null,
       ),
-      ghHostsFile: await attempt("gh hosts", gh ? () => gh(base) : null),
+      ghHostsFile: await attempt("gh hosts", gh ? () => gh({ ...base, repoPath }) : null),
       ghBin: await attempt("gh binary", this.deps.resolveMembraneGhBin ?? null),
     };
   }
@@ -5670,6 +5695,7 @@ export class SessionService {
       return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error
+      this.deps.ghHostsRefresh?.stop(sessionId);
       removeTaskPromptFile(taskFile);
       if (wt.isolated) {
         try {
@@ -6136,6 +6162,7 @@ export class SessionService {
         );
       } catch (e) {
         // The agent runs but has no row — stop it so nothing orphans.
+        this.deps.ghHostsRefresh?.stop(sessionId);
         // best-effort: rollback only; the row error rethrown below is what surfaces
         await this.deps.herdr.stop(outcome.terminalId).catch(() => {});
         throw e;
@@ -9820,6 +9847,7 @@ export class SessionService {
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
+    this.deps.ghHostsRefresh?.stop(id); // before its file goes with the membrane state
     removeMembraneState(id);
     this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);
@@ -9871,6 +9899,25 @@ export class SessionService {
     const live = this.deps.store.list({ activeOnly: true }).map((s) => s.id);
     sweepEgressTmp(live);
     sweepMembraneState(live);
+  }
+
+  /**
+   * Boot: resume the gh token refresh for every live session whose last task spawn left a gh hosts
+   * file — a restart drops the in-memory loops while the membranes keep running. Each refreshes at
+   * once (`start` always does), since its file may hold a token minted before the restart. No-op
+   * unless App mode.
+   */
+  resumeGhHostsRefresh(): void {
+    const refresh = this.deps.ghHostsRefresh;
+    if (!refresh) return;
+    for (const s of this.deps.store.list({ activeOnly: true })) {
+      refresh.start({
+        home: homedir(),
+        sessionId: s.id,
+        repoPath: s.repoPath,
+        file: membraneGhHostsPath(s.id),
+      });
+    }
   }
 
   /**

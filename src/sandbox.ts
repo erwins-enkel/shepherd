@@ -35,6 +35,7 @@ import { CODEX_ROLE_SCHEMA_DIR } from "./codex-role-output-schema";
 import { resolveNodeBin } from "./node-bin";
 import { resolveWorktreePinSync } from "./safe-git";
 import type { EgressBackend } from "./egress";
+import { agentGhModeConfigured } from "./agent-gh-env";
 
 /** realpath that falls back to the input on any error (broken/missing path). */
 export function safeRealpath(p: string): string {
@@ -118,6 +119,9 @@ export interface PathProbeDeps {
   lstatLink?: (p: string) => SymlinkInfo | null;
   /** Host-side git-store prep for the membrane's carve-outs; default {@link hostGitStore}. */
   gitStore?: GitStoreDeps;
+  /** Host env, read for the agent gh token mode ({@link agentGhModeConfigured}); default
+   *  `process.env`. */
+  env?: Record<string, string | undefined>;
 }
 
 export interface GitStoreDeps {
@@ -346,8 +350,10 @@ export interface MembraneInputs {
    *  {@link MEMBRANE_MISE_CONFIG} and named by `MISE_SYSTEM_CONFIG_FILE`. The host
    *  `~/.config/mise` is never bound. Absent → no flags, byte-identical. */
   miseConfigFile?: string | null;
-  /** This spawn's 0600 gh `hosts.yml` carrying a keyring-stored token (membrane-state.ts),
-   *  bound RO over `~/.config/gh/hosts.yml`. Task sessions only. Absent → no flags. */
+  /** This spawn's 0600 gh `hosts.yml` carrying a keyring-stored or agent token
+   *  (membrane-state.ts), bound RO at `~/.config/gh/hosts.yml`. Task sessions only. Absent → no
+   *  flags. Once an agent gh token mode is configured the host `~/.config/gh` dir is never bound,
+   *  only its `config.yml` (see forgeIdentityFlags). */
   ghHostsFile?: string | null;
   /** Realpath of the host's real `gh` binary (membrane-state.ts `resolveMembraneGhBin`), bound RO
    *  at `<MEMBRANE_TOOL_BIN>/gh` and first on PATH — ahead of a `~/.local/bin/gh` launcher that
@@ -1033,21 +1039,32 @@ function writableStoreFlags(
  *  git config only at the XDG path; `--clearenv` leaves git inside on that default path) +
  *  `~/.config/gh` (the gh token) RO — task sessions only. The XDG file alone, never its dir (no
  *  `~/.config/git/credentials`). A reviewer-style role never pushes or calls the forge (the
- *  server does), so it gets none. */
+ *  server does), so it gets none.
+ *
+ *  `agentGhMode` (an agent gh token mode is configured): never the host `~/.config/gh` dir — its
+ *  `hosts.yml` may store the operator's own token — only its settings (`config.yml`), plus this
+ *  spawn's hosts file bound at the `hosts.yml` path. bwrap creates that mount point on the `$HOME`
+ *  tmpfs, so it works whether or not the host has a `hosts.yml` or a `~/.config/gh` at all (a
+ *  mount point under the RO host dir bind could not be created). Without a per-spawn file (its
+ *  preparation failed; aux agents and preview scripts never get one) the membrane has no gh token. */
 function forgeIdentityFlags(
   home: string,
   reviewer: boolean | undefined,
   ghHostsFile: string | null | undefined,
+  agentGhMode: boolean,
 ): string[] {
   if (reviewer) return [];
+  const gh = `${home}/.config/gh`;
+  const hostsFile = typeof ghHostsFile === "string" && ghHostsFile.length > 0 ? ghHostsFile : null;
+  const hostsBind = hostsFile !== null ? ["--ro-bind", hostsFile, `${gh}/hosts.yml`] : [];
   return [
     ...["--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`],
     ...["--ro-bind-try", `${home}/.config/git/config`, `${home}/.config/git/config`],
-    ...["--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`],
+    ...(agentGhMode
+      ? ["--ro-bind-try", `${gh}/config.yml`, `${gh}/config.yml`]
+      : ["--ro-bind-try", gh, gh]),
     // A keyring-stored token never reaches the bound dir; this per-spawn copy carries it.
-    ...(typeof ghHostsFile === "string" && ghHostsFile.length > 0
-      ? ["--ro-bind", ghHostsFile, `${home}/.config/gh/hosts.yml`]
-      : []),
+    ...hostsBind,
   ];
 }
 
@@ -1204,7 +1221,14 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push(...codexCliFlags(inputs.codex));
 
   // ── commit identity + gh token (task sessions only: a reviewer never pushes) ──
-  f.push(...forgeIdentityFlags(home, inputs.reviewer, inputs.ghHostsFile));
+  f.push(
+    ...forgeIdentityFlags(
+      home,
+      inputs.reviewer,
+      inputs.ghHostsFile,
+      agentGhModeConfigured(deps.env), // undefined ⇒ its process.env default
+    ),
+  );
 
   // ── api-key helper (api-key mode only) ────────────────────────────────────
   // Bind the apiKeyHelper script RO at the SAME path so the `apiKeyHelper` entry

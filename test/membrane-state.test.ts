@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   statSync,
@@ -11,6 +15,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  AGENT_GH_TOKEN_FILE_ENV,
+  agentGhTokenFromEnv,
+  GH_HOSTS_REFRESH_INTERVAL_MS,
+  GhHostsRefresher,
+  membraneGhHostsPath,
   previewLogFile,
   prepareMembraneClaudeState,
   ghStoredTokenEnv,
@@ -21,6 +30,13 @@ import {
   sweepMembraneState,
 } from "../src/membrane-state";
 import { dashify } from "../src/claude-trust";
+import {
+  AGENT_GH_APP_ID_ENV,
+  AGENT_GH_APP_KEY_FILE_ENV,
+  GithubAppConfigError,
+  makeAgentGhAppToken,
+} from "../src/agent-gh-app";
+import { generateKeyPairSync } from "node:crypto";
 
 let root: string;
 let prevXdg: string | undefined;
@@ -261,12 +277,26 @@ describe("resolveMembraneGhBin (#3975)", () => {
 });
 
 describe("prepareMembraneGhHosts", () => {
+  // Tests without explicit agent-token deps read the env defaults: keep them hermetic.
+  const agentEnvVars = [AGENT_GH_TOKEN_FILE_ENV, AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV];
+  let prevAgentEnv: (string | undefined)[] = [];
+  beforeEach(() => {
+    prevAgentEnv = agentEnvVars.map((k) => process.env[k]);
+    for (const k of agentEnvVars) delete process.env[k];
+  });
+  afterEach(() => {
+    agentEnvVars.forEach((k, n) => {
+      if (prevAgentEnv[n] === undefined) delete process.env[k];
+      else process.env[k] = prevAgentEnv[n];
+    });
+  });
   const ghInputs = {
     get home() {
       return home;
     },
     sessionId: "s-1",
     key: "session",
+    repoPath: "/repos/proj",
   };
   const writeHosts = (yml: string) => {
     mkdirSync(join(home, ".config", "gh"), { recursive: true });
@@ -325,6 +355,502 @@ describe("prepareMembraneGhHosts", () => {
     expect(
       await prepareMembraneGhHosts(ghInputs, { ghToken: async () => "x\n    user: evil" }),
     ).toBeNull();
+  });
+
+  const noOperatorToken = async (): Promise<string> => {
+    throw new Error("operator token must not be read");
+  };
+  const operatorFileHosts = `github.com:\n    oauth_token: gho_operator\n    git_protocol: https\n    user: scoop\n`;
+
+  test("agent token configured -> override carries it, operator token never read", async () => {
+    writeHosts(keyringHosts);
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhToken: async () => "github_pat_11ABC_def\n",
+      ghToken: noOperatorToken,
+    });
+    expect(readFileSync(file!, "utf8")).toBe(`github.com:
+    users:
+        scoop:
+            oauth_token: github_pat_11ABC_def
+    git_protocol: https
+    user: scoop
+    oauth_token: github_pat_11ABC_def
+`);
+    expect(statSync(file!).mode & 0o777).toBe(0o600);
+  });
+
+  test("agent token also overrides a host file that stores the operator token", async () => {
+    writeHosts(operatorFileHosts);
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhToken: async () => "ghs_app123",
+      ghToken: noOperatorToken,
+    });
+    const yml = readFileSync(file!, "utf8");
+    expect(yml).toContain("oauth_token: ghs_app123");
+    expect(yml).not.toContain("gho_operator");
+  });
+
+  test("agent token configured but unusable -> token-less override, no operator fallback", async () => {
+    const tokenless = `github.com:
+    users:
+        scoop: {}
+    git_protocol: https
+    user: scoop
+`;
+    for (const agentGhToken of [
+      async () => {
+        throw new Error("chmod 600");
+      },
+      async () => "x\n    user: evil",
+    ]) {
+      writeHosts(operatorFileHosts);
+      const file = await prepareMembraneGhHosts(ghInputs, {
+        agentGhToken,
+        ghToken: noOperatorToken,
+      });
+      expect(readFileSync(file!, "utf8")).toBe(tokenless);
+    }
+  });
+
+  test("no agent token configured -> operator behaviour unchanged", async () => {
+    writeHosts(keyringHosts);
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhAppToken: async () => null,
+      agentGhToken: async () => null,
+      ghToken: async () => "gho_abc123",
+    });
+    expect(readFileSync(file!, "utf8")).toContain("oauth_token: gho_abc123");
+  });
+
+  const noTokenFile = async (): Promise<string | null> => {
+    throw new Error("token file must not be read");
+  };
+
+  test("App mode -> token minted for the session repo wins over token file + operator", async () => {
+    writeHosts(operatorFileHosts);
+    let askedFor: string | undefined;
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhAppToken: async (repoPath) => (
+        (askedFor = repoPath),
+        { token: "ghs_minted123", expiresAt: Date.now() + 3_600_000 }
+      ),
+      agentGhToken: noTokenFile,
+      ghToken: noOperatorToken,
+    });
+    expect(askedFor).toBe("/repos/proj");
+    const yml = readFileSync(file!, "utf8");
+    expect(yml).toContain("oauth_token: ghs_minted123");
+    expect(yml).not.toContain("gho_operator");
+    expect(statSync(file!).mode & 0o777).toBe(0o600);
+  });
+
+  test("App mode configured but failing -> token-less override, reason warned, no fallback", async () => {
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...a: unknown[]) => void warns.push(a.map(String).join(" "));
+    try {
+      for (const agentGhAppToken of [
+        async (): Promise<null> => {
+          throw new Error("GitHub App is not installed on o/r (HTTP 404)");
+        },
+        async () => ({ token: "x\n    user: evil", expiresAt: Date.now() + 3_600_000 }),
+      ]) {
+        writeHosts(operatorFileHosts);
+        const file = await prepareMembraneGhHosts(ghInputs, {
+          agentGhAppToken,
+          agentGhToken: noTokenFile,
+          ghToken: noOperatorToken,
+        });
+        const yml = readFileSync(file!, "utf8");
+        expect(yml).not.toContain("oauth_token");
+        expect(yml).toContain("scoop: {}");
+      }
+    } finally {
+      console.warn = origWarn;
+    }
+    expect(warns[0]).toContain("not installed on o/r (HTTP 404)");
+    expect(warns[1]).toContain("malformed");
+  });
+
+  test("App mode not configured -> token file still applies", async () => {
+    writeHosts(keyringHosts);
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhAppToken: async () => null,
+      agentGhToken: async () => "github_pat_11ABC_def",
+      ghToken: noOperatorToken,
+    });
+    expect(readFileSync(file!, "utf8")).toContain("oauth_token: github_pat_11ABC_def");
+  });
+
+  const minted = async () => ({ token: "ghs_minted123", expiresAt: Date.now() + 3_600_000 });
+
+  test("agent token + host ~/.config/gh without hosts.yml -> per-spawn file still written", async () => {
+    mkdirSync(join(home, ".config", "gh"), { recursive: true });
+    writeFileSync(join(home, ".config", "gh", "config.yml"), 'version: "1"\n');
+    for (const deps of [
+      { agentGhAppToken: minted, agentGhToken: noTokenFile },
+      { agentGhAppToken: async () => null, agentGhToken: async () => "ghs_minted123" },
+    ]) {
+      const file = await prepareMembraneGhHosts(ghInputs, { ...deps, ghToken: noOperatorToken });
+      expect(readFileSync(file!, "utf8")).toBe("github.com:\n    oauth_token: ghs_minted123\n");
+      expect(statSync(file!).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  test("App mode + no ~/.config/gh at all -> per-spawn file written; failure -> token-less", async () => {
+    expect(existsSync(join(home, ".config", "gh"))).toBe(false);
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhAppToken: minted,
+      agentGhToken: noTokenFile,
+      ghToken: noOperatorToken,
+    });
+    expect(readFileSync(file!, "utf8")).toBe("github.com:\n    oauth_token: ghs_minted123\n");
+    const origWarn = console.warn;
+    console.warn = () => {};
+    try {
+      const failed = await prepareMembraneGhHosts(ghInputs, {
+        agentGhAppToken: async () => {
+          throw new GithubAppConfigError("App not installed");
+        },
+        ghToken: noOperatorToken,
+      });
+      expect(readFileSync(failed!, "utf8")).toBe("github.com:\n");
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  test("env default: App mode half-configured -> token-less, token file ignored", async () => {
+    writeHosts(operatorFileHosts);
+    process.env[AGENT_GH_APP_ID_ENV] = "12345";
+    const file = await prepareMembraneGhHosts(ghInputs, {
+      agentGhToken: noTokenFile,
+      ghToken: noOperatorToken,
+    });
+    expect(readFileSync(file!, "utf8")).not.toContain("oauth_token");
+  });
+});
+
+describe("GhHostsRefresher (App-token refresh of a live membrane)", () => {
+  const keyringHosts = `github.com:
+    users:
+        scoop: {}
+    git_protocol: https
+    user: scoop
+`;
+  const withToken = (t: string) => `github.com:
+    users:
+        scoop:
+            oauth_token: ${t}
+    git_protocol: https
+    user: scoop
+    oauth_token: ${t}
+`;
+  const T0 = Date.parse("2026-11-23T12:00:00Z");
+  const MIN = 60_000;
+  const tok = (n: number) => `ghs_${String(n).repeat(36).slice(0, 36)}`;
+  /** A live spawn: host hosts.yml + this session's per-spawn file holding `token`. */
+  const spawned = (token: string) => {
+    mkdirSync(join(home, ".config", "gh"), { recursive: true });
+    writeFileSync(join(home, ".config", "gh", "hosts.yml"), keyringHosts);
+    const file = membraneGhHostsPath("s-1");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, withToken(token), { mode: 0o600 });
+    return { home, sessionId: "s-1", repoPath: "/repos/proj", file };
+  };
+  /** Fake timers: `every` records each loop's tick + interval. */
+  const fakeTimers = () => {
+    const loops: { fn: () => void; ms: number; cancelled: boolean }[] = [];
+    return {
+      loops,
+      every: (fn: () => void, ms: number) => {
+        const l = { fn, ms, cancelled: false };
+        loops.push(l);
+        return () => void (l.cancelled = true);
+      },
+    };
+  };
+  /** Collect console.warn lines while `fn` runs. */
+  const warnsOf = async (fn: () => Promise<void>) => {
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (...a: unknown[]) => void warns.push(a.map(String).join(" "));
+    try {
+      await fn();
+    } finally {
+      console.warn = orig;
+    }
+    return warns;
+  };
+  type Source = () => Promise<{ token: string; expiresAt: number } | null>;
+  /** A refresher on a fake clock whose App token source is whatever `source.next` says. */
+  const harness = (initial: Source) => {
+    const clock = { now: T0 };
+    const source = { next: initial };
+    const timers = fakeTimers();
+    const r = new GhHostsRefresher({
+      appModeConfigured: () => true,
+      agentGhAppToken: () => source.next(),
+      now: () => clock.now,
+      every: timers.every,
+    });
+    return { r, clock, source, timers };
+  };
+  const grant = (n: number, expiresAt: number) => async () => ({ token: tok(n), expiresAt });
+  const fail = (err: Error) => async () => {
+    throw err;
+  };
+  const text = (file: string) => readFileSync(file, "utf8").trimEnd();
+  /** Content + inode/mode/size from ONE open handle — no path-based stat-then-read race. */
+  const snap = (file: string) => {
+    const fd = openSync(file, "r");
+    try {
+      const st = fstatSync(fd);
+      return { text: readFileSync(fd, "utf8"), ino: st.ino, mode: st.mode, size: st.size };
+    } finally {
+      closeSync(fd);
+    }
+  };
+
+  test("App mode off -> no loop, file untouched", async () => {
+    const target = spawned(tok(1));
+    const timers = fakeTimers();
+    const r = new GhHostsRefresher({
+      appModeConfigured: () => false,
+      agentGhAppToken: async () => {
+        throw new Error("must not mint");
+      },
+      every: timers.every,
+    });
+    r.start(target);
+    await r.refresh("s-1");
+    expect(timers.loops).toHaveLength(0);
+    expect(r.isRunning("s-1")).toBe(false);
+    expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(1)));
+  });
+
+  test("start refreshes at once; a tick rewrites the same path + inode, 0600 kept", async () => {
+    const target = spawned(tok(1));
+    const ino = snap(target.file).ino;
+    const h = harness(grant(1, T0 + 60 * MIN));
+    h.r.start(target);
+    await h.r.refresh("s-1");
+    expect(snap(target.file).text).toBe(withToken(tok(1))); // unchanged: no write
+    expect(h.timers.loops).toHaveLength(1);
+    expect(h.timers.loops[0]!.ms).toBe(GH_HOSTS_REFRESH_INTERVAL_MS);
+    h.source.next = grant(2, T0 + 100 * MIN);
+    h.timers.loops[0]!.fn();
+    await h.r.refresh("s-1"); // joins the in-flight tick
+    const after = snap(target.file);
+    expect(after.text).toBe(withToken(tok(2)));
+    expect(after.ino).toBe(ino);
+    expect(after.mode & 0o777).toBe(0o600);
+  });
+
+  test("one loop per session: a resume's start retargets instead of adding a loop", async () => {
+    const target = spawned(tok(1));
+    const h = harness(grant(1, T0 + 60 * MIN));
+    h.r.start(target);
+    h.r.start({ ...target });
+    await h.r.refresh("s-1");
+    expect(h.timers.loops).toHaveLength(1);
+  });
+
+  test("transient failure keeps the still-valid token (warned once), then recovers", async () => {
+    const target = spawned(tok(1));
+    const h = harness(grant(1, T0 + 60 * MIN));
+    h.r.start(target);
+    await h.r.refresh("s-1");
+    const warns = await warnsOf(async () => {
+      for (const err of [
+        new Error("GitHub App token mint for o/r: HTTP 502"),
+        new Error("GitHub App token mint failed: timed out"),
+      ]) {
+        h.clock.now += 5 * MIN;
+        h.source.next = fail(err);
+        await h.r.refresh("s-1");
+        expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(1)));
+      }
+      h.clock.now += 5 * MIN;
+      await h.r.refresh("s-1"); // same failure again: no new warning
+    });
+    expect(warns).toHaveLength(2);
+    expect(warns[0]).toContain("keeping the current token");
+    expect(warns[0]).toContain("HTTP 502");
+    h.source.next = grant(2, T0 + 120 * MIN);
+    await h.r.refresh("s-1");
+    expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(2)));
+  });
+
+  test("transient failure within the safety margin -> token-less in place (padded, same inode)", async () => {
+    const target = spawned(tok(1));
+    const before = snap(target.file);
+    const h = harness(grant(1, T0 + 30 * MIN));
+    h.r.start(target);
+    await h.r.refresh("s-1");
+    h.clock.now = T0 + 26 * MIN; // 4 min left
+    h.source.next = fail(new Error("GitHub App token mint for o/r: HTTP 503"));
+    const warns = await warnsOf(() => h.r.refresh("s-1"));
+    const after = snap(target.file);
+    expect(after.text.trimEnd()).toBe(keyringHosts.trimEnd());
+    expect(after.size).toBe(before.size); // never shrinks: no torn/empty read
+    expect(after.ino).toBe(before.ino);
+    expect(warns[0]).toContain(
+      "membrane gets no gh token: GitHub App token mint for o/r: HTTP 503",
+    );
+  });
+
+  test("transient failure with no vouched-for token (first refresh) -> token-less", async () => {
+    const target = spawned(tok(1));
+    const h = harness(fail(new Error("GitHub App installation lookup failed: timed out")));
+    await warnsOf(async () => {
+      h.r.start(target);
+      await h.r.refresh("s-1");
+    });
+    expect(text(target.file)).toBe(keyringHosts.trimEnd());
+  });
+
+  test("App config unusable or App mode gone -> token-less at once, despite time left", async () => {
+    for (const next of [
+      fail(
+        new GithubAppConfigError("SHEPHERD_AGENT_GH_APP_KEY_FILE: /k is readable by group/other"),
+      ),
+      fail(new GithubAppConfigError("GitHub App is not installed on o/r (HTTP 404)")),
+      async () => null,
+    ]) {
+      const target = spawned(tok(1));
+      const h = harness(grant(1, T0 + 60 * MIN));
+      h.r.start(target);
+      await h.r.refresh("s-1");
+      h.source.next = next;
+      const warns = await warnsOf(() => h.r.refresh("s-1"));
+      expect(text(target.file)).toBe(keyringHosts.trimEnd());
+      expect(warns[0]).toContain("membrane gets no gh token");
+      h.r.stop("s-1");
+    }
+  });
+
+  test("real minter: a 404 on re-mint drops the token at once; a 502 keeps it", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    for (const [status, kept] of [
+      [404, false],
+      [502, true],
+    ] as const) {
+      const target = spawned(tok(1));
+      const clock = { now: T0 };
+      let mintStatus = 201;
+      const fetchFn = (async (url: string | URL | Request) => {
+        if (String(url).endsWith("/installation")) return Response.json({ id: 42 });
+        if (mintStatus !== 201) return Response.json({ message: "nope" }, { status: mintStatus });
+        return Response.json(
+          { token: tok(1), expires_at: new Date(T0 + 60 * MIN).toISOString() },
+          { status: 201 },
+        );
+      }) as typeof fetch;
+      const source = makeAgentGhAppToken({
+        env: { [AGENT_GH_APP_ID_ENV]: "12345", [AGENT_GH_APP_KEY_FILE_ENV]: "/k.pem" },
+        fetch: fetchFn,
+        now: () => clock.now,
+        loadKey: async () => privateKey,
+        githubRepo: () => ({ owner: "o", name: "r" }),
+      });
+      const r = new GhHostsRefresher({
+        appModeConfigured: () => true,
+        agentGhAppToken: source,
+        now: () => clock.now,
+        every: fakeTimers().every,
+      });
+      r.start(target);
+      await r.refresh("s-1");
+      clock.now = T0 + 41 * MIN; // inside the reuse margin: re-mint
+      mintStatus = status;
+      await warnsOf(() => r.refresh("s-1"));
+      expect(readFileSync(target.file, "utf8").includes(`oauth_token: ${tok(1)}`)).toBe(kept);
+      r.stop("s-1");
+    }
+  });
+
+  test("malformed minted token counts as transient", async () => {
+    const target = spawned(tok(1));
+    const h = harness(grant(1, T0 + 60 * MIN));
+    h.r.start(target);
+    await h.r.refresh("s-1");
+    h.source.next = async () => ({ token: "x\n    user: evil", expiresAt: T0 + 90 * MIN });
+    await warnsOf(() => h.r.refresh("s-1"));
+    expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(1)));
+  });
+
+  test("stop cancels the timer; later ticks and an in-flight refresh leave the file alone", async () => {
+    const target = spawned(tok(1));
+    let release!: (g: { token: string; expiresAt: number }) => void;
+    const h = harness(() => new Promise((res) => (release = res)));
+    h.r.start(target); // in flight
+    h.r.stop("s-1");
+    expect(h.timers.loops[0]!.cancelled).toBe(true);
+    expect(h.r.isRunning("s-1")).toBe(false);
+    release({ token: tok(2), expiresAt: T0 + 60 * MIN });
+    await Bun.sleep(1);
+    await h.r.refresh("s-1"); // no loop: no-op
+    expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(1)));
+  });
+
+  test("membrane state removed -> the loop stops itself, file not resurrected", async () => {
+    const target = spawned(tok(1));
+    const h = harness(grant(1, T0 + 60 * MIN));
+    h.r.start(target);
+    await h.r.refresh("s-1");
+    removeMembraneState("s-1");
+    h.source.next = grant(2, T0 + 100 * MIN);
+    h.timers.loops[0]!.fn();
+    await h.r.refresh("s-1");
+    expect(h.r.isRunning("s-1")).toBe(false);
+    expect(h.timers.loops[0]!.cancelled).toBe(true);
+    expect(existsSync(target.file)).toBe(false);
+  });
+
+  test("no per-spawn file -> no loop", () => {
+    const timers = fakeTimers();
+    const r = new GhHostsRefresher({ appModeConfigured: () => true, every: timers.every });
+    r.start({ home, sessionId: "s-2", repoPath: "/r", file: membraneGhHostsPath("s-2") });
+    expect(timers.loops).toHaveLength(0);
+  });
+});
+
+describe("agentGhTokenFromEnv", () => {
+  const tokenFile = (content: string, mode: number) => {
+    const p = join(root, "agent-token");
+    writeFileSync(p, content);
+    chmodSync(p, mode);
+    return p;
+  };
+
+  test("unset or blank -> null", async () => {
+    expect(await agentGhTokenFromEnv({})).toBeNull();
+    expect(await agentGhTokenFromEnv({ [AGENT_GH_TOKEN_FILE_ENV]: "  " })).toBeNull();
+  });
+
+  test("0600 file with one token -> the token", async () => {
+    const p = tokenFile("github_pat_11ABC_def\n", 0o600);
+    expect(await agentGhTokenFromEnv({ [AGENT_GH_TOKEN_FILE_ENV]: p })).toBe(
+      "github_pat_11ABC_def",
+    );
+  });
+
+  test("group/other-readable, missing, directory or junk -> throws", async () => {
+    const loose = tokenFile("ghs_x", 0o644);
+    await expect(agentGhTokenFromEnv({ [AGENT_GH_TOKEN_FILE_ENV]: loose })).rejects.toThrow(
+      "chmod 600",
+    );
+    await expect(
+      agentGhTokenFromEnv({ [AGENT_GH_TOKEN_FILE_ENV]: join(root, "nope") }),
+    ).rejects.toThrow();
+    await expect(agentGhTokenFromEnv({ [AGENT_GH_TOKEN_FILE_ENV]: root })).rejects.toThrow(
+      "not a regular file",
+    );
+    const junk = tokenFile("a b\nc", 0o600);
+    await expect(agentGhTokenFromEnv({ [AGENT_GH_TOKEN_FILE_ENV]: junk })).rejects.toThrow(
+      "single gh token",
+    );
   });
 });
 

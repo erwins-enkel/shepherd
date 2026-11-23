@@ -79,7 +79,7 @@ import { SettingsSourceService, localRepoIndex } from "./settings-source";
 import { loadSteers } from "./steers";
 import { loadIcons } from "./project-icons";
 import { attachMirrorPush } from "./remote-instances/push-relay";
-import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
+import { startRemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
 import { safeRepoDir } from "./validate";
 import { refreshRepoConfigsAtStartup } from "./repo-config-file";
 import { instanceIdentity, instancePlatform } from "./remote-instances/identity";
@@ -242,6 +242,7 @@ import { FIRST_PASS_RANGE } from "./maintain-core";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import {
+  ghHostsRefresher,
   prepareMembraneClaudeState,
   prepareMembraneGhHosts,
   prepareMembraneMiseConfig,
@@ -1140,6 +1141,7 @@ const service = new SessionService({
   prepareMembraneState: prepareMembraneClaudeState,
   prepareMembraneMiseConfig,
   prepareMembraneGhHosts,
+  ghHostsRefresh: ghHostsRefresher,
   prepareScratchpadBind: sandboxScratchpadBind,
   resolveMembraneGhBin: () => resolveMembraneGhBin(),
   readCodexAuthMode,
@@ -1276,21 +1278,11 @@ remoteInstances.onChange(() => {
 // probe that finds its machine connected — on reconnect, after this restart, and each round; a task
 // waiting for its machine (#2775) is sent then, and one held there is followed up. `here` is this
 // Shepherd as the machine choice sees it: what a waiting task could run on instead.
-const remoteDispatch = new RemoteDispatcher({
+const remoteDispatch = startRemoteDispatcher({
   store,
   instances: remoteInstances,
   events,
   here: () => localMachine(instanceIdentity(store), capabilities.report()),
-});
-remoteInstances.onChange((instanceId) => {
-  remoteDispatch
-    .reconcile(instanceId)
-    .catch((err: unknown) =>
-      console.warn(
-        "[remote-dispatch] reconcile failed:",
-        err instanceof Error ? err.message : String(err),
-      ),
-    );
 });
 // Verified capabilities (#2770): local probes only (no outbound connection), every 5 minutes once
 // the first-run gate opens. GET /api/instance serves the result; creates with requirements re-probe.
@@ -1366,6 +1358,16 @@ deferredStarts.push(() => {
     service.sweepEgressTmp();
   } catch (err) {
     console.warn("[egress] startup temp-dir sweep failed:", err);
+  }
+});
+
+// GitHub App mode: resume the gh token refresh of membranes that outlived the restart (after the
+// sweep above, so only live sessions' state remains). Best-effort.
+deferredStarts.push(() => {
+  try {
+    service.resumeGhHostsRefresh();
+  } catch (err) {
+    console.warn("[sandbox] startup gh token refresh resume failed:", err);
   }
 });
 

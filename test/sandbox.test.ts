@@ -425,6 +425,39 @@ describe("buildMembraneFlags", () => {
       );
   });
 
+  test("agent gh token mode: never the host ~/.config/gh dir — config.yml + per-spawn file only", () => {
+    const file = "/run/shepherd/membrane/s1/session.gh-hosts.yml";
+    const gh = "/home/me/.config/gh";
+    const ghPaths = (f: string[]) => f.filter((v) => v.includes("/.config/gh"));
+    for (const env of [
+      { SHEPHERD_AGENT_GH_TOKEN_FILE: "/etc/shepherd/agent-token" },
+      { SHEPHERD_AGENT_GH_APP_ID: "12345", SHEPHERD_AGENT_GH_APP_KEY_FILE: "/k.pem" },
+      { SHEPHERD_AGENT_GH_APP_ID: "12345" }, // half an App config still counts
+    ]) {
+      const deps = { ...detDeps, env };
+      for (const absent of [undefined, null, ""]) {
+        const f = buildMembraneFlags(fakeMembrane({ ghHostsFile: absent }), deps);
+        expect(ghPaths(f)).toEqual([`${gh}/config.yml`, `${gh}/config.yml`]);
+        expect(hasTriple(f, "--ro-bind-try", `${gh}/config.yml`, `${gh}/config.yml`)).toBe(true);
+      }
+      const f = buildMembraneFlags(fakeMembrane({ ghHostsFile: file }), deps);
+      expect(ghPaths(f)).toEqual([`${gh}/config.yml`, `${gh}/config.yml`, `${gh}/hosts.yml`]);
+      expect(hasTriple(f, "--ro-bind", file, `${gh}/hosts.yml`)).toBe(true);
+      expect(
+        buildMembraneFlags(fakeMembrane({ reviewer: true }), deps).some((v) => v.includes(gh)),
+      ).toBe(false);
+    }
+    // No agent mode (unset or blank): unchanged — the host dir bound, the per-spawn file over it.
+    for (const env of [{}, { SHEPHERD_AGENT_GH_TOKEN_FILE: " " }]) {
+      const deps = { ...detDeps, env };
+      expect(hasTriple(buildMembraneFlags(fakeMembrane(), deps), "--ro-bind-try", gh, gh)).toBe(
+        true,
+      );
+      const f = buildMembraneFlags(fakeMembrane({ ghHostsFile: file }), deps);
+      expect(ghPaths(f)).toEqual([gh, gh, `${gh}/hosts.yml`]);
+    }
+  });
+
   test("has hardened process isolation flags", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(f).toContain("--die-with-parent");

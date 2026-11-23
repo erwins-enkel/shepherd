@@ -77,6 +77,7 @@ function makeService(opts: {
     typeof SessionService
   >[0]["prepareMembraneGhHosts"];
   resolveMembraneGhBin?: () => Promise<string | null>;
+  ghHostsRefresh?: ConstructorParameters<typeof SessionService>[0]["ghHostsRefresh"];
   prepareScratchpadBind?: ConstructorParameters<typeof SessionService>[0]["prepareScratchpadBind"];
   previewLogFile?: (sessionId: string) => string;
 }) {
@@ -91,6 +92,7 @@ function makeService(opts: {
     prepareMembraneMiseConfig: opts.prepareMembraneMiseConfig,
     prepareMembraneGhHosts: opts.prepareMembraneGhHosts,
     resolveMembraneGhBin: opts.resolveMembraneGhBin,
+    ghHostsRefresh: opts.ghHostsRefresh,
     prepareScratchpadBind: opts.prepareScratchpadBind,
     previewLogFile: opts.previewLogFile ?? ((id) => `/run/membrane/${id}/preview-start.log`),
     // Default the egress seam to null so an autonomous test never falls through to the real
@@ -231,15 +233,18 @@ test("create + standard + bwrap → binds the derived mise config + gh hosts fil
   store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
   const record: { argv?: string[] } = {};
   let pinned: unknown;
+  let ghIn: unknown;
   const service = makeService({
     store,
     record,
     detectBackend: () => "bwrap",
     prepareMembraneMiseConfig: async (i) => ((pinned = i.pinnedBins), "/run/membrane/s.mise.toml"),
-    prepareMembraneGhHosts: async () => "/run/membrane/s.gh-hosts.yml",
+    prepareMembraneGhHosts: async (i) => ((ghIn = i), "/run/membrane/s.gh-hosts.yml"),
     resolveMembraneGhBin: async () => "/opt/gh/bin/gh",
   });
-  await service.create(baseInput());
+  const s = await service.create(baseInput());
+  // The session repo rides along so GitHub App mode can scope the agent token to it.
+  expect(ghIn).toMatchObject({ sessionId: s.id, key: "session", repoPath: "/repo" });
   const a = record.argv!;
   expect(a[a.indexOf("/opt/gh/bin/gh") + 1]).toBe(`${MEMBRANE_TOOL_BIN}/gh`);
   expect(a[a.indexOf("PATH") + 1]?.startsWith(`${MEMBRANE_TOOL_BIN}:`)).toBe(true);
@@ -266,6 +271,106 @@ test("create + standard + bwrap → binds the derived mise config + gh hosts fil
   expect(record2.argv).toContain("bwrap");
   expect(record2.argv).not.toContain(MEMBRANE_MISE_CONFIG);
   expect(record2.argv).not.toContain(`${MEMBRANE_TOOL_BIN}/gh`);
+});
+
+test("agent gh mode + no per-spawn gh hosts file -> host hosts.yml not bound; else unchanged", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const ghBinds = async (agentEnv: Record<string, string>) => {
+    const record: { argv?: string[] } = {};
+    const service = makeService({
+      store,
+      record,
+      detectBackend: () => "bwrap",
+      prepareMembraneGhHosts: async () => {
+        throw new Error("EACCES");
+      },
+    });
+    const keys = Object.keys(agentEnv);
+    const prev = keys.map((k) => process.env[k]);
+    Object.assign(process.env, agentEnv);
+    try {
+      await service.create(baseInput());
+    } finally {
+      keys.forEach((k, n) => {
+        if (prev[n] === undefined) delete process.env[k];
+        else process.env[k] = prev[n];
+      });
+    }
+    expect(record.argv).toContain("bwrap");
+    return record.argv!.filter((v) => v.includes("/.config/gh"));
+  };
+  const agentModes: Record<string, string>[] = [
+    { SHEPHERD_AGENT_GH_TOKEN_FILE: "/etc/shepherd/agent-token" },
+    { SHEPHERD_AGENT_GH_APP_ID: "12345", SHEPHERD_AGENT_GH_APP_KEY_FILE: "/etc/shepherd/app.pem" },
+  ];
+  // Agent mode: only the host config.yml — never the dir, so never the host hosts.yml.
+  for (const agentEnv of agentModes) {
+    const binds = await ghBinds(agentEnv);
+    expect(binds).toHaveLength(2);
+    for (const b of binds) expect(b).toMatch(/\/\.config\/gh\/config\.yml$/);
+  }
+  // No agent mode: the host dir (with whatever hosts.yml it holds) stays bound, as before.
+  const unchanged = await ghBinds({});
+  expect(unchanged.length).toBe(2);
+  expect(unchanged[0]).toMatch(/\/\.config\/gh$/);
+});
+
+test("gh token refresh: started after a spawn that bound a hosts file, stopped on archive", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const started: { target: unknown }[] = [];
+  const stopped: string[] = [];
+  const ghHostsRefresh = {
+    start: (target: unknown) => void started.push({ target }),
+    stop: (id: string) => void stopped.push(id),
+  };
+  const service = makeService({
+    store,
+    record: {},
+    detectBackend: () => "bwrap",
+    prepareMembraneGhHosts: async () => "/run/membrane/s.gh-hosts.yml",
+    ghHostsRefresh,
+  });
+  const s = await service.create(baseInput());
+  expect(started).toHaveLength(1);
+  expect(started[0]!.target).toMatchObject({
+    sessionId: s.id,
+    repoPath: "/repo",
+    file: "/run/membrane/s.gh-hosts.yml",
+  });
+  expect(stopped).toEqual([]);
+  await service.archive(s.id);
+  expect(stopped).toEqual([s.id]);
+
+  // No per-spawn hosts file (or a trusted, unwrapped spawn) -> nothing to refresh.
+  const none = makeService({
+    store,
+    record: {},
+    detectBackend: () => "bwrap",
+    prepareMembraneGhHosts: async () => null,
+    ghHostsRefresh,
+  });
+  await none.create(baseInput());
+  expect(started).toHaveLength(1);
+});
+
+test("gh token refresh resumes at boot for every live session", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const started: { target: { sessionId: string; file: string } }[] = [];
+  const ghHostsRefresh = {
+    start: (target: { sessionId: string; file: string }) => void started.push({ target }),
+    stop: () => {},
+  };
+  const service = makeService({ store, record: {}, detectBackend: () => "bwrap", ghHostsRefresh });
+  const a = await service.create(baseInput());
+  const b = await service.create(baseInput());
+  await service.archive(b.id);
+  started.length = 0;
+  service.resumeGhHostsRefresh();
+  expect(started.map((x) => x.target.sessionId)).toEqual([a.id]);
+  expect(started[0]!.target.file).toMatch(new RegExp(`/${a.id}/session\\.gh-hosts\\.yml$`));
 });
 
 test("create + standard + bwrap: a failing state prep degrades to the RO host bind", async () => {

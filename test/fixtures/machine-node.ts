@@ -36,7 +36,7 @@ import { config } from "../../src/config";
 import { AccessTokenService } from "../../src/access-tokens";
 import { RemoteInstanceService } from "../../src/remote-instances/service";
 import { RemoteSessionMirror } from "../../src/remote-instances/sessions";
-import { RemoteDispatcher } from "../../src/remote-instances/dispatch";
+import { startRemoteDispatcher } from "../../src/remote-instances/dispatch";
 import { instanceIdentity, setInstanceName } from "../../src/remote-instances/identity";
 import { localMachine } from "../../src/remote-instances/placement";
 import type { CapabilityService } from "../../src/remote-instances/capability-probe";
@@ -199,21 +199,11 @@ const remoteSessions = new RemoteSessionMirror({
   recheckDelaysMs: Array<number>(200).fill(100),
 });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
-const remoteDispatch = new RemoteDispatcher({
+const remoteDispatch = startRemoteDispatcher({
   store,
   instances: remoteInstances,
   events,
   here: () => localMachine(instanceIdentity(store, platform), capabilities.report()),
-});
-remoteInstances.onChange((instanceId) => {
-  remoteDispatch
-    .reconcile(instanceId)
-    .catch((err: unknown) =>
-      console.warn(
-        "[remote-dispatch] reconcile failed:",
-        err instanceof Error ? err.message : String(err),
-      ),
-    );
 });
 
 setInstanceName(store, process.env.MACHINE_NODE_NAME ?? null);

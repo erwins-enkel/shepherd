@@ -112,7 +112,45 @@ The membrane keeps two token surfaces readable to any in-membrane tool call
   D-Bus, `--clearenv`), so `prepareMembraneGhHosts` (`src/membrane-state.ts`)
   reads it host-side with `gh auth token` and writes a per-spawn 0600 github.com
   `hosts.yml` bound RO over the host file — the same readability as a file-stored
-  token.
+  token. An agent token configured on the server replaces the operator's usually
+  far broader one (`admin:org`, every repo, `workflow`) in that per-spawn file,
+  also over a file-stored operator token. Precedence: **GitHub App mode**
+  (`SHEPHERD_AGENT_GH_APP_ID` + `SHEPHERD_AGENT_GH_APP_KEY_FILE`,
+  `src/agent-gh-app.ts`) > `SHEPHERD_AGENT_GH_TOKEN_FILE` (one static token, e.g.
+  a fine-grained PAT) > the operator token. In App mode the server signs an App
+  JWT with the private key — which stays host-side, never bound into the
+  membrane — and mints an installation token limited to the session repo (its
+  github.com `origin`; in fork mode the fork) with contents, pull-request and
+  issue write plus metadata, checks, statuses and actions read. Install the App,
+  with those permissions, on every account and org whose repos Shepherd works on.
+
+  Once any agent mode is configured the host `~/.config/gh` dir is **never**
+  bound: only its `config.yml` (settings, aliases), plus the per-spawn file at
+  `~/.config/gh/hosts.yml` on the `$HOME` tmpfs — so the agent gets its token
+  even when the host has no `hosts.yml` or no `~/.config/gh` at all, and the host
+  `hosts.yml` (possibly holding the operator's token) never reaches a membrane. A
+  membrane without a per-spawn file has **no gh token**: one whose preparation
+  failed, and — by design — every doc agent, plugin agent and preview script,
+  which never get one in an agent mode (without an agent mode they keep the host
+  dir, as before).
+
+  A configured agent source that yields no token at spawn — a missing or
+  group/other-readable key or file, the App not installed on the repo, an API
+  error or timeout, a non-GitHub repo — leaves the file without any token (fail
+  closed, gh 401s, reason in the server log), never a fallback to a lower
+  source. Installation tokens last 1 h, so while the session lives
+  `GhHostsRefresher` re-checks every 5 min and rewrites the file **in place**
+  (same inode — the RO bind pins it) with a fresh token before the old one gets
+  within 15 min of expiry; it stops at archive and resumes for live sessions
+  after a server restart. A refresh empties the file at once when the App
+  configuration itself is unusable (`GithubAppConfigError`: App vars unset or
+  half-set, a non-numeric App ID, a missing, unreadable, group/other-readable or
+  non-RSA key, a non-GitHub repo, or GitHub refusing the App — 404 not installed
+  / installation gone, 401 JWT rejected, 422 permissions or repo not granted). A
+  transient failure — network, timeout, 5xx, 403/429 rate limit, malformed
+  response — keeps the still-valid token and retries on the next check; only
+  with ≤ 5 min left (or no token the refresher has vouched for since start) is
+  the file emptied.
 
 Not a token surface: task sessions also get a derived mise config
 (`prepareMembraneMiseConfig`) bound RO at `/tmp/.shepherd-mise/config.toml` and

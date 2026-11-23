@@ -9,12 +9,12 @@ import { readFileSync } from "node:fs";
 export const DARWIN_MAX_INPUT = 1024;
 
 /**
- * Both ≥0.7.5 drivers type `'sh' '<path>'` into the pane and let the script carry the real command
- * (#1967). Asserts the typed line is that short form and fits `MAX_INPUT`, then returns the script
+ * Both ≥0.7.5 drivers type ` 'sh' '<path>'` (space-prefixed, #4111) into the pane and let the
+ * script carry the real command (#1967). Asserts the typed line is that short form and fits `MAX_INPUT`, then returns the script
  * body so callers can assert on the command that will actually run.
  */
 export function readTypedScript(cmdline: string | undefined): string {
-  expect(cmdline).toMatch(/^'sh' '.*\.sh'$/);
+  expect(cmdline).toMatch(/^ 'sh' '.*\.sh'$/);
   expect(Buffer.byteLength(cmdline!, "utf8")).toBeLessThan(DARWIN_MAX_INPUT);
-  return readFileSync(/^'sh' '(.*)'$/.exec(cmdline!)![1]!, "utf8");
+  return readFileSync(/^ 'sh' '(.*)'$/.exec(cmdline!)![1]!, "utf8");
 }

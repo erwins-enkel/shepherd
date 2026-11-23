@@ -245,7 +245,13 @@ describe("spawnCommandLine", () => {
 
     const line = await spawnCommandLine(wrapped);
     expect(Buffer.byteLength(line, "utf8")).toBeLessThan(DARWIN_MAX_INPUT);
-    expect(line).toMatch(/^'sh' '.*\.sh'$/);
+    expect(line).toMatch(/^ 'sh' '.*\.sh'$/);
+  });
+
+  test("the line starts with exactly ONE space so history-ignorespace shells skip it (#4111)", async () => {
+    const line = await spawnCommandLine(["true"]);
+    expect(line.startsWith(" ")).toBe(true);
+    expect(line.startsWith("  ")).toBe(false);
   });
 
   test("typing the line at a REAL shell execs the argv byte-identically and removes the script", async () => {
@@ -259,7 +265,7 @@ describe("spawnCommandLine", () => {
       "[%s]\n",
       ...args,
     ]);
-    const path = /^'sh' '(.*)'$/.exec(line)?.[1] ?? "";
+    const path = /^ 'sh' '(.*)'$/.exec(line)?.[1] ?? "";
     expect(existsSync(path)).toBe(true);
 
     const stdout = await typeIntoShell(`${line}\n`);

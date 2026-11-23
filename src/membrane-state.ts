@@ -14,7 +14,8 @@
 
 import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
-import { chmod, mkdir, open, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { OwnerOnlyFileError, readOwnerOnlyFile } from "./owner-only-file";
 import { basename, join } from "node:path";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
@@ -166,12 +167,19 @@ export async function agentGhTokenFromEnv(
 ): Promise<string | null> {
   const path = env[AGENT_GH_TOKEN_FILE_ENV]?.trim();
   if (!path) return null;
-  const st = await stat(path);
-  if (!st.isFile()) throw new Error(`${AGENT_GH_TOKEN_FILE_ENV}: ${path} is not a regular file`);
-  if (st.mode & 0o077) {
-    throw new Error(`${AGENT_GH_TOKEN_FILE_ENV}: ${path} is readable by group/other (chmod 600)`);
+  let raw: string;
+  try {
+    raw = await readOwnerOnlyFile(path);
+  } catch (err) {
+    if (!(err instanceof OwnerOnlyFileError)) throw err;
+    throw new Error(
+      err.problem === "not-regular"
+        ? `${AGENT_GH_TOKEN_FILE_ENV}: ${path} is not a regular file`
+        : `${AGENT_GH_TOKEN_FILE_ENV}: ${path} is readable by group/other (chmod 600)`,
+      { cause: err },
+    );
   }
-  const token = (await readFile(path, "utf8")).trim();
+  const token = raw.trim();
   if (!GH_TOKEN_RE.test(token)) {
     throw new Error(`${AGENT_GH_TOKEN_FILE_ENV}: ${path} does not hold a single gh token`);
   }

@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   statSync,
@@ -598,6 +601,16 @@ describe("GhHostsRefresher (App-token refresh of a live membrane)", () => {
     throw err;
   };
   const text = (file: string) => readFileSync(file, "utf8").trimEnd();
+  /** Content + inode/mode/size from ONE open handle — no path-based stat-then-read race. */
+  const snap = (file: string) => {
+    const fd = openSync(file, "r");
+    try {
+      const st = fstatSync(fd);
+      return { text: readFileSync(fd, "utf8"), ino: st.ino, mode: st.mode, size: st.size };
+    } finally {
+      closeSync(fd);
+    }
+  };
 
   test("App mode off -> no loop, file untouched", async () => {
     const target = spawned(tok(1));
@@ -618,19 +631,20 @@ describe("GhHostsRefresher (App-token refresh of a live membrane)", () => {
 
   test("start refreshes at once; a tick rewrites the same path + inode, 0600 kept", async () => {
     const target = spawned(tok(1));
-    const ino = statSync(target.file).ino;
+    const ino = snap(target.file).ino;
     const h = harness(grant(1, T0 + 60 * MIN));
     h.r.start(target);
     await h.r.refresh("s-1");
-    expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(1))); // unchanged: no write
+    expect(snap(target.file).text).toBe(withToken(tok(1))); // unchanged: no write
     expect(h.timers.loops).toHaveLength(1);
     expect(h.timers.loops[0]!.ms).toBe(GH_HOSTS_REFRESH_INTERVAL_MS);
     h.source.next = grant(2, T0 + 100 * MIN);
     h.timers.loops[0]!.fn();
     await h.r.refresh("s-1"); // joins the in-flight tick
-    expect(readFileSync(target.file, "utf8")).toBe(withToken(tok(2)));
-    expect(statSync(target.file).ino).toBe(ino);
-    expect(statSync(target.file).mode & 0o777).toBe(0o600);
+    const after = snap(target.file);
+    expect(after.text).toBe(withToken(tok(2)));
+    expect(after.ino).toBe(ino);
+    expect(after.mode & 0o777).toBe(0o600);
   });
 
   test("one loop per session: a resume's start retargets instead of adding a loop", async () => {
@@ -670,17 +684,17 @@ describe("GhHostsRefresher (App-token refresh of a live membrane)", () => {
 
   test("transient failure within the safety margin -> token-less in place (padded, same inode)", async () => {
     const target = spawned(tok(1));
-    const ino = statSync(target.file).ino;
-    const size = statSync(target.file).size;
+    const before = snap(target.file);
     const h = harness(grant(1, T0 + 30 * MIN));
     h.r.start(target);
     await h.r.refresh("s-1");
     h.clock.now = T0 + 26 * MIN; // 4 min left
     h.source.next = fail(new Error("GitHub App token mint for o/r: HTTP 503"));
     const warns = await warnsOf(() => h.r.refresh("s-1"));
-    expect(text(target.file)).toBe(keyringHosts.trimEnd());
-    expect(statSync(target.file).size).toBe(size); // never shrinks: no torn/empty read
-    expect(statSync(target.file).ino).toBe(ino);
+    const after = snap(target.file);
+    expect(after.text.trimEnd()).toBe(keyringHosts.trimEnd());
+    expect(after.size).toBe(before.size); // never shrinks: no torn/empty read
+    expect(after.ino).toBe(before.ino);
     expect(warns[0]).toContain(
       "membrane gets no gh token: GitHub App token mint for o/r: HTTP 503",
     );

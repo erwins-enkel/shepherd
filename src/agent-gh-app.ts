@@ -12,7 +12,7 @@
  */
 
 import { createPrivateKey, sign, type KeyObject } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { OwnerOnlyFileError, readOwnerOnlyFile } from "./owner-only-file";
 import { remoteUrl } from "./forge";
 import { parseRemote } from "./forge/remote";
 import {
@@ -100,12 +100,16 @@ export async function loadGithubAppKey(path: string): Promise<KeyObject> {
     new GithubAppConfigError(`${AGENT_GH_APP_KEY_FILE_ENV}: ${path} ${why}`, { cause });
   let pem: string;
   try {
-    const st = await stat(path);
-    if (!st.isFile()) throw bad("is not a regular file");
-    if (st.mode & 0o077) throw bad("is readable by group/other (chmod 600)");
-    pem = await readFile(path, "utf8");
+    pem = await readOwnerOnlyFile(path);
   } catch (err) {
-    if (err instanceof GithubAppConfigError) throw err;
+    if (err instanceof OwnerOnlyFileError) {
+      throw bad(
+        err.problem === "not-regular"
+          ? "is not a regular file"
+          : "is readable by group/other (chmod 600)",
+        err,
+      );
+    }
     throw bad(`cannot be read (${(err as NodeJS.ErrnoException).code ?? String(err)})`, err);
   }
   let key: KeyObject;

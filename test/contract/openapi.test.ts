@@ -1143,6 +1143,51 @@ describe("sessions", () => {
     }
   });
 
+  test("review feedback: pending map, send and dismiss (#4126)", async () => {
+    const created = await createSession("review feedback");
+    const SEND = "/api/sessions/{id}/review-feedback/send";
+    const DISMISS = "/api/sessions/{id}/review-feedback/dismiss";
+    const PENDING = "/api/review-feedback/pending";
+    // `valid` fixtures are checked against the declared body first; malformed ones prove the 400.
+    const postIds = async (template: string, id: string, body?: unknown, valid = true) => {
+      if (body !== undefined && valid) validateRequest("POST", template, body);
+      const res = await fetch(`${s.baseUrl}${template.replace("{id}", id)}`, {
+        method: "POST",
+        headers: { ...bearer(token), "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      await validateResponse("POST", template, res);
+      return res.status;
+    };
+    let delivered = true;
+    s.deps.reviewFeedback = {
+      pendingAll: () => ({
+        [created.id]: { items: fx.reviewFeedbackItems, autoPaused: false },
+      }),
+      sendNow: async () => delivered,
+      dismiss: () => {},
+    };
+    try {
+      const pending = await fetch(`${s.baseUrl}${PENDING}`, { headers: bearer(token) });
+      expect(pending.status).toBe(200);
+      const map = (await validateResponse("GET", PENDING, pending)) as Record<string, unknown>;
+      expect(Object.keys(map)).toEqual([created.id]);
+
+      expect(await postIds(SEND, created.id, { ids: ["rc:2"] })).toBe(200);
+      expect(await postIds(SEND, created.id)).toBe(200);
+      delivered = false;
+      expect(await postIds(SEND, created.id, {})).toBe(409);
+      expect(await postIds(SEND, created.id, { ids: "rc:2" }, false)).toBe(400);
+      expect(await postIds(SEND, "nope", {})).toBe(404);
+
+      expect(await postIds(DISMISS, created.id, { ids: ["ic:3"] })).toBe(200);
+      expect(await postIds(DISMISS, created.id, { ids: [] }, false)).toBe(400);
+      expect(await postIds(DISMISS, "nope", { ids: ["ic:3"] })).toBe(404);
+    } finally {
+      s.deps.reviewFeedback = undefined;
+    }
+  });
+
   // No request body: handleSessionDelete's `{reap}` body is optional (it parses with a
   // `.catch(() => null)` and never requires a JSON content-type), and the native client
   // archives without reaping — so the contract declares no requestBody either.

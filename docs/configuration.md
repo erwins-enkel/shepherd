@@ -62,6 +62,19 @@ Shepherd can wrap each spawned `claude` process in an OS-level filesystem/proces
 
 The membrane bind set is **host-derived** — Shepherd probes the node/claude install locations and `gh`/gitconfig paths at startup and uses `--bind-try` for optional paths, so no hardcoded path list needs maintenance.
 
+#### Per-repo agent secrets
+
+Some repos need a credential the agent's `gh` token can't stand in for — e.g. a private npm package from GitHub Packages in another org (`//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}`), or a provider API key scoped to that repo's project. Give it to that repo's agents under **Repo settings → Agent environment → Secrets** (#4122):
+
+- **Name + value.** The name is the env var the agent sees (`[A-Za-z_][A-Za-z0-9_]*`, max 64 chars, max 32 per repo). Names that would break the session are refused: `HOME`, `PATH`, `GH_TOKEN`, `GITHUB_TOKEN`, `NODE_OPTIONS`, … and the prefixes `CLAUDE_`, `SHEPHERD_`, `ANTHROPIC_`, `CODEX_`, `GIT_`, `LD_`, `DYLD_`, `MISE_`, `BWRAP_`. Values are write-only: after saving, the UI and API show only the name, when it was updated and when it was last injected.
+- **Storage.** Host-side in `~/.shepherd/agent-secrets.json` (mode 0600; override the path with `SHEPHERD_AGENT_SECRETS`). Never in the repo, the repo-config file or the database. Machine-local: each Shepherd host keeps its own.
+- **Who gets them.** Task agents of that repo only, under every profile (`trusted`, `standard`, `autonomous`). The plan-gate reviewer, critic, doc agent, plugin agents and the Operator Assistant never do.
+- **When changes apply.** On the next spawn or resume of a session; running sessions keep the values they started with.
+- **Egress.** A secret doesn't open the network. Under `autonomous`, add the host it's used against (e.g. `npm.pkg.github.com`) to **Extra allowed hosts**.
+- **Repo instructions.** Drop instructions that override the variable inline (e.g. `GITHUB_PACKAGES_TOKEN=$(gh auth token) bun install`); they would replace the injected value.
+
+Provision a narrow, revocable credential per consumer — e.g. a dedicated classic PAT with only `read:packages`. Every command the agent runs can read it; see [Repo agent secrets](sandbox-security.md#repo-agent-secrets-4122) for the security posture.
+
 A few runtime toggles live in the SQLite `settings` table (`~/.shepherd/shepherd.db`) rather than env:
 
 - **`branchPruneEnabled`** — hourly cleanup of local `shepherd/*` branches whose PR has merged (squash-merges defeat the at-archive ancestry prune, so they otherwise accumulate). **On by default**; disable with

@@ -235,6 +235,48 @@ break the unmodified-CLI + subscription-OAuth-refresh stance.
 (#601) bounds **where** a leaked token can go; `--clearenv` keeps env-resident
 secrets out of the membrane entirely.
 
+## Repo agent secrets (#4122)
+
+Operator-provisioned per-repo secrets (Repo settings → Agent environment →
+Secrets, `src/agent-secrets.ts`) reach a repo's **task agents** only — the
+injection lives in `SessionService.prepareSpawn` and is skipped for the
+Operator Assistant; the plan-gate reviewer, critic, doc agent, plugin agents,
+satellites and previews spawn through other paths and never receive them.
+
+**Delivery avoids argv.** Membrane env normally rides `bwrap --setenv K V`,
+which leaves the value in the bwrap command line (`/proc/<pid>/cmdline`, readable
+by other users unless `/proc` is mounted `hidepid`) and in the 0600 spawn script.
+Secrets don't use that path. At each spawn/resume the server writes
+`<agent-spawn>/<sessionId>.secrets/` (dir 0700, one 0600 file per name). For a
+sandboxed session that dir is `--ro-bind`-ed at the same path, and the inner argv
+becomes `/bin/sh -c '<fixed launcher>' shepherd-secret-env <dir> <agent argv…>`
+(`membraneInnerArgv`, `src/sandbox.ts`); a trusted session gets the same launcher
+without the bind. The launcher exports each file as an env var and `exec`s the
+agent, so only the dir path is ever on a command line. Once running, the values
+sit in the agent's environment (`/proc/<pid>/environ`), readable by same-uid
+processes — the same exposure as any env-resident credential. The dir is removed
+on archive; orphans are swept at startup.
+
+**In-membrane readability (accepted, like R3).** An injected secret is readable
+by every tool call in the session. A prompt-injected agent can exfiltrate it
+within the egress policy (unrestricted under `standard`/`trusted`, the allowlist
+under `autonomous` — injecting a secret never widens the allowlist). Operators
+should provision narrow, revocable credentials per consumer, e.g. a dedicated
+classic PAT with only `read:packages`.
+
+**Redaction.** Stored values are registered with `src/redact.ts`
+(`setKnownSecretValues`) and scrubbed by value, not only by pattern, from
+`redactSecretText` (error details, CI lines, logs that use it), `sanitizeDetail`
+(`gh` failures), persisted recaps (`Store.putRecap`) and plan revisions.
+Best-effort limits: the live terminal (PTY) and text the agent itself publishes
+(commits, PR bodies, comments via `gh`) cannot be scrubbed. Values shorter than
+4 characters are not redacted.
+
+**Audit.** `agent_secret_log` records which secret **names** (never values)
+were injected into which session and when; the UI shows the last injection per
+name. Routes (`/api/repo-secrets`) are operator-only: agent ingress and
+repo-scoped tokens get 403, and values are never returned.
+
 ## Reviewer roles (audit N10)
 
 The critic, the standalone PR critic, the plan-gate reviewer and the maintain
@@ -825,7 +867,7 @@ it treats the worktree as data only:
 
 ## See also
 
-- `src/egress.ts`, `src/sandbox.ts`, `src/membrane-state.ts`, `src/service.ts`, `src/autopilot.ts`,
+- `src/agent-secrets.ts`, `src/egress.ts`, `src/sandbox.ts`, `src/membrane-state.ts`, `src/service.ts`, `src/autopilot.ts`,
   `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/maintain.ts`, `src/untrusted.ts`, `src/task-amendments.ts`,
   `src/tool-guard-hook.ts`,
   `scripts/tool-guard.mjs`.

@@ -51,13 +51,4 @@ describe("review feedback store (#4126)", () => {
     expect(reviewFeedback.autoPaused("s1")).toBe(true);
     expect(reviewFeedback.items("s1")).toEqual([]);
   });
-
-  it("remove() drops sent or dismissed items locally", () => {
-    reviewFeedback.apply({ id: "s1", pending: [item("ic:1"), item("ic:2")], autoPaused: false });
-    reviewFeedback.remove("s1", ["ic:1"]);
-    expect(reviewFeedback.items("s1").map((i) => i.id)).toEqual(["ic:2"]);
-    reviewFeedback.remove("s1", ["ic:2"]);
-    expect("s1" in reviewFeedback.map).toBe(false);
-    reviewFeedback.remove("nope", ["x"]); // unknown session: no-op
-  });
 });

@@ -78,8 +78,9 @@
     busy = true;
     error = null;
     try {
-      if (await action(ids)) reviewFeedback.remove(sessionId, ids);
-      else error = "not-running";
+      // No optimistic removal: the server's session:review-feedback event (sent before the HTTP
+      // reply) is the truth — a send delivers at most 20 items and keeps the overflow pending.
+      if (!(await action(ids))) error = "not-running";
     } catch {
       error = "failed";
     } finally {
@@ -111,7 +112,14 @@
     <span class="rf-title">{m.reviewfeedback_title()}</span>
     {#if safePrUrl && prNumber != null}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-      <a class="rf-prlink" href={safePrUrl} target="_blank" rel="noopener">PR #{prNumber} ↗</a>
+      <a
+        class="rf-prlink"
+        href={firstSafeHttpUrl(prUrl) ?? undefined}
+        target="_blank"
+        rel="noopener"
+      >
+        PR #{prNumber} ↗
+      </a>
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
     {/if}
     <button class="gbtn rf-close" type="button" onclick={onclose} aria-label={m.common_close()}>

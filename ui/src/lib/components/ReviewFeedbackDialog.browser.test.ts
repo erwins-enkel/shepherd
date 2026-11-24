@@ -56,6 +56,17 @@ afterEach(() => {
   dismissReviewFeedback.mockReset();
 });
 
+/** Mirror the server: its session:review-feedback event (the full remaining list) lands before
+ *  the HTTP reply. `kept` are ids the server leaves pending despite the request (overflow). */
+function serverEvent(removed: readonly string[], kept: readonly string[] = []) {
+  const gone = new Set(removed.filter((id) => !kept.includes(id)));
+  reviewFeedback.apply({
+    id: "s1",
+    pending: reviewFeedback.items("s1").filter((i) => !gone.has(i.id)),
+    autoPaused: false,
+  });
+}
+
 function open(onclose = vi.fn()) {
   render(ReviewFeedbackDialog, {
     sessionId: "s1",
@@ -90,7 +101,10 @@ describe("ReviewFeedbackDialog (#4126)", () => {
   });
 
   it("sends only the selected items and closes once none are left", async () => {
-    sendReviewFeedback.mockResolvedValue(true);
+    sendReviewFeedback.mockImplementation(async (_id: string, ids: string[]) => {
+      serverEvent(ids);
+      return true;
+    });
     const onclose = open();
     await checkbox("coderabbitai").click();
     await page.getByRole("button", { name: m.reviewfeedback_send() }).click();
@@ -112,8 +126,23 @@ describe("ReviewFeedbackDialog (#4126)", () => {
     expect(onclose).not.toHaveBeenCalled();
   });
 
+  it("a send the server only partly delivers keeps the overflow listed", async () => {
+    sendReviewFeedback.mockImplementation(async (_id: string, ids: string[]) => {
+      serverEvent(ids, ["rc:2"]); // the server marked only review:1 sent
+      return true;
+    });
+    const onclose = open();
+    await page.getByRole("button", { name: m.reviewfeedback_send() }).click();
+    expect(sendReviewFeedback).toHaveBeenCalledWith("s1", ["review:1", "rc:2"]);
+    await expect.poll(() => reviewFeedback.items("s1").map((i) => i.id)).toEqual(["rc:2"]);
+    expect(onclose).not.toHaveBeenCalled();
+    await expect.element(checkbox("coderabbitai")).toBeVisible();
+  });
+
   it("dismiss calls the API with the selected ids", async () => {
-    dismissReviewFeedback.mockResolvedValue(undefined);
+    dismissReviewFeedback.mockImplementation(async (_id: string, ids: string[]) => {
+      serverEvent(ids);
+    });
     const onclose = open();
     await page.getByRole("button", { name: m.reviewfeedback_dismiss() }).click();
     expect(dismissReviewFeedback).toHaveBeenCalledWith("s1", ["review:1", "rc:2"]);

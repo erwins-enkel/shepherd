@@ -32,18 +32,6 @@ class ReviewFeedbackStore {
     return this.map[id]?.autoPaused ?? false;
   }
 
-  /** Drop the given items locally after a send or dismiss; the server's event follows. */
-  remove(id: string, ids: readonly string[]) {
-    const entry = this.map[id];
-    if (!entry) return;
-    const gone = new Set(ids);
-    this.apply({
-      id,
-      pending: entry.items.filter((i) => !gone.has(i.id)),
-      autoPaused: entry.autoPaused,
-    });
-  }
-
   drop(id: string) {
     if (!(id in this.map)) return;
     const copy = { ...this.map };

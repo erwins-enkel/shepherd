@@ -4,9 +4,11 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 
 const resolveLoginRequest = vi.fn().mockResolvedValue(undefined);
+const resolveGhPermissionRequest = vi.fn().mockResolvedValue(undefined);
 vi.mock("#lib/api.js", async (orig) => ({
   ...(await orig<typeof import("#lib/api.js")>()),
   resolveLoginRequest: (...a: unknown[]) => resolveLoginRequest(...a),
+  resolveGhPermissionRequest: (...a: unknown[]) => resolveGhPermissionRequest(...a),
 }));
 const toastInfo = vi.fn();
 vi.mock("#lib/toasts.svelte.js", async (orig) => {
@@ -41,6 +43,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
   resolveLoginRequest.mockReset().mockResolvedValue(undefined);
+  resolveGhPermissionRequest.mockReset().mockResolvedValue(undefined);
   toastInfo.mockReset();
 });
 
@@ -351,5 +354,66 @@ describe("ViewportTermBanners plan approval strip (#2779)", () => {
     expect(document.querySelector(".plan-banner")).toBeNull();
     await r.rerender({ ...baseProps, plan: null });
     expect(document.querySelector(".plan-banner")).toBeNull();
+  });
+});
+
+describe("ViewportTermBanners gh permission request (#4119)", () => {
+  const REQ = {
+    id: "gp1",
+    permission: "workflows" as const,
+    reason: "CI needs a new matrix job",
+    files: [
+      ".github/workflows/ci.yml",
+      ".github/workflows/a.yml",
+      ".github/workflows/b.yml",
+      ".github/workflows/c.yml",
+    ],
+    createdAt: 1,
+  };
+
+  it("shows title, reason, truncated files and Grant / Deny", async () => {
+    render(ViewportTermBanners, { ...baseProps, ghPermissionRequest: REQ });
+    await expect.element(page.getByText(/GitHub workflows permission/)).toBeVisible();
+    await expect.element(page.getByText("CI needs a new matrix job")).toBeVisible();
+    await expect.element(page.getByText(/ci\.yml.*\+1 more/)).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Grant" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Deny" })).toBeVisible();
+  });
+
+  it("Grant / Deny answer the request", async () => {
+    render(ViewportTermBanners, { ...baseProps, ghPermissionRequest: REQ });
+    await page.getByRole("button", { name: "Grant" }).click();
+    expect(resolveGhPermissionRequest).toHaveBeenCalledWith("s1", "granted");
+    await page.getByRole("button", { name: "Deny" }).click();
+    expect(resolveGhPermissionRequest).toHaveBeenLastCalledWith("s1", "denied");
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("a failed Grant shows the server error inline and keeps the banner", async () => {
+    resolveGhPermissionRequest.mockRejectedValueOnce(
+      new ApiError(
+        409,
+        "The App installation lacks workflows",
+        "installation-lacks-permission",
+        true,
+      ),
+    );
+    render(ViewportTermBanners, { ...baseProps, ghPermissionRequest: REQ });
+    await page.getByRole("button", { name: "Grant" }).click();
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("The App installation lacks workflows");
+    await expect.element(page.getByRole("button", { name: "Grant" })).toBeEnabled();
+    expect(toastInfo).not.toHaveBeenCalled();
+  });
+
+  it("an already-answered request (bare 404) shows no error", async () => {
+    resolveGhPermissionRequest.mockRejectedValueOnce(
+      new ApiError(404, "no open gh permission request", undefined, true),
+    );
+    render(ViewportTermBanners, { ...baseProps, ghPermissionRequest: REQ });
+    await page.getByRole("button", { name: "Deny" }).click();
+    await expect.element(page.getByRole("button", { name: "Deny" })).toBeEnabled();
+    expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 });

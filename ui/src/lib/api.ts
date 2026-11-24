@@ -111,6 +111,8 @@ import type {
   DocAgentRun,
   HoldReason,
   LoginRequest,
+  GhPermissionRequest,
+  GhOptInPermission,
   ActionRequest,
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
@@ -2357,6 +2359,41 @@ export async function resolveLoginRequest(
     flagIfUnauthorized(r.status);
     throw await failed(r, "login request");
   }
+}
+
+/** Snapshot of the open gh permission requests keyed by session id (client bootstrap, #4119). */
+export async function ghPermissionRequestStates(): Promise<Record<string, GhPermissionRequest>> {
+  const r = await fetch("/api/gh-permission-requests");
+  if (!r.ok) throw await failed(r, "gh permission requests");
+  return r.json();
+}
+
+/** Answer a session's gh permission request. A grant the server can't apply (installation lacks
+ *  the permission, mint failure) throws an {@link ApiError} with the server's `code`; the request
+ *  stays open. */
+export async function resolveGhPermissionRequest(
+  sessionId: string,
+  outcome: "granted" | "denied",
+): Promise<void> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/gh-permission-request`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ outcome }),
+  });
+  if (!r.ok) throw await failed(r, "gh permission request");
+}
+
+/** Revoke a session's opt-in gh grant (#4119): a default token goes back, the widened one is
+ *  revoked at GitHub. */
+export async function revokeGhGrant(
+  sessionId: string,
+  permission: GhOptInPermission,
+): Promise<void> {
+  const r = await fetch(
+    `/api/sessions/${encodeURIComponent(sessionId)}/gh-grants/${encodeURIComponent(permission)}`,
+    { method: "DELETE" },
+  );
+  if (!r.ok) throw await failed(r, "gh grant revoke");
 }
 
 /** Snapshot of the assistant's open Action Requests keyed by session id (client bootstrap). */

@@ -45,6 +45,8 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
   "manual-steps": ({ params: p = {} }) => m.hold_manual_steps({ steps: p.steps ?? 1 }),
   "login-request": ({ params: p = {} }) =>
     p.host ? m.hold_login_request({ host: p.host }) : m.hold_login_request_generic(),
+  "gh-permission-request": ({ params: p = {} }) =>
+    m.hold_gh_permission_request({ permission: p.permission ?? "workflows" }),
 };
 
 /** Return a localized one-line description for a hold reason. Used by Task-7 components. */
@@ -87,6 +89,7 @@ const HOLD_AWAITS_OPERATOR: Record<HoldCode, boolean> = {
   "plan-question": true,
   "manual-steps": true,
   "login-request": true,
+  "gh-permission-request": true,
   "misrouted-target": true,
   "blocked-stall": false,
   "quota-rework": false,

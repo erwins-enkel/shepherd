@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { holdAwaitsOperator } from "./hold";
+import { holdAwaitsOperator, holdLine } from "./hold";
+import { m } from "#lib/paraglide/messages.js";
 import type { HoldCode } from "./types";
 
 // The INTENDED classification, declared independently of hold.ts's HOLD_AWAITS_OPERATOR
@@ -18,6 +19,7 @@ const EXPECTED: Record<HoldCode, boolean> = {
   "plan-question": true,
   "manual-steps": true,
   "login-request": true,
+  "gh-permission-request": true,
   "misrouted-target": true,
   // Failure / advisory / autonomous / auto-resuming / handed-off / green-complete → no wash.
   "blocked-stall": false,
@@ -46,7 +48,7 @@ describe("holdAwaitsOperator", () => {
     });
   }
 
-  it("washes exactly the eleven agent-awaits-operator holds", () => {
+  it("washes exactly the twelve agent-awaits-operator holds", () => {
     const wash = Object.entries(EXPECTED)
       .filter(([, v]) => v)
       .map(([k]) => k)
@@ -58,6 +60,7 @@ describe("holdAwaitsOperator", () => {
         "blocked-generic",
         "blocked-menu",
         "blocked-yes-no",
+        "gh-permission-request",
         "halted-error",
         "login-request",
         "manual-steps",
@@ -72,5 +75,14 @@ describe("holdAwaitsOperator", () => {
     for (const code of ["ci-red", "train-error", "halted-usage"] as HoldCode[]) {
       expect(holdAwaitsOperator({ code })).toBe(false);
     }
+  });
+});
+
+describe("holdLine gh-permission-request (#4119)", () => {
+  it("names the asked permission, defaulting to workflows", () => {
+    const line = holdLine({ code: "gh-permission-request", params: { permission: "workflows" } });
+    expect(line).toBe(m.hold_gh_permission_request({ permission: "workflows" }));
+    expect(line).toContain("workflows");
+    expect(holdLine({ code: "gh-permission-request" })).toBe(line);
   });
 });

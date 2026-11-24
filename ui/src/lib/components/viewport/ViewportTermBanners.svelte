@@ -1,11 +1,18 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { terminalOwnerTitle } from "#lib/terminal-client.js";
-  import type { LoginRequest, PendingAsk, PendingPlan, TerminalClientInfo } from "#lib/types.js";
+  import type {
+    GhPermissionRequest,
+    LoginRequest,
+    PendingAsk,
+    PendingPlan,
+    TerminalClientInfo,
+  } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerLoginRequest } from "#lib/login-request.js";
   import type { PtyEndReason } from "#lib/pty.js";
   import PlanApprovalStrip from "./PlanApprovalStrip.svelte";
+  import GhPermissionStrip from "./GhPermissionStrip.svelte";
 
   let {
     tab,
@@ -27,6 +34,7 @@
     openAsk,
     sessionId,
     loginRequest = null,
+    ghPermissionRequest = null,
     openBrowser = null,
     scrollToTop,
     scrollToBottom,
@@ -60,6 +68,8 @@
     sessionId: string;
     /** The session's open Login Request (#2897) — answered in place with Done/Cancel. */
     loginRequest?: LoginRequest | null;
+    /** The session's open gh permission request (#4119) — answered in place with Grant/Deny. */
+    ghPermissionRequest?: GhPermissionRequest | null;
     /** Switches to the Browser tab; null hides "Open browser" (no Browser tab for this session). */
     openBrowser?: (() => void) | null;
     scrollToTop: () => void;
@@ -117,7 +127,7 @@
     </button>
   </div>
 {/if}
-{#if tab === "term" && !parked && (authUrl || loginRequest || ask || plan)}
+{#if tab === "term" && !parked && (authUrl || loginRequest || ghPermissionRequest || ask || plan)}
   <div class="top-strips">
     {#if ask}
       <!-- AskUserQuestion (#3165): the agent waits on a dialog Shepherd can answer natively. The
@@ -126,9 +136,9 @@
         <span class="auth-icon" aria-hidden="true">?</span>
         <div class="auth-text">
           <span class="auth-title">{m.ask_banner_title({ count: ask.questions.length })}</span>
-          <span class="auth-url" title={ask.questions[0]?.question}
-            >{ask.questions[0]?.question}</span
-          >
+          <span class="auth-url" title={ask.questions[0]?.question}>
+            {ask.questions[0]?.question}
+          </span>
         </div>
         <div class="auth-actions">
           <button class="auth-btn primary" type="button" onclick={() => openAsk?.()}>
@@ -197,6 +207,9 @@
         </div>
       </div>
     {/if}
+    {#if ghPermissionRequest}
+      <GhPermissionStrip request={ghPermissionRequest} {sessionId} />
+    {/if}
   </div>
 {/if}
 {#if parked && tab === "term"}
@@ -212,29 +225,29 @@
   <button class="parked resume" type="button" onclick={reattach}>
     <span class="parked-icon" aria-hidden="true">↻</span>
     <span class="parked-title">{m.viewport_reconnect_title()}</span>
-    <span class="parked-sub"
-      >{endReason === "machine"
+    <span class="parked-sub">
+      {endReason === "machine"
         ? m.remote_terminal_lost_sub({ machine: machine ?? "" })
-        : m.viewport_reconnect_sub()}</span
-    >
+        : m.viewport_reconnect_sub()}
+    </span>
   </button>
 {:else if ended && !parked && tab === "term" && resumable}
   <button class="parked resume" type="button" onclick={() => resumeSession()} disabled={resuming}>
     <span class="parked-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
-    <span class="parked-title"
-      >{resumeFailed
+    <span class="parked-title">
+      {resumeFailed
         ? resumeFailure || m.viewport_resume_failed()
         : stranded
           ? m.stranded_revive_title()
-          : m.viewport_resume_title()}</span
-    >
-    <span class="parked-sub"
-      >{resuming
+          : m.viewport_resume_title()}
+    </span>
+    <span class="parked-sub">
+      {resuming
         ? m.common_loading()
         : resumeTranscriptMissing
           ? m.session_resume_transcript_missing_next()
-          : m.viewport_resume_sub()}</span
-    >
+          : m.viewport_resume_sub()}
+    </span>
   </button>
 {/if}
 

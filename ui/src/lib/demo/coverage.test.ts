@@ -261,6 +261,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/amendments"),
   get("/api/spawn-notices"),
   get("/api/login-requests"),
+  get("/api/gh-permission-requests"),
   get("/api/action-requests"),
   get("/api/operator-assistant"),
 
@@ -447,6 +448,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/schedules/:p/runs",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
+    // Answering a gh permission request / revoking a gh grant (#4119): the demo runs no sandboxed
+    // agent, so no request is raised and no session carries a grant.
+    "/api/sessions/:p/gh-permission-request",
+    "/api/sessions/:p/gh-grants/:p",
     // Answering an Action Request: the demo's Operator Assistant never runs, so none is raised.
     "/api/sessions/:p/action-request",
     // Canceling a task whose start on a machine is unknown (#2774), or redirecting one that

@@ -537,6 +537,20 @@ describe("prepareMembraneGhHosts", () => {
     }
   });
 
+  test("granted permissions widen the App mint for this session (#4119)", async () => {
+    const seen: unknown[] = [];
+    const source = async (_repo: string, opts?: unknown) => (
+      seen.push(opts),
+      { token: "ghs_minted123", expiresAt: Date.now() + 3_600_000 }
+    );
+    await prepareMembraneGhHosts(ghInputs, { agentGhAppToken: source, ghToken: noOperatorToken });
+    await prepareMembraneGhHosts(
+      { ...ghInputs, ghPermissions: ["workflows"] },
+      { agentGhAppToken: source, ghToken: noOperatorToken },
+    );
+    expect(seen).toEqual([undefined, { extra: ["workflows"], sessionId: "s-1" }]);
+  });
+
   test("env default: App mode half-configured -> token-less, token file ignored", async () => {
     writeHosts(operatorFileHosts);
     process.env[AGENT_GH_APP_ID_ENV] = "12345";
@@ -835,6 +849,85 @@ describe("GhHostsRefresher (App-token refresh of a live membrane)", () => {
     expect(h.r.isRunning("s-1")).toBe(false);
     expect(h.timers.loops[0]!.cancelled).toBe(true);
     expect(existsSync(target.file)).toBe(false);
+  });
+
+  test("refresh mints with the session's grants (#4119)", async () => {
+    const target = spawned(tok(1));
+    const seen: unknown[] = [];
+    let grants: "workflows"[] = [];
+    const r = new GhHostsRefresher({
+      appModeConfigured: () => true,
+      agentGhAppToken: async (_repo, opts) => (
+        seen.push(opts),
+        { token: tok(seen.length), expiresAt: T0 + 60 * MIN }
+      ),
+      grants: (id) => (id === "s-1" ? grants : []),
+      now: () => T0,
+      every: fakeTimers().every,
+    });
+    r.start(target);
+    await r.refresh("s-1");
+    grants = ["workflows"];
+    await r.refreshNow("s-1");
+    expect(seen).toEqual([undefined, { extra: ["workflows"], sessionId: "s-1" }]);
+    expect(text(target.file)).toBe(withToken(tok(2)).trimEnd());
+  });
+
+  test("a widened mint refused with 422 falls back to the default token, warned once", async () => {
+    const target = spawned(tok(1));
+    const r = new GhHostsRefresher({
+      appModeConfigured: () => true,
+      agentGhAppToken: async (_repo, opts) => {
+        if (opts?.extra?.length) {
+          throw new GithubAppConfigError("token mint: HTTP 422", { status: 422 });
+        }
+        return { token: tok(3), expiresAt: T0 + 60 * MIN };
+      },
+      grants: () => ["workflows"],
+      now: () => T0,
+      every: fakeTimers().every,
+    });
+    const warns = await warnsOf(async () => {
+      r.start(target);
+      await r.refresh("s-1");
+      await r.refreshNow("s-1");
+    });
+    expect(text(target.file)).toBe(withToken(tok(3)).trimEnd());
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("using the default token");
+  });
+
+  test("a widened mint refused otherwise follows the fail-closed path (no fallback)", async () => {
+    const target = spawned(tok(1));
+    let calls = 0;
+    const r = new GhHostsRefresher({
+      appModeConfigured: () => true,
+      agentGhAppToken: async () => {
+        calls++;
+        throw new GithubAppConfigError("App not installed (HTTP 404)", { status: 404 });
+      },
+      grants: () => ["workflows"],
+      now: () => T0,
+      every: fakeTimers().every,
+    });
+    await warnsOf(async () => {
+      r.start(target);
+      await r.refresh("s-1");
+    });
+    expect(calls).toBe(1);
+    expect(text(target.file)).toBe(keyringHosts.trimEnd());
+  });
+
+  test("refreshNow waits out an in-flight refresh, then runs a fresh one", async () => {
+    const target = spawned(tok(1));
+    let release!: (g: { token: string; expiresAt: number }) => void;
+    const h = harness(() => new Promise((res) => (release = res)));
+    h.r.start(target); // in flight with the old answer
+    const now = h.r.refreshNow("s-1");
+    h.source.next = grant(5, T0 + 60 * MIN);
+    release({ token: tok(4), expiresAt: T0 + 60 * MIN });
+    await now;
+    expect(text(target.file)).toBe(withToken(tok(5)).trimEnd());
   });
 
   test("no per-spawn file -> no loop", () => {

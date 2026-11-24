@@ -1,5 +1,6 @@
 import type { HerdrRuntimeStatus } from "./herdr-runtime";
 import type { SandboxProfile } from "./sandbox";
+import type { GhGrant } from "./agent-gh-env";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
@@ -283,6 +284,8 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged. Written by P2. */
   manualStepsAckedAt: number | null;
+  /** Opt-in gh permissions the operator granted this session (#4119); [] when none. */
+  ghGrants?: GhGrant[];
   /** Comparison-experiment group id this session belongs to; null = not part of an experiment.
    *  All variants of one task + their comparison session share this id. */
   experimentId: string | null;
@@ -2173,6 +2176,7 @@ export type HoldCode =
   | "ready-merge"
   | "manual-steps"
   | "login-request"
+  | "gh-permission-request"
   | "misrouted-target"
   | "epic-run-stopped";
 
@@ -2188,6 +2192,7 @@ export interface HoldParams {
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
   host?: string; // login-request: host of the page the agent wants logged in
+  permission?: string; // gh-permission-request: the opt-in gh permission asked for (#4119)
   target?: string; // misrouted-target: the `owner/name` the ticket targets (#3245)
   epic?: number; // epic-run-stopped: the epic the session is a child of (#2735)
   leadEpic?: number; // epic-run-stopped: the paused epic that leads the repo, when one does

@@ -39,6 +39,7 @@ export type SignalCode =
   | "halted-usage"
   | "blocked-decision"
   | "login-request"
+  | "gh-permission-request"
   | "misrouted-target"
   | "plan-rework"
   | "plan-question"
@@ -62,6 +63,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "halted-error": 1,
   "blocked-decision": 1,
   "login-request": 1,
+  "gh-permission-request": 1,
   "misrouted-target": 1,
   "plan-rework": 1,
   "plan-question": 1,
@@ -99,6 +101,8 @@ export interface ClassifyCaches {
   block?: BlockReason | null;
   /** The session's open Login Request (#2882), supplied by the live HoldReasonService. */
   loginRequest?: { url: string } | null;
+  /** The session's open gh permission request (#4119), supplied by the live HoldReasonService. */
+  ghPermissionRequest?: { permission: string } | null;
   /** #2735: this auto epic child's PR passes the drain's retire gate, but the repo drain is not
    *  acting (a paused epic leads, or none leads and label-drain is off), so nothing integrates it.
    *  Precomputed by HoldReasonService (it reads the epic run + repo config). `leadEpic` is the
@@ -182,6 +186,9 @@ const ATTENTION_RULES: Array<{
   // login-request: the agent is waiting on the operator to log in for it in the Shared Browser
   // (#2882). After blocked-decision so a live PTY dialog stays the primary line.
   { signal: "login-request", when: (_s, c) => Boolean(c.loginRequest) },
+  // gh-permission-request (#4119): the agent's push needs an opt-in gh permission (`workflows`)
+  // and it is waiting in gh_request_permission for the operator's Grant / Deny.
+  { signal: "gh-permission-request", when: (_s, c) => Boolean(c.ghPermissionRequest) },
   { signal: "plan-rework", when: (s, c) => planReworkActive(s, c.gate) },
   { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, c.git, now) },
   // pr-conflict BEFORE ci-red: explainHold takes the first non-"in-flight" signal, so a
@@ -337,6 +344,12 @@ const SIGNAL_TO_HOLD: Record<
   "login-request": (_session, caches) => {
     const host = urlHost(caches.loginRequest?.url);
     return host ? { code: "login-request", params: { host } } : { code: "login-request" };
+  },
+  "gh-permission-request": (_session, caches) => {
+    const permission = caches.ghPermissionRequest?.permission;
+    return permission
+      ? { code: "gh-permission-request", params: { permission } }
+      : { code: "gh-permission-request" };
   },
   "critic-rework": (_session, caches) => {
     const count = caches.review?.findings?.length;

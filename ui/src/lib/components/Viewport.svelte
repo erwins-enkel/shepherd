@@ -87,6 +87,7 @@
   import GitRail from "#lib/components/GitRail.svelte";
   import AutopilotBadge from "#lib/components/AutopilotBadge.svelte";
   import PlanGateBadge from "#lib/components/PlanGateBadge.svelte";
+  import GhGrantBadge from "#lib/components/GhGrantBadge.svelte";
   import GoalChip from "#lib/components/GoalChip.svelte";
   import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
@@ -126,6 +127,7 @@
     BlockReason,
     BuildQueue,
     LoginRequest,
+    GhPermissionRequest,
     PendingAsk,
     PendingPlan,
   } from "#lib/types.js";
@@ -169,6 +171,7 @@
     openPreviewTick = 0,
     browserRequest = null,
     loginRequest = null,
+    ghPermissionRequest = null,
     renameRequest = null,
     buildQueue = null,
     onSeedBuildQueue,
@@ -244,6 +247,8 @@
     browserRequest?: { id: string; tick: number } | null;
     /** This session's open Login Request (#2882), shown on the Browser tab. */
     loginRequest?: LoginRequest | null;
+    /** This session's open gh permission request (#4119), shown as a Terminal banner. */
+    ghPermissionRequest?: GhPermissionRequest | null;
     /** Targeted request from a card context-menu Rename action. */
     renameRequest?: { id: string; tick: number } | null;
     /** Current build queue for this session; updated live by WS queue:update events. */
@@ -2875,9 +2880,9 @@
       <span class="sr-icon">{back ? "☰" : "›"}</span>
       <span class="sr-label">{back ? m.viewport_swipe_back() : m.viewport_swipe_next()}</span>
       {#if swipeArmed}
-        <span class="sr-hint"
-          >{back ? m.viewport_swipe_back_release() : m.viewport_swipe_next_release()}</span
-        >
+        <span class="sr-hint">
+          {back ? m.viewport_swipe_back_release() : m.viewport_swipe_next_release()}
+        </span>
       {/if}
     </div>
   </div>
@@ -3021,9 +3026,9 @@
         <span class="dp-section">{m.tasktip_usage()}</span>
         <span class="dp-row">
           <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
-          <span class="dp-v" title={usageSplitsTitle}
-            >{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
-          >
+          <span class="dp-v" title={usageSplitsTitle}>
+            {m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}
+          </span>
         </span>
       {/if}
     </span>
@@ -3064,8 +3069,10 @@
           e.preventDefault();
           cancelRename();
         }}
-        onclick={cancelRename}>✕</button
+        onclick={cancelRename}
       >
+        ✕
+      </button>
       <button
         class="rename-btn ok"
         type="button"
@@ -3076,8 +3083,10 @@
           e.preventDefault();
           void commitRename();
         }}
-        onclick={() => void commitRename()}>✓</button
+        onclick={() => void commitRename()}
       >
+        ✓
+      </button>
       {#if renameError}<span class="rename-err" title={renameError}>{renameError}</span>{/if}
     </span>
   {/snippet}
@@ -3101,9 +3110,9 @@
       bind:clientWidth={headWidth}
     >
       {#if onback}
-        <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
-          >{mobile ? "☰" : m.viewport_back_button()}</button
-        >
+        <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}>
+          {mobile ? "☰" : m.viewport_back_button()}
+        </button>
       {/if}
       {#if showQueueNav}
         <div
@@ -3114,26 +3123,30 @@
           <button
             type="button"
             onclick={() => gotoQueue(-1)}
-            aria-label={m.viewport_queue_prev_aria()}>‹</button
+            aria-label={m.viewport_queue_prev_aria()}
           >
+            ‹
+          </button>
           {#if queueIdx >= 0}
-            <span class="queue-pos"
-              >{m.viewport_queue_position({ idx: queueIdx + 1, total: queue.length })}</span
-            >
+            <span class="queue-pos">
+              {m.viewport_queue_position({ idx: queueIdx + 1, total: queue.length })}
+            </span>
           {/if}
           <button
             type="button"
             onclick={() => gotoQueue(1)}
-            aria-label={m.viewport_queue_next_aria()}>›</button
+            aria-label={m.viewport_queue_next_aria()}
           >
+            ›
+          </button>
         </div>
       {/if}
       {#if statusGlyph}
         <!-- phone: shape mark partnering the header tint so blocked/done read
            without colour. The word is on .vp-status-sr for assistive tech. -->
-        <span class="vp-status-glyph" style="color:{tintColor}" aria-hidden="true"
-          >{statusGlyph}</span
-        >
+        <span class="vp-status-glyph" style="color:{tintColor}" aria-hidden="true">
+          {statusGlyph}
+        </span>
       {/if}
       {#if mobile}
         <!-- phone: the merged header carries repo · session (the top bar is hidden
@@ -3161,8 +3174,10 @@
               e.stopPropagation();
               ctxRepoShown = !ctxRepoShown;
             }
-          }}>{repoIcon || "▣"}</span
+          }}
         >
+          {repoIcon || "▣"}
+        </span>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- the wrap is a non-interactive container; the pointer/focus handlers only
            track hover/focus state to reveal the popover. The interactive trigger
@@ -3232,8 +3247,10 @@
               onclick={onTitleTap}
               onkeydown={onTitleKey}
               oncontextmenu={onTriggerContextMenu}
-              use:longPress={{ onTrigger: openMeta }}>{session.desig}</span
+              use:longPress={{ onTrigger: openMeta }}
             >
+              {session.desig}
+            </span>
             {@render metaPop()}
           {/if}
           <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
@@ -3256,8 +3273,10 @@
             bind:this={vpNameEl}
             onclick={onTitleTap}
             oncontextmenu={onTriggerContextMenu}
-            use:longPress={{ onTrigger: openMeta }}>{session.name}</span
+            use:longPress={{ onTrigger: openMeta }}
           >
+            {session.name}
+          </span>
         {/if}
       {/if}
       {#if !compact}
@@ -3318,21 +3337,23 @@
           <span
             class="vp-offline"
             title={m.conn_reconnecting_title()}
-            aria-label={m.conn_reconnecting_title()}>●</span
+            aria-label={m.conn_reconnecting_title()}
           >
+            ●
+          </span>
         {/if}
         {#if hotGauge}
           <span
             class="vp-gauge"
             aria-label={m.topbar_gauge_toggle_aria({ period: hotGauge.label, pct: hotGauge.w.pct })}
           >
-            <span class="g-bar"
-              ><span
+            <span class="g-bar">
+              <span
                 class="g-fill"
                 style="transform:scaleX({Math.min(Math.max(hotGauge.w.pct, 0), 100) /
                   100});background:{gaugeColor(hotGauge.w.pct)}"
-              ></span></span
-            >
+              ></span>
+            </span>
           </span>
         {/if}
         <!-- sighted users read status from the header tint + leading shape glyph;
@@ -3348,12 +3369,13 @@
           role="img"
           title={statusLabel(dStatus)}
           aria-label={statusLabel(dStatus)}
-          ><span class="sc-glyph" style="color:{STATUS_COLOR[dStatus]}" aria-hidden="true"
-            >{statusMark}</span
-          >{#if statusWordShown}<span class="sc-word" aria-hidden="true"
-              >{statusLabel(dStatus)}</span
-            >{/if}</span
         >
+          <span class="sc-glyph" style="color:{STATUS_COLOR[dStatus]}" aria-hidden="true">
+            {statusMark}
+          </span>{#if statusWordShown}<span class="sc-word" aria-hidden="true">
+              {statusLabel(dStatus)}
+            </span>{/if}
+        </span>
       {/if}
       <!-- plan-gate state in the focused view: the pre-execution lifecycle (PLANNING /
          REWORK / READY / REVIEW ERR; the Review-plan trigger on the git rail acts on this
@@ -3362,6 +3384,10 @@
          (UnitRow, which passes allowView={false}), the focused view surfaces the
          executing read-only chip — it is its home. -->
       <PlanGateBadge {session} pulseReady />
+      {#if session.ghGrants?.length}
+        <!-- #4119: opt-in gh permissions granted to this sandboxed session; Revoke lives here. -->
+        <GhGrantBadge {session} coach />
+      {/if}
       <!-- #2596: the session's Claude Code /goal — held until Go while planning, or active. -->
       <GoalChip {session} coach />
       {#if !compact}
@@ -3374,8 +3400,10 @@
             class="state-pip ready"
             role="img"
             aria-label={m.gitrail_ready_on_title()}
-            title={m.gitrail_ready_on_title()}>✓</span
+            title={m.gitrail_ready_on_title()}
           >
+            ✓
+          </span>
         {/if}
         <!-- REVIEWING (in-flight critic, surfaced on the Automation tab's count) outranks the
            autopilot badge — mirror the cards' precedence so NEEDS YOU/DELIVERED never
@@ -3559,6 +3587,7 @@
       openAsk={() => (askOpenFor = session.id)}
       sessionId={session.id}
       {loginRequest}
+      {ghPermissionRequest}
       openBrowser={hasBrowser ? () => (tab = "browser") : null}
       {scrollToTop}
       {scrollToBottom}
@@ -3699,9 +3728,9 @@
                  (.preview-serve-failed), and in a narrow viewport the tail — which is
                  exactly the "Settings → Diagnostics" pointer at the cause — is the part
                  that gets cut. Shortening the string alone only postpones that. -->
-            <span class="preview-serve-failed" title={m.viewport_preview_serve_failed()}
-              >{m.viewport_preview_serve_failed()}</span
-            >
+            <span class="preview-serve-failed" title={m.viewport_preview_serve_failed()}>
+              {m.viewport_preview_serve_failed()}
+            </span>
           {/if}
           <!-- Persistent static setup hint (NOT an auto-detected error): a blank
                frame usually means the preview port isn't tailscale-served yet, or the
@@ -3714,14 +3743,13 @@
             disabled={isPreviewStopPending}
             title={m.viewport_preview_stop_note()}
             onclick={onStopPreviewClick}
-            >{previewStopArmed
-              ? m.viewport_preview_stop_confirm()
-              : m.viewport_preview_stop()}</button
           >
+            {previewStopArmed ? m.viewport_preview_stop_confirm() : m.viewport_preview_stop()}
+          </button>
           <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external preview origin (distinct port), not an app route -->
-          <a class="preview-open" href={previewUrl} target="_blank" rel="noopener"
-            >{m.viewport_preview_open_new_tab()}</a
-          >
+          <a class="preview-open" href={previewUrl} target="_blank" rel="noopener">
+            {m.viewport_preview_open_new_tab()}
+          </a>
         </div>
       </div>
     {/if}

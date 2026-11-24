@@ -21,7 +21,13 @@ import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
 import { EPHEMERAL_CLAUDE_DIRS, scanPath } from "./sandbox";
 import { execFileAsync } from "./instrument";
-import { agentGhAppTokenFromEnv, GithubAppConfigError, type AgentGhAppToken } from "./agent-gh-app";
+import {
+  agentGhAppTokenFromEnv,
+  GithubAppConfigError,
+  type AgentGhAppToken,
+  type AgentGhAppTokenOptions,
+  type GhOptInPermission,
+} from "./agent-gh-app";
 import { AGENT_GH_TOKEN_FILE_ENV, agentGhAppConfigured } from "./agent-gh-env";
 
 export { AGENT_GH_TOKEN_FILE_ENV };
@@ -134,6 +140,23 @@ export interface MembraneGhInputs {
   key: string;
   /** The session's repo dir: GitHub App mode scopes the token to its github.com `origin`. */
   repoPath: string;
+  /** Opt-in permissions the operator granted this session (#4119): App mode mints it a widened
+   *  token. Absent/empty ⇒ the default set. */
+  ghPermissions?: readonly GhOptInPermission[];
+}
+
+/** An App-mode token source: `repoPath`'s token, widened per `opts` (#4119). */
+export type AgentGhAppTokenFn = (
+  repoPath: string,
+  opts?: AgentGhAppTokenOptions,
+) => Promise<AgentGhAppToken | null>;
+
+/** The widened-mint options for `sessionId`'s grants, or undefined for the default set. */
+function grantOptions(
+  sessionId: string,
+  extra: readonly GhOptInPermission[] | undefined,
+): AgentGhAppTokenOptions | undefined {
+  return extra && extra.length > 0 ? { extra, sessionId } : undefined;
 }
 
 export interface MembraneGhDeps {
@@ -145,7 +168,7 @@ export interface MembraneGhDeps {
   /** GitHub App mode (`SHEPHERD_AGENT_GH_APP_ID`): an installation token scoped to the repo at
    *  `repoPath`, or null when App mode is not configured; default {@link agentGhAppTokenFromEnv}.
    *  Throws when App mode is configured but no token can be minted for that repo. */
-  agentGhAppToken?: (repoPath: string) => Promise<AgentGhAppToken | null>;
+  agentGhAppToken?: AgentGhAppTokenFn;
 }
 
 /** gh's token alphabet: classic, OAuth and fine-grained `github_pat_` tokens are `[A-Za-z0-9_]`;
@@ -240,7 +263,11 @@ export async function prepareMembraneGhHosts(
   deps: MembraneGhDeps = {},
 ): Promise<string | null> {
   const raw = await readHostGhHosts(i.home);
-  const agentToken = await agentTokenFor(i.repoPath, deps);
+  const agentToken = await agentTokenFor(
+    i.repoPath,
+    deps,
+    grantOptions(i.sessionId, i.ghPermissions),
+  );
   // An agent token doesn't come from the host file: written even without one.
   if (agentToken !== undefined) return writeGhHosts(i, raw ?? "", agentToken);
   if (raw === null) return null;
@@ -262,11 +289,12 @@ function readHostGhHosts(home: string): Promise<string | null> {
 async function agentTokenFor(
   repoPath: string,
   deps: MembraneGhDeps,
+  opts: AgentGhAppTokenOptions | undefined,
 ): Promise<string | null | undefined> {
   let token: string | null;
   try {
     // The token file is consulted only when App mode is not configured (null, not a throw).
-    const app = await (deps.agentGhAppToken ?? agentGhAppTokenFromEnv)(repoPath);
+    const app = await (deps.agentGhAppToken ?? agentGhAppTokenFromEnv)(repoPath, opts);
     token = app ? app.token : await (deps.agentGhToken ?? agentGhTokenFromEnv)();
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -341,7 +369,9 @@ export interface GhHostsRefreshTarget {
 
 export interface GhHostsRefresherDeps {
   /** default {@link agentGhAppTokenFromEnv} (shares its minter and caches with the spawn path). */
-  agentGhAppToken?: (repoPath: string) => Promise<AgentGhAppToken | null>;
+  agentGhAppToken?: AgentGhAppTokenFn;
+  /** The opt-in permissions currently granted to `sessionId` (#4119); default none. */
+  grants?: (sessionId: string) => readonly GhOptInPermission[];
   /** default `Date.now`. */
   now?: () => number;
   /** Is GitHub App mode configured? default `agentGhAppConfigured(process.env)`. */
@@ -361,6 +391,8 @@ interface GhHostsRefreshLoop {
   expiresAt: number | null;
   /** The last refresh's outcome when it failed, so a persistent failure warns once, not every tick. */
   failure: string | null;
+  /** The widened mint was refused (422) and the default set used instead — warned once. */
+  narrowed: boolean;
 }
 
 function everyUnref(fn: () => void, ms: number): () => void {
@@ -395,16 +427,18 @@ async function rewriteInPlace(file: string, content: string): Promise<void> {
 
 /** One refresh's answer from the App token source: a grant, or a classified failure. */
 type RefreshResult =
-  { ok: true; grant: AgentGhAppToken } | { ok: false; failure: string; configUnusable: boolean };
+  | { ok: true; grant: AgentGhAppToken }
+  | { ok: false; failure: string; configUnusable: boolean; status?: number };
 
 /** Ask `source` for `repoPath`'s App token. Never throws: a failure comes back classified —
  *  `configUnusable` for App mode gone or a {@link GithubAppConfigError}, else transient. */
 async function fetchRefresh(
-  source: (repoPath: string) => Promise<AgentGhAppToken | null>,
+  source: AgentGhAppTokenFn,
   repoPath: string,
+  opts?: AgentGhAppTokenOptions,
 ): Promise<RefreshResult> {
   try {
-    const g = await source(repoPath);
+    const g = await source(repoPath, opts);
     if (g === null) {
       return {
         ok: false,
@@ -419,7 +453,9 @@ async function fetchRefresh(
     return { ok: true, grant: { token, expiresAt: g.expiresAt } };
   } catch (err) {
     const failure = err instanceof Error ? err.message : String(err);
-    return { ok: false, failure, configUnusable: err instanceof GithubAppConfigError };
+    return err instanceof GithubAppConfigError
+      ? { ok: false, failure, configUnusable: true, status: err.status }
+      : { ok: false, failure, configUnusable: false };
   }
 }
 
@@ -461,7 +497,7 @@ export class GhHostsRefresher {
     if (!existsSync(target.file)) return;
     const running = this.loops.get(target.sessionId);
     if (running) {
-      Object.assign(running, { target, expiresAt: null, failure: null });
+      Object.assign(running, { target, expiresAt: null, failure: null, narrowed: false });
     } else {
       const loop: GhHostsRefreshLoop = {
         target,
@@ -469,6 +505,7 @@ export class GhHostsRefresher {
         inflight: null,
         expiresAt: null,
         failure: null,
+        narrowed: false,
       };
       this.loops.set(target.sessionId, loop);
       loop.cancel = (this.deps.every ?? everyUnref)(
@@ -506,17 +543,51 @@ export class GhHostsRefresher {
     return loop.inflight;
   }
 
+  /**
+   * Refresh `sessionId`'s file with a refresh STARTED NOW: waits out an in-flight one (it may have
+   * minted for a grant set that just changed), then runs a fresh one. Grant and revoke use it so
+   * the file holds the new set's token when it resolves. Never throws.
+   */
+  async refreshNow(sessionId: string): Promise<void> {
+    const loop = this.loops.get(sessionId);
+    if (!loop) return;
+    // best-effort: refreshOnce never rejects; this only orders the fresh run after the old one.
+    await loop.inflight?.catch(() => {});
+    await this.refresh(sessionId);
+  }
+
   private async refreshOnce(loop: GhHostsRefreshLoop): Promise<void> {
-    const { sessionId, repoPath, home } = loop.target;
-    const result = await fetchRefresh(
-      this.deps.agentGhAppToken ?? agentGhAppTokenFromEnv,
-      repoPath,
-    );
+    const { sessionId, home } = loop.target;
+    const result = await this.fetchFor(loop);
     // Without the host file the refreshed one just omits user/protocol.
     const raw = (await readHostGhHosts(home)) ?? "";
     if (this.loops.get(sessionId) !== loop) return; // stopped meanwhile: leave the file alone
     const token = result.ok ? this.accept(loop, result.grant) : this.afterFailure(loop, result);
     if (token !== undefined) await this.write(loop, ghHostsContent(raw, token));
+  }
+
+  /**
+   * This loop's App token, widened by the session's grants. A widened mint GitHub refuses with 422
+   * (the installation no longer holds the permission) falls back to the DEFAULT set — narrower,
+   * never another source — warned once.
+   */
+  private async fetchFor(loop: GhHostsRefreshLoop): Promise<RefreshResult> {
+    const { sessionId, repoPath } = loop.target;
+    const source = this.deps.agentGhAppToken ?? agentGhAppTokenFromEnv;
+    const opts = grantOptions(sessionId, this.deps.grants?.(sessionId));
+    const result = await fetchRefresh(source, repoPath, opts);
+    if (!opts || result.ok || result.status !== 422) {
+      if (result.ok) loop.narrowed = false;
+      return result;
+    }
+    if (!loop.narrowed) {
+      console.warn(
+        `[sandbox] ${sessionId}: granted gh permissions refused by the App installation; ` +
+          `using the default token: ${result.failure}`,
+      );
+    }
+    loop.narrowed = true;
+    return fetchRefresh(source, repoPath);
   }
 
   /** Track a fresh grant; its token goes into the file. */
@@ -567,9 +638,6 @@ export class GhHostsRefresher {
     }
   }
 }
-
-/** The process-wide refresher (wired into SessionService in index.ts). */
-export const ghHostsRefresher = new GhHostsRefresher();
 
 export interface MembraneGhBinDeps {
   /** Every executable `gh` on Shepherd's PATH, in order; default scans `process.env.PATH`. */

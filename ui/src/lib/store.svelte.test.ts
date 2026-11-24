@@ -2167,6 +2167,32 @@ test("session:login-request sets and clears a session's Login Request; archive d
   expect(s.loginRequests.s1).toBeUndefined();
 });
 
+test("session:gh-permission-request sets/clears a request; archive drops it; gh-grants patches the session (#4119)", () => {
+  const s = new HerdStore();
+  const request = {
+    id: "g1",
+    permission: "workflows" as const,
+    reason: "x",
+    files: [".github/workflows/ci.yml"],
+    createdAt: 1,
+  };
+  s.apply({ event: "session:gh-permission-request", data: { id: "s1", request } });
+  expect(s.ghPermissionRequests.s1).toEqual(request);
+  s.apply({ event: "session:gh-permission-request", data: { id: "s1", request: null } });
+  expect(s.ghPermissionRequests.s1).toBeUndefined();
+
+  s.apply({ event: "session:new", data: session("s1") });
+  const ghGrants = [{ permission: "workflows" as const, grantedAt: 5, grantedBy: "operator" }];
+  s.apply({ event: "session:gh-grants", data: { id: "s1", ghGrants } });
+  expect(s.byId("s1")?.ghGrants).toEqual(ghGrants);
+  s.apply({ event: "session:gh-grants", data: { id: "s1", ghGrants: [] } });
+  expect(s.byId("s1")?.ghGrants).toEqual([]);
+
+  s.setGhPermissionRequests({ s1: request });
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.ghPermissionRequests.s1).toBeUndefined();
+});
+
 test("session:action-request sets and clears the assistant's Action Request; archive drops it", () => {
   const s = new HerdStore();
   const request = {

@@ -2,11 +2,12 @@
  * The agent control plane as an MCP tool surface (issue #2003): protocol handling, the
  * session-gated tool catalog, and the appliers the REST routes now share.
  */
-import { test, expect } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   agentMcpConfigArg,
   agentTools,
   ciDownloadAllowed,
+  ghPermissionRequestAllowed,
   applyEpicDraft,
   applyQueueStep,
   applyQueueWrite,
@@ -25,6 +26,7 @@ import type { RateLimitSnapshot } from "../src/forge/rate-limit";
 import type { GitState } from "../src/forge/types";
 import { EventHub } from "../src/events";
 import { LoginRequestService } from "../src/login-request";
+import { GhPermissionRequestService } from "../src/gh-grant";
 import type { SandboxProfile } from "../src/sandbox";
 
 function harness(
@@ -1242,4 +1244,102 @@ test("ci_download without a broker is an isError result", async () => {
   );
   expect(isError).toBe(true);
   expect(payload.error).toContain("unavailable");
+});
+
+// ── gh_request_permission (#4119) ────────────────────────────────────────────
+
+describe("gh_request_permission", () => {
+  const names = (deps: AgentControlDeps, id: string) => agentTools(deps, id).map((t) => t.name);
+  const ARGS = {
+    permission: "workflows",
+    reason: "fix the CI matrix",
+    files: [".github/workflows/ci.yml"],
+  };
+  const withRequests = (
+    h: ReturnType<typeof harness>,
+    appMode = true,
+  ): AgentControlDeps & { ghPermissionRequests: GhPermissionRequestService } => {
+    const events = new EventHub();
+    return {
+      ...h.deps,
+      ghAppModeConfigured: () => appMode,
+      ghPermissionRequests: new GhPermissionRequestService({ events }),
+      ghPermissionWaitMs: 20,
+    };
+  };
+
+  test("offered only to sandboxed, non-plain Claude sessions while App mode is on", () => {
+    for (const profile of ["standard", "autonomous"] as const) {
+      const h = harness({ sandboxApplied: profile });
+      expect(names(withRequests(h), h.sessionId)).toContain("gh_request_permission");
+      expect(names(withRequests(h, false), h.sessionId)).not.toContain("gh_request_permission");
+    }
+    const trusted = harness({ sandboxApplied: "trusted" });
+    expect(names(withRequests(trusted), trusted.sessionId)).not.toContain("gh_request_permission");
+    const plain = harness({ sandboxApplied: "standard", plain: true });
+    expect(names(withRequests(plain), plain.sessionId)).not.toContain("gh_request_permission");
+    const assistant = harness({ operatorAssistant: true });
+    expect(names(withRequests(assistant), assistant.sessionId)).not.toContain(
+      "gh_request_permission",
+    );
+    expect(
+      ghPermissionRequestAllowed({
+        plain: false,
+        profile: "standard",
+        repoMode: "forge",
+        agentProvider: "codex",
+        appModeConfigured: true,
+      }),
+    ).toBe(false);
+    expect(
+      ghPermissionRequestAllowed({
+        plain: false,
+        profile: "standard",
+        repoMode: "lightweight",
+        appModeConfigured: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("raises a request, reports pending, then the operator's answer", async () => {
+    const h = harness({ sandboxApplied: "standard" });
+    const deps = withRequests(h);
+    const first = toolPayload(await call(deps, h.sessionId, "gh_request_permission", ARGS));
+    expect(first.payload.status).toBe("pending");
+    expect(deps.ghPermissionRequests.get(h.sessionId)).toMatchObject({
+      permission: "workflows",
+      reason: "fix the CI matrix",
+      files: [".github/workflows/ci.yml"],
+    });
+    const waiting = call(deps, h.sessionId, "gh_request_permission", ARGS);
+    await Bun.sleep(1);
+    deps.ghPermissionRequests.resolve(h.sessionId, "denied");
+    const { payload } = toolPayload(await waiting);
+    expect(payload.status).toBe("denied");
+    expect(payload.next).toContain("manual push");
+  });
+
+  test("an existing grant answers granted at once, without a request", async () => {
+    const h = harness({ sandboxApplied: "standard" });
+    h.store.setGhGrants(h.sessionId, [
+      { permission: "workflows", grantedAt: 1, grantedBy: "operator" },
+    ]);
+    const deps = withRequests(h);
+    const { payload } = toolPayload(await call(deps, h.sessionId, "gh_request_permission", ARGS));
+    expect(payload.status).toBe("granted");
+    expect(deps.ghPermissionRequests.get(h.sessionId)).toBeNull();
+  });
+
+  test("bad permission or missing reason is an isError result", async () => {
+    const h = harness({ sandboxApplied: "standard" });
+    const deps = withRequests(h);
+    for (const args of [
+      { ...ARGS, permission: "admin" },
+      { ...ARGS, reason: " " },
+      { ...ARGS, files: "ci.yml" },
+    ]) {
+      const { isError } = toolPayload(await call(deps, h.sessionId, "gh_request_permission", args));
+      expect(isError).toBe(true);
+    }
+  });
 });

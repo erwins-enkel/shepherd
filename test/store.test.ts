@@ -3332,3 +3332,48 @@ test("#2100: a fresh DB pins nothing", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("gh grants (#4119): persisted on the session, junk dropped, audit trail append-only", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.get(a.id)?.ghGrants).toEqual([]);
+  const grant = { permission: "workflows" as const, grantedAt: 1, grantedBy: "operator" };
+  s.setGhGrants(a.id, [grant]);
+  expect(s.get(a.id)?.ghGrants).toEqual([grant]);
+  s.setGhGrants(a.id, []);
+  expect(s.get(a.id)?.ghGrants).toEqual([]);
+  (s as unknown as { db: import("bun:sqlite").Database }).db.run(
+    `UPDATE sessions SET ghGrantsJson = ? WHERE id = ?`,
+    [JSON.stringify([grant, { permission: "admin", grantedAt: 2, grantedBy: "x" }, null]), a.id],
+  );
+  expect(s.get(a.id)?.ghGrants).toEqual([grant]);
+
+  s.logGhGrant({
+    sessionId: a.id,
+    permission: "workflows",
+    action: "grant",
+    actor: "operator",
+    detail: "ci fix",
+    at: 1,
+  });
+  s.logGhGrant({
+    sessionId: a.id,
+    permission: "workflows",
+    action: "revoke",
+    actor: "operator",
+    detail: null,
+    at: 2,
+  });
+  s.logGhGrant({
+    sessionId: "other",
+    permission: "workflows",
+    action: "grant",
+    actor: "operator",
+    detail: null,
+    at: 3,
+  });
+  expect(s.ghGrantLog(a.id).map((r) => [r.action, r.detail, r.at])).toEqual([
+    ["grant", "ci fix", 1],
+    ["revoke", null, 2],
+  ]);
+});

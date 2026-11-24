@@ -111,6 +111,7 @@ export class HoldReasonService {
   private lastSig = new Map<string, string>();
   private blockCache = new Map<string, BlockReason | null>();
   private loginCache = new Map<string, { url: string }>();
+  private ghPermissionCache = new Map<string, { permission: string }>();
   private mergeErrorSessions = new Set<string>();
   private resetAt: number | undefined;
   private nowFn: () => number;
@@ -172,6 +173,15 @@ export class HoldReasonService {
         break;
       }
 
+      case "session:gh-permission-request": {
+        const id = d.id as string;
+        const request = d.request as { permission: string } | null;
+        if (request) this.ghPermissionCache.set(id, { permission: request.permission });
+        else this.ghPermissionCache.delete(id);
+        this.recompute(id);
+        break;
+      }
+
       case "automerge:status": {
         this.handleAutoMergeStatus(d);
         break;
@@ -194,6 +204,7 @@ export class HoldReasonService {
         this.lastSig.delete(id);
         this.blockCache.delete(id);
         this.loginCache.delete(id);
+        this.ghPermissionCache.delete(id);
         this.mergeErrorSessions.delete(id);
         if (hadHold) {
           this.deps.onChange(id, null);
@@ -272,6 +283,7 @@ export class HoldReasonService {
       train: this.mergeErrorSessions.has(id) ? { error: true as const } : undefined,
       block: this.blockCache.get(id) ?? null,
       loginRequest: this.loginCache.get(id) ?? null,
+      ghPermissionRequest: this.ghPermissionCache.get(id) ?? null,
       resetAt: this.resetAt,
       epicHeld: this.epicHeld(session, git, review),
     };

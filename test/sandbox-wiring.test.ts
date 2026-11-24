@@ -78,6 +78,7 @@ function makeService(opts: {
   >[0]["prepareMembraneGhHosts"];
   resolveMembraneGhBin?: () => Promise<string | null>;
   ghHostsRefresh?: ConstructorParameters<typeof SessionService>[0]["ghHostsRefresh"];
+  ghGrants?: ConstructorParameters<typeof SessionService>[0]["ghGrants"];
   prepareScratchpadBind?: ConstructorParameters<typeof SessionService>[0]["prepareScratchpadBind"];
   previewLogFile?: (sessionId: string) => string;
 }) {
@@ -93,6 +94,7 @@ function makeService(opts: {
     prepareMembraneGhHosts: opts.prepareMembraneGhHosts,
     resolveMembraneGhBin: opts.resolveMembraneGhBin,
     ghHostsRefresh: opts.ghHostsRefresh,
+    ghGrants: opts.ghGrants,
     prepareScratchpadBind: opts.prepareScratchpadBind,
     previewLogFile: opts.previewLogFile ?? ((id) => `/run/membrane/${id}/preview-start.log`),
     // Default the egress seam to null so an autonomous test never falls through to the real
@@ -1571,4 +1573,27 @@ describe("scratchpad bind (sandboxed claude)", () => {
     expect(record.argv?.[0]).not.toBe("bwrap");
     expect(bindOf(record.argv!, s.claudeSessionId)).toBeNull();
   });
+});
+
+test("gh grants (#4119): a resume mints with the session's grants; archive ends them after the stop", async () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+  const ghIn: { ghPermissions?: readonly string[] }[] = [];
+  const order: string[] = [];
+  const service = makeService({
+    store,
+    record: {},
+    detectBackend: () => "bwrap",
+    prepareMembraneGhHosts: async (i) => (ghIn.push(i), "/run/membrane/s.gh-hosts.yml"),
+    ghHostsRefresh: { start: () => {}, stop: () => void order.push("stop") },
+    ghGrants: { endForArchive: async () => void order.push("end") },
+  });
+  const s = await service.create(baseInput());
+  expect(ghIn.at(-1)?.ghPermissions ?? []).toEqual([]);
+  store.setGhGrants(s.id, [{ permission: "workflows", grantedAt: 1, grantedBy: "operator" }]);
+  await service.resume(s.id, { force: true });
+  expect(ghIn.at(-1)?.ghPermissions).toEqual(["workflows"]);
+  order.length = 0;
+  await service.archive(s.id);
+  expect(order).toEqual(["stop", "end"]);
 });

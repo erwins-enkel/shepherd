@@ -85,6 +85,7 @@ import {
   isSandboxProfile,
 } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
+import { isGhOptInPermission, type GhGrant } from "./agent-gh-env";
 import { normalizeRepoAgentProviderSetting, type RepoAgentProviderSetting } from "./agent-provider";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { isEgressIncludeStandard, type EgressIncludeStandard } from "./egress-settings";
@@ -854,6 +855,7 @@ type NewSession = Omit<
   | "haltedAt"
   | "manualSteps"
   | "manualStepsAckedAt"
+  | "ghGrants"
   | "experimentId"
   | "experimentRole"
   | "spawnTerminalId"
@@ -917,7 +919,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, shelved, usagePauseJson, scheduleId, goalCondition, goalState,
+  claudeAiConnectors, ingressStamp, shelved, usagePauseJson, ghGrantsJson, scheduleId, goalCondition, goalState,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
@@ -1038,6 +1040,7 @@ type SessionRow = {
   ingressStamp: string | null;
   shelved: number;
   usagePauseJson: string | null;
+  ghGrantsJson: string | null;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -1237,6 +1240,32 @@ function parseLaunchMetadataJson(raw: string | null | undefined): SessionLaunchM
 
 function launchMetadataJson(value: SessionLaunchMetadata | null | undefined): string | null {
   return value ? JSON.stringify(value) : null;
+}
+
+/** One gh grant audit row (#4119). `action`: grant | revoke | archive | github-revoke |
+ *  github-revoke-failed. */
+export interface GhGrantLogRow {
+  id: number;
+  sessionId: string;
+  permission: string;
+  action: string;
+  actor: string;
+  detail: string | null;
+  at: number;
+}
+
+/** Tolerantly parse the persisted gh grants (#4119); unknown permissions are dropped. */
+function parseGhGrantsJson(raw: string | null | undefined): GhGrant[] {
+  const parsed = safeJsonParse<unknown>(raw ?? null, []);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(
+    (g): g is GhGrant =>
+      !!g &&
+      typeof g === "object" &&
+      isGhOptInPermission(g.permission) &&
+      typeof g.grantedAt === "number" &&
+      typeof g.grantedBy === "string",
+  );
 }
 
 /** Tolerantly parse the persisted manualSteps JSON back to ManualStep[] (never throws). #1059. */
@@ -1693,6 +1722,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
       gitJson TEXT NOT NULL,
       updatedAt INTEGER NOT NULL)`);
+    // #4119: append-only audit of opt-in gh permission grants (grant / revoke / archive / the
+    // GitHub-side token revoke outcome). No FK: the audit outlives a forgotten session row.
+    this.db.run(`CREATE TABLE IF NOT EXISTS gh_grant_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessionId TEXT NOT NULL, permission TEXT NOT NULL, action TEXT NOT NULL,
+      actor TEXT NOT NULL, detail TEXT, at INTEGER NOT NULL)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS gh_grant_log_session ON gh_grant_log(sessionId, id)`);
     // Observed durations of finished green CI jobs, per repo and job name — the "usual" run time
     // the session status panel compares a running job against. Fed from the PR polls Shepherd
     // already makes (no extra forge calls); bounded per job by recordCiJobDurations.
@@ -4393,6 +4429,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       haltedAt: null,
       manualSteps: [],
       manualStepsAckedAt: null,
+      ghGrants: [],
       experimentId: null,
       experimentRole: null,
       spawnTerminalId: null, // stamped post-create by persistSpawnIdentity
@@ -6616,6 +6653,35 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Replace a session's active opt-in gh grants (#4119); [] clears them. Callers audit the change
+   *  with {@link logGhGrant}. */
+  setGhGrants(id: string, grants: GhGrant[]): void {
+    this.db.run(`UPDATE sessions SET ghGrantsJson = ?, updatedAt = ? WHERE id = ?`, [
+      grants.length > 0 ? JSON.stringify(grants) : null,
+      Date.now(),
+      id,
+    ]);
+  }
+
+  /** Append one gh grant audit row (#4119). */
+  logGhGrant(row: Omit<GhGrantLogRow, "id">): void {
+    this.db.run(
+      `INSERT INTO gh_grant_log (sessionId, permission, action, actor, detail, at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [row.sessionId, row.permission, row.action, row.actor, row.detail, row.at],
+    );
+  }
+
+  /** A session's gh grant audit trail, oldest first (#4119). */
+  ghGrantLog(sessionId: string): GhGrantLogRow[] {
+    return this.db
+      .query(
+        `SELECT id, sessionId, permission, action, actor, detail, at FROM gh_grant_log
+          WHERE sessionId = ? ORDER BY id`,
+      )
+      .all(sessionId) as GhGrantLogRow[];
+  }
+
   /** Acknowledge a session's manual operator steps (#1060): stamp `manualStepsAckedAt`, clearing
    *  the auto-merge gate. Ack = "operator owns these" (acknowledged-will-do, mirrors
    *  {@link ackEpicMigrations}) — NOT an assertion the steps are done. Idempotent: `COALESCE`
@@ -7571,6 +7637,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Operator shelve flag (written only via setShelved).
     add("shelved", `shelved INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseJson", `usagePauseJson TEXT`);
+    // #4119: the opt-in gh permissions the operator granted this session (JSON GhGrant[]); null =
+    // none. Written only via setGhGrants; the audit trail lives in gh_grant_log.
+    add("ghGrantsJson", `ghGrantsJson TEXT`);
     add("scheduleBudgetJson", `scheduleBudgetJson TEXT`);
     add("scheduleBudgetEnded", `scheduleBudgetEnded INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseOptOut", `usagePauseOptOut INTEGER NOT NULL DEFAULT 0`);
@@ -8524,7 +8593,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   private hydrate(r: SessionRow): Session {
-    const { manualStepsJson, launchMetadataJson, usagePauseJson, ...session } = r;
+    const { manualStepsJson, launchMetadataJson, usagePauseJson, ghGrantsJson, ...session } = r;
     return {
       ...session,
       isolated: !!r.isolated,
@@ -8578,6 +8647,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       haltedAt: r.haltedAt ?? null,
       manualSteps: parseManualStepsJson(manualStepsJson),
       manualStepsAckedAt: r.manualStepsAckedAt ?? null,
+      ghGrants: parseGhGrantsJson(ghGrantsJson),
       archiveReason: parseArchiveReason(r.archiveReason),
       launchMetadata: parseLaunchMetadataJson(launchMetadataJson),
       experimentId: r.experimentId ?? null,

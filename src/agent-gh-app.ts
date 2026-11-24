@@ -6,7 +6,10 @@
  *
  * Flow: App JWT (RS256) → `GET /repos/{owner}/{repo}/installation` (cached per owner/repo) →
  * `POST /app/installations/{id}/access_tokens` limited to that one repo (cached per installation +
- * repo, reused until {@link TOKEN_REFRESH_MARGIN_MS} before expiry). Every failure throws; the
+ * repo, reused until {@link TOKEN_REFRESH_MARGIN_MS} before expiry). A session the operator granted
+ * an opt-in permission ({@link GH_OPT_IN_PERMISSIONS}, #4119) gets a WIDENED token, cached per
+ * session — never shared with another session or a default caller — and revoked at GitHub by
+ * {@link GithubAppTokenMinter.releaseSession} once the grant ends. Every failure throws; the
  * callers (`prepareMembraneGhHosts`, `GhHostsRefresher`) then give the membrane NO token, never a
  * fallback.
  */
@@ -19,9 +22,11 @@ import {
   AGENT_GH_APP_ID_ENV,
   AGENT_GH_APP_KEY_FILE_ENV,
   agentGhAppConfigured,
+  GH_OPT_IN_PERMISSIONS,
+  type GhOptInPermission,
 } from "./agent-gh-env";
 
-export { AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV };
+export { AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV, type GhOptInPermission };
 
 const GITHUB_API = "https://api.github.com";
 /** One deadline for all API calls of a single mint, so a GitHub outage delays a spawn ≤ this. */
@@ -41,6 +46,17 @@ export const AGENT_GH_APP_PERMISSIONS = {
   statuses: "read",
   actions: "read",
 } as const;
+
+/** A widened mint (#4119): the opt-in permissions to add, and the session the token belongs to. */
+export interface AgentGhAppTokenOptions {
+  extra?: readonly GhOptInPermission[];
+  /** Required with a non-empty `extra`: widened tokens are cached and revoked per session. */
+  sessionId?: string;
+}
+
+/** {@link GithubAppTokenMinter.releaseSession}'s outcome: how many widened tokens GitHub revoked,
+ *  or why one could not be (it then stays valid until it expires, ≤ 1 h). */
+export type ReleaseSessionResult = { ok: true; revoked: number } | { ok: false; failure: string };
 
 export interface GithubRepo {
   owner: string;
@@ -63,6 +79,12 @@ export interface AgentGhAppToken {
  */
 export class GithubAppConfigError extends Error {
   override name = "GithubAppConfigError";
+  /** The GitHub HTTP status behind it, when GitHub refused (422 = permission not on the App). */
+  readonly status?: number;
+  constructor(message: string, options?: ErrorOptions & { status?: number }) {
+    super(message, options);
+    this.status = options?.status;
+  }
 }
 
 /** HTTP statuses that mean the App/installation itself is refused (see GithubAppConfigError). */
@@ -163,8 +185,15 @@ function apiMessage(json: unknown): string {
 /** An API refusal as an error: {@link GithubAppConfigError} when the status says the App itself
  *  is refused, a plain (transient) Error otherwise. */
 function httpError(what: string, r: ApiResult): Error {
-  const Err = CONFIG_STATUSES.has(r.status) ? GithubAppConfigError : Error;
-  return new Err(`${what}: HTTP ${r.status}${apiMessage(r.json)}`);
+  const message = `${what}: HTTP ${r.status}${apiMessage(r.json)}`;
+  return CONFIG_STATUSES.has(r.status)
+    ? new GithubAppConfigError(message, { status: r.status })
+    : new Error(message);
+}
+
+/** The sorted, de-duplicated opt-in list: one permission set, one cache key. */
+function normalizeExtra(extra: readonly GhOptInPermission[] | undefined): GhOptInPermission[] {
+  return [...new Set(extra ?? [])].sort();
 }
 
 /** A `201` access-token body as a token + expiry, or null when malformed. */
@@ -177,17 +206,28 @@ function parseMinted(json: unknown): AgentGhAppToken | null {
 
 /**
  * Mints repo-scoped installation tokens for one App, caching installation IDs per owner/repo and
- * tokens per installation + repo. Every failure throws with a reason that holds no secret — a
- * {@link GithubAppConfigError} when the App config itself is unusable.
+ * default-set tokens per installation + repo. A widened token (opt-in permissions) is cached per
+ * session + repo + permission set instead, and every widened token a session got is remembered
+ * until {@link releaseSession} revokes it. Every failure throws with a reason that holds no secret —
+ * a {@link GithubAppConfigError} when the App config itself is unusable.
  */
 export class GithubAppTokenMinter {
   private readonly installations = new Map<string, number>();
   private readonly tokens = new Map<string, AgentGhAppToken>();
   private readonly inflight = new Map<string, Promise<AgentGhAppToken>>();
+  /** Every widened token minted per session (cache keys + tokens), for {@link releaseSession}. */
+  private readonly sessionTokens = new Map<
+    string,
+    { keys: Set<string>; minted: AgentGhAppToken[] }
+  >();
 
   constructor(private readonly deps: GithubAppMinterDeps) {}
 
-  async token(repo: GithubRepo): Promise<AgentGhAppToken> {
+  async token(repo: GithubRepo, opts: AgentGhAppTokenOptions = {}): Promise<AgentGhAppToken> {
+    const extra = normalizeExtra(opts.extra);
+    if (extra.length > 0 && !opts.sessionId) {
+      throw new Error("a widened GitHub App token needs the session it belongs to");
+    }
     let key: KeyObject;
     try {
       key = await this.deps.loadKey();
@@ -199,18 +239,54 @@ export class GithubAppTokenMinter {
     }
     const now = (this.deps.now ?? Date.now)();
     const repoKey = `${repo.owner}/${repo.name}`.toLowerCase(); // GitHub names are case-insensitive
+    // A widened token is its session's own: never served to another session or a default caller.
+    const scope = extra.length > 0 ? `s:${opts.sessionId}|${extra.join(",")}|` : "";
     const installation = this.installations.get(repoKey);
     const hit =
       installation === undefined
         ? undefined
-        : this.tokens.get(`${installation}/${repo.name.toLowerCase()}`);
+        : this.tokens.get(`${scope}${installation}/${repo.name.toLowerCase()}`);
     if (hit && hit.expiresAt - now > TOKEN_REFRESH_MARGIN_MS) return hit;
-    // Concurrent callers for one repo (a drain burst, the boot-time refresh) share one mint.
-    const pending = this.inflight.get(repoKey);
+    // Concurrent callers for one repo + scope (a drain burst, the boot-time refresh) share one mint.
+    const flightKey = `${scope}${repoKey}`;
+    const pending = this.inflight.get(flightKey);
     if (pending) return pending;
-    const minting = this.mint(repo, repoKey, key, now).finally(() => this.inflight.delete(repoKey));
-    this.inflight.set(repoKey, minting);
+    const minting = this.mint(repo, repoKey, key, now, extra, opts.sessionId).finally(() =>
+      this.inflight.delete(flightKey),
+    );
+    this.inflight.set(flightKey, minting);
     return minting;
+  }
+
+  /**
+   * End `sessionId`'s widened tokens: evict them from the cache and revoke each still-unexpired one
+   * at GitHub (`DELETE /installation/token`, authenticated with that token). Call it only after the
+   * session's membrane file holds a default token again. Never throws; a failure means the token
+   * stays valid until it expires (≤ 1 h).
+   */
+  async releaseSession(sessionId: string): Promise<ReleaseSessionResult> {
+    const entry = this.sessionTokens.get(sessionId);
+    this.sessionTokens.delete(sessionId);
+    if (!entry) return { ok: true, revoked: 0 };
+    for (const k of entry.keys) this.tokens.delete(k);
+    const now = (this.deps.now ?? Date.now)();
+    const live = entry.minted.filter((t) => t.expiresAt > now);
+    const failures: string[] = [];
+    for (const t of live) {
+      const signal = AbortSignal.timeout(this.deps.timeoutMs ?? API_TIMEOUT_MS);
+      try {
+        const r = await this.api("/installation/token", t.token, signal, "token revoke", {
+          method: "DELETE",
+        });
+        if (r.status !== 204) failures.push(`HTTP ${r.status}${apiMessage(r.json)}`);
+      } catch (err) {
+        failures.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (failures.length > 0) {
+      return { ok: false, failure: `GitHub App token revoke: ${failures.join("; ")}` };
+    }
+    return { ok: true, revoked: live.length };
   }
 
   private async mint(
@@ -218,6 +294,8 @@ export class GithubAppTokenMinter {
     repoKey: string,
     key: KeyObject,
     now: number,
+    extra: GhOptInPermission[],
+    sessionId: string | undefined,
   ): Promise<AgentGhAppToken> {
     const jwt = githubAppJwt(this.deps.appId, key, now);
     const signal = AbortSignal.timeout(this.deps.timeoutMs ?? API_TIMEOUT_MS);
@@ -229,7 +307,15 @@ export class GithubAppTokenMinter {
       jwt,
       signal,
       "token mint",
-      { repositories: [repo.name], permissions: AGENT_GH_APP_PERMISSIONS },
+      {
+        body: {
+          repositories: [repo.name],
+          permissions: {
+            ...AGENT_GH_APP_PERMISSIONS,
+            ...Object.fromEntries(extra.map((p) => [p, GH_OPT_IN_PERMISSIONS[p]])),
+          },
+        },
+      },
     );
     const slug = `${repo.owner}/${repo.name}`;
     if (r.status !== 201) {
@@ -239,7 +325,15 @@ export class GithubAppTokenMinter {
     }
     const minted = parseMinted(r.json);
     if (!minted) throw new Error(`GitHub App token mint for ${slug}: malformed response`);
-    this.tokens.set(`${installation}/${repo.name.toLowerCase()}`, minted);
+    const scope = extra.length > 0 ? `s:${sessionId}|${extra.join(",")}|` : "";
+    const cacheKey = `${scope}${installation}/${repo.name.toLowerCase()}`;
+    this.tokens.set(cacheKey, minted);
+    if (sessionId !== undefined && extra.length > 0) {
+      const entry = this.sessionTokens.get(sessionId) ?? { keys: new Set(), minted: [] };
+      entry.keys.add(cacheKey);
+      entry.minted = [...entry.minted.filter((t) => t.expiresAt > now), minted];
+      this.sessionTokens.set(sessionId, entry);
+    }
     return minted;
   }
 
@@ -264,19 +358,21 @@ export class GithubAppTokenMinter {
     return id;
   }
 
+  /** One API call authenticated with `bearer` (the App JWT, or the token being revoked). */
   private async api(
     path: string,
-    jwt: string,
+    bearer: string,
     signal: AbortSignal,
     what: string,
-    body?: object,
+    opts: { body?: object; method?: string } = {},
   ): Promise<ApiResult> {
+    const { body } = opts;
     try {
       const res = await (this.deps.fetch ?? fetch)(`${GITHUB_API}${path}`, {
-        method: body ? "POST" : "GET",
+        method: opts.method ?? (body ? "POST" : "GET"),
         headers: {
           Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${jwt}`,
+          Authorization: `Bearer ${bearer}`,
           "X-GitHub-Api-Version": "2022-11-28",
           "User-Agent": "Shepherd",
           ...(body ? { "Content-Type": "application/json" } : {}),
@@ -319,11 +415,21 @@ export interface AgentGhAppDeps {
  * non-GitHub repo or an unusable App, a plain Error for a transient minter failure. The closure
  * owns its minter, so its caches live as long as the closure does.
  */
-export function makeAgentGhAppToken(
-  deps: AgentGhAppDeps = {},
-): (repoPath: string) => Promise<AgentGhAppToken | null> {
+/** An App-mode token source ({@link makeAgentGhAppToken}): mint for a repo (optionally widened
+ *  for one session), and revoke a session's widened tokens. */
+export type AgentGhAppTokenSource = ((
+  repoPath: string,
+  opts?: AgentGhAppTokenOptions,
+) => Promise<AgentGhAppToken | null>) & {
+  releaseSession: (sessionId: string) => Promise<ReleaseSessionResult>;
+};
+
+export function makeAgentGhAppToken(deps: AgentGhAppDeps = {}): AgentGhAppTokenSource {
   let current: { appId: string; keyFile: string; minter: GithubAppTokenMinter } | null = null;
-  return async (repoPath) => {
+  /** Minters an App-config change replaced: their widened tokens are still revocable (a revoke
+   *  authenticates with the token itself, not the App key). */
+  const retired: GithubAppTokenMinter[] = [];
+  const source = async (repoPath: string, opts?: AgentGhAppTokenOptions) => {
     const env = deps.env ?? process.env;
     if (!agentGhAppConfigured(env)) return null;
     const appId = env[AGENT_GH_APP_ID_ENV]?.trim() ?? "";
@@ -343,6 +449,7 @@ export function makeAgentGhAppToken(
       );
     }
     if (current?.appId !== appId || current.keyFile !== keyFile) {
+      if (current) retired.push(current.minter);
       const loadKey = deps.loadKey ?? loadGithubAppKey;
       current = {
         appId,
@@ -355,8 +462,17 @@ export function makeAgentGhAppToken(
         }),
       };
     }
-    return current.minter.token(repo);
+    return current.minter.token(repo, opts);
   };
+  return Object.assign(source, {
+    releaseSession: async (sessionId: string): Promise<ReleaseSessionResult> => {
+      const minters = [...retired, ...(current ? [current.minter] : [])];
+      const results = await Promise.all(minters.map((m) => m.releaseSession(sessionId)));
+      const failures = results.flatMap((r) => (r.ok ? [] : [r.failure]));
+      if (failures.length > 0) return { ok: false, failure: failures.join("; ") };
+      return { ok: true, revoked: results.reduce((n, r) => n + (r.ok ? r.revoked : 0), 0) };
+    },
+  });
 }
 
 /** The process-wide App-mode token source (env-configured; caches live for the process). */

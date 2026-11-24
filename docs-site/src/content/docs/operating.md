@@ -746,6 +746,41 @@ run a second time.
 In a repo with PR CI, a PR without any checks never reads as ready to merge: its merge row says
 **No checks** and its Merge button stays locked until checks report.
 
+## Review feedback from people and bots
+
+Shepherd forwards review feedback on a session's PR to its task agent, so a person's
+"changes requested" gets acted on the way a critic finding does. GitHub only.
+
+**What is read.** Review bodies, inline review comments and PR conversation comments from:
+
+- people with write access to the repo (admin, maintain or write), and
+- review bots on the repo's allowlist. The default list is CodeRabbit, Copilot and Claude.
+
+Shepherd ignores comments by the PR's author (normally the agent itself), its own critic
+reviews and notes, empty comments, and comments in threads that are already resolved. Each
+comment is delivered once. Editing it doesn't send it again. Comments written before this
+feature first started are never sent.
+
+**How it reaches the agent.** New comments are collected and sent as one message once the agent
+has finished its turn and no critic run is in progress on the PR's head. If Shepherd just sent the
+agent another message, such as a CI result or critic findings, the feedback waits until the agent
+has worked through that message. An agent that has exited is never resumed for this.
+
+**Settings → repo → Review.** **Review feedback** picks when comments are sent automatically:
+
+- **Off**: nothing is read.
+- **Manual**: comments show on the card and wait for you.
+- **In autopilot** (default): sent automatically in autopilot sessions, held for you in attended
+  ones.
+- **Always**: sent automatically in every session.
+
+**Review bots** edits the bot allowlist.
+
+**On the card.** Waiting comments show as an amber **N review comments** badge on the session
+card and in the git rail. Click it to read them, then **Send to agent** or **Dismiss**. After five
+automatic sends in an hour, a session stops sending on its own until the hour has passed. The
+badge's tooltip then says sending is paused, and you can still send by hand.
+
 ## Warm and cold repos
 
 Shepherd reads GitHub in the background only for **warm** repos. A repo is warm when any of these

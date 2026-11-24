@@ -358,10 +358,11 @@ function validateAttachmentNames(value: unknown, imageCount: number): Field<stri
 // ── validateNewProject ────────────────────────────────────────────────────────
 
 /**
- * Slug regex for new project names.
- * Identical rule mirrored in the UI (NewProject.svelte) — cross-reference kept in both files.
+ * Slug regex for new project names, and the idea cap (trimmed length).
+ * Mirror pair: ui/src/lib/components/new-project/project-rules.ts — locked by test/validate.test.ts.
  */
-const PROJECT_SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+export const PROJECT_SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+export const PROJECT_IDEA_MAX = 8000;
 
 export type NewProjectInput = {
   name: string;
@@ -398,12 +399,12 @@ function validateProjectSlug(
   return { ok: true, name };
 }
 
-/** idea — optional string ≤ 8000 chars, trimmed, default "". */
+/** idea — optional string ≤ PROJECT_IDEA_MAX chars, trimmed, default "". */
 function parseIdeaField(value: unknown): Field<string> {
   if (value === undefined) return field("");
   if (typeof value !== "string") return err("newproject_failed_generic");
   const idea = value.trim();
-  if (idea.length > 8000) return err("newproject_failed_idea_too_long");
+  if (idea.length > PROJECT_IDEA_MAX) return err("newproject_failed_idea_too_long");
   return field(idea);
 }
 

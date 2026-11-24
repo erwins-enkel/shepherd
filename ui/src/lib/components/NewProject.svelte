@@ -23,14 +23,7 @@
     type AttachedDocs,
     type UnreadableDoc,
   } from "./new-project/project-docs";
-
-  // Slug rule mirrors src/validate.ts PROJECT_SLUG_RE exactly.
-  // Cross-reference: keep both patterns in sync when either changes.
-  const SLUG_RE = /^[a-z0-9][a-z0-9._-]{0,99}$/;
-
-  // Idea cap mirrors src/validate.ts parseIdeaField() (trimmed length).
-  // Cross-reference: keep both limits in sync when either changes.
-  const IDEA_MAX = 8000;
+  import { PROJECT_IDEA_MAX, PROJECT_SLUG_RE } from "./new-project/project-rules";
 
   // Curated allow-list of kickoff command bare names (strip plugin: prefix).
   const KICKOFF_COMMANDS = new Set([
@@ -96,7 +89,7 @@
   const nameInvalid = $derived.by(() => {
     if (!name) return false;
     const n = name.trim();
-    if (!SLUG_RE.test(n)) return true;
+    if (!PROJECT_SLUG_RE.test(n)) return true;
     if (n.includes("..")) return true;
     if (n === "." || n === "..") return true;
     if (n.endsWith(".git")) return true;
@@ -105,7 +98,7 @@
   });
 
   const ideaLength = $derived(idea.trim().length);
-  const ideaTooLong = $derived(ideaLength > IDEA_MAX);
+  const ideaTooLong = $derived(ideaLength > PROJECT_IDEA_MAX);
 
   const docsTooBig = $derived(docsOverCap(docs));
 
@@ -155,7 +148,7 @@
       case "slug":
         return m.newproject_failed_slug();
       case "idea_too_long":
-        return m.newproject_failed_idea_too_long({ max: IDEA_MAX });
+        return m.newproject_failed_idea_too_long({ max: PROJECT_IDEA_MAX });
       case "exists":
         return m.newproject_failed_exists();
       case "outside":
@@ -325,9 +318,9 @@
   >
     <div class="chead">
       <span class="micro">{m.newproject_title()}</span>
-      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-        >✕</button
-      >
+      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}>
+        ✕
+      </button>
     </div>
 
     <!-- Name field -->
@@ -370,12 +363,14 @@
       <NewProjectDocsPicker
         bind:docs
         onattach={(add) => attach(Promise.resolve(add))}
-        count={m.newproject_idea_count({ count: ideaLength, max: IDEA_MAX })}
+        count={m.newproject_idea_count({ count: ideaLength, max: PROJECT_IDEA_MAX })}
         countOver={ideaTooLong}
       />
     </div>
     {#if ideaTooLong}
-      <p class="field-err" role="alert">{m.newproject_failed_idea_too_long({ max: IDEA_MAX })}</p>
+      <p class="field-err" role="alert">
+        {m.newproject_failed_idea_too_long({ max: PROJECT_IDEA_MAX })}
+      </p>
     {/if}
     {#if docs.prd.length + docs.design.length > 0}
       <p class="preview">

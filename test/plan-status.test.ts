@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "bun:test";
-import { planStallStatus, PLAN_FINAL_ROUND_TIMEOUT_MS } from "../src/plan-status";
+import {
+  planStallStatus,
+  PLAN_FINAL_ROUND_TIMEOUT_MS,
+  type PlanStallStatus,
+} from "../src/plan-status";
 import type { PlanGate } from "../src/types";
 
 /** Minimal PlanGate fixture; only the fields planStallStatus inspects. */
@@ -50,4 +55,32 @@ describe("planStallStatus", () => {
   it("treats round over cap like at cap", () => {
     expect(planStallStatus(makeGate({ round: 9, cap: 5, updatedAt: NOW }), NOW)).toBe("stalled");
   });
+});
+
+type ParityFixture = {
+  timeoutMs: number;
+  cases: {
+    name: string;
+    round: number;
+    cap: number;
+    finalRoundPending: boolean;
+    ageMs: number;
+    expected: PlanStallStatus;
+  }[];
+};
+
+describe("planStallStatus (server) — shared parity fixture (server ↔ UI drift lock)", () => {
+  // The SAME fixture is asserted by ui/src/lib/plan-status.test.ts against the mirrored UI
+  // copy; drift between the two implementations fails one suite.
+  const fixture = JSON.parse(
+    readFileSync(new URL("./fixtures/plan-status-parity.json", import.meta.url), "utf8"),
+  ) as ParityFixture;
+  it("PLAN_FINAL_ROUND_TIMEOUT_MS matches the fixture", () => {
+    expect(PLAN_FINAL_ROUND_TIMEOUT_MS).toBe(fixture.timeoutMs);
+  });
+  for (const { name, ageMs, expected, ...fields } of fixture.cases) {
+    it(name, () => {
+      expect(planStallStatus(makeGate({ ...fields, updatedAt: NOW - ageMs }), NOW)).toBe(expected);
+    });
+  }
 });

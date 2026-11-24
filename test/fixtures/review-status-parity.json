@@ -1,0 +1,362 @@
+[
+  {
+    "name": "round 2/3, 0 finding(s), pending=false, age 0ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 0 finding(s), pending=false, age 900000ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 0 finding(s), pending=false, age 900001ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 0 finding(s), pending=true, age 0ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 0 finding(s), pending=true, age 900000ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 0 finding(s), pending=true, age 900001ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 1 finding(s), pending=false, age 0ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 1 finding(s), pending=false, age 900000ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 1 finding(s), pending=false, age 900001ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 1 finding(s), pending=true, age 0ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 1 finding(s), pending=true, age 900000ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 2/3, 1 finding(s), pending=true, age 900001ms",
+    "addressRound": 2,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 0 finding(s), pending=false, age 0ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 0 finding(s), pending=false, age 900000ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 0 finding(s), pending=false, age 900001ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 0 finding(s), pending=true, age 0ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 0 finding(s), pending=true, age 900000ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 0 finding(s), pending=true, age 900001ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 3/3, 1 finding(s), pending=false, age 0ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 3/3, 1 finding(s), pending=false, age 900000ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 3/3, 1 finding(s), pending=false, age 900001ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 3/3, 1 finding(s), pending=true, age 0ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "final"
+  },
+  {
+    "name": "round 3/3, 1 finding(s), pending=true, age 900000ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "final"
+  },
+  {
+    "name": "round 3/3, 1 finding(s), pending=true, age 900001ms",
+    "addressRound": 3,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 4/3, 0 finding(s), pending=false, age 0ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 4/3, 0 finding(s), pending=false, age 900000ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 4/3, 0 finding(s), pending=false, age 900001ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 4/3, 0 finding(s), pending=true, age 0ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "round"
+  },
+  {
+    "name": "round 4/3, 0 finding(s), pending=true, age 900000ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "round"
+  },
+  {
+    "name": "round 4/3, 0 finding(s), pending=true, age 900001ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": [],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "round"
+  },
+  {
+    "name": "round 4/3, 1 finding(s), pending=false, age 0ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 4/3, 1 finding(s), pending=false, age 900000ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 4/3, 1 finding(s), pending=false, age 900001ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": false,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "stalled"
+  },
+  {
+    "name": "round 4/3, 1 finding(s), pending=true, age 0ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 0,
+    "expected": "final"
+  },
+  {
+    "name": "round 4/3, 1 finding(s), pending=true, age 900000ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900000,
+    "expected": "final"
+  },
+  {
+    "name": "round 4/3, 1 finding(s), pending=true, age 900001ms",
+    "addressRound": 4,
+    "addressCap": 3,
+    "findings": ["f1"],
+    "finalRoundPending": true,
+    "finalRoundTimeoutMs": 900000,
+    "ageMs": 900001,
+    "expected": "stalled"
+  }
+]

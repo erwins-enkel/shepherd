@@ -3,10 +3,16 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
+  PROJECT_IDEA_MAX as UI_PROJECT_IDEA_MAX,
+  PROJECT_SLUG_RE as UI_PROJECT_SLUG_RE,
+} from "../ui/src/lib/components/new-project/project-rules";
+import {
   validateCreate,
   validateCloneUrl,
   validateForkTarget,
   validateNewProject,
+  PROJECT_IDEA_MAX,
+  PROJECT_SLUG_RE,
   isAuthorized,
   originAllowed,
   classifyOrigin,
@@ -1386,6 +1392,23 @@ test("validateNewProject: idea > 8000 chars → newproject_failed_idea_too_long"
 test("validateNewProject: idea exactly 8000 chars accepted", () => {
   const r = validateNewProject({ name: "my-app", idea: "x".repeat(8000) }, root);
   expect(r.ok).toBe(true);
+});
+
+// Drift lock: the New Project form checks slug and idea length client-side
+// (ui/src/lib/components/new-project/project-rules.ts); a drifted copy refuses names the server
+// takes or lets through ideas it rejects.
+test("validateNewProject: slug rule and idea cap match the UI copies", () => {
+  expect(UI_PROJECT_SLUG_RE.source).toBe(PROJECT_SLUG_RE.source);
+  expect(UI_PROJECT_SLUG_RE.flags).toBe(PROJECT_SLUG_RE.flags);
+  expect(UI_PROJECT_IDEA_MAX).toBe(PROJECT_IDEA_MAX);
+  const atCap = validateNewProject({ name: "my-app", idea: "x".repeat(UI_PROJECT_IDEA_MAX) }, root);
+  expect(atCap.ok).toBe(true);
+  const over = validateNewProject(
+    { name: "my-app", idea: "x".repeat(UI_PROJECT_IDEA_MAX + 1) },
+    root,
+  );
+  expect(over.ok).toBe(false);
+  if (!over.ok) expect(over.error).toBe("newproject_failed_idea_too_long");
 });
 
 test("validateNewProject: non-object body → newproject_failed_generic", () => {

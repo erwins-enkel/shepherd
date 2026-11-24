@@ -1,6 +1,6 @@
 /**
  * Shared review-status predicate.
- * Mirror pair: ui/src/lib/review-status.ts — keep both files byte-identical in logic.
+ * Mirror pair: ui/src/lib/review-status.ts — locked by test/fixtures/review-status-parity.json.
  */
 import type { ReviewVerdict } from "./types";
 

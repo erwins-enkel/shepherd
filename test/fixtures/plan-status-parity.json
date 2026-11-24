@@ -1,0 +1,149 @@
+{
+  "timeoutMs": 900000,
+  "cases": [
+    {
+      "name": "round 4/5, pending=false, age 0ms",
+      "round": 4,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 0,
+      "expected": "round"
+    },
+    {
+      "name": "round 4/5, pending=false, age 900000ms",
+      "round": 4,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 900000,
+      "expected": "round"
+    },
+    {
+      "name": "round 4/5, pending=false, age 900001ms",
+      "round": 4,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 900001,
+      "expected": "round"
+    },
+    {
+      "name": "round 4/5, pending=true, age 0ms",
+      "round": 4,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 0,
+      "expected": "round"
+    },
+    {
+      "name": "round 4/5, pending=true, age 900000ms",
+      "round": 4,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 900000,
+      "expected": "round"
+    },
+    {
+      "name": "round 4/5, pending=true, age 900001ms",
+      "round": 4,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 900001,
+      "expected": "round"
+    },
+    {
+      "name": "round 5/5, pending=false, age 0ms",
+      "round": 5,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 0,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 5/5, pending=false, age 900000ms",
+      "round": 5,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 900000,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 5/5, pending=false, age 900001ms",
+      "round": 5,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 900001,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 5/5, pending=true, age 0ms",
+      "round": 5,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 0,
+      "expected": "final"
+    },
+    {
+      "name": "round 5/5, pending=true, age 900000ms",
+      "round": 5,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 900000,
+      "expected": "final"
+    },
+    {
+      "name": "round 5/5, pending=true, age 900001ms",
+      "round": 5,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 900001,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 6/5, pending=false, age 0ms",
+      "round": 6,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 0,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 6/5, pending=false, age 900000ms",
+      "round": 6,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 900000,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 6/5, pending=false, age 900001ms",
+      "round": 6,
+      "cap": 5,
+      "finalRoundPending": false,
+      "ageMs": 900001,
+      "expected": "stalled"
+    },
+    {
+      "name": "round 6/5, pending=true, age 0ms",
+      "round": 6,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 0,
+      "expected": "final"
+    },
+    {
+      "name": "round 6/5, pending=true, age 900000ms",
+      "round": 6,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 900000,
+      "expected": "final"
+    },
+    {
+      "name": "round 6/5, pending=true, age 900001ms",
+      "round": 6,
+      "cap": 5,
+      "finalRoundPending": true,
+      "ageMs": 900001,
+      "expected": "stalled"
+    }
+  ]
+}

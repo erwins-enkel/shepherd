@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "bun:test";
-import { addressStallStatus } from "../src/review-status";
+import { addressStallStatus, type AddressStallStatus } from "../src/review-status";
 import type { ReviewVerdict } from "../src/types";
 
 /** Minimal ReviewVerdict fixture; only the fields addressStallStatus inspects. */
@@ -90,4 +91,30 @@ describe("addressStallStatus", () => {
     });
     expect(addressStallStatus(v, NOW)).toBe("stalled");
   });
+});
+
+type ParityCase = {
+  name: string;
+  addressRound: number;
+  addressCap: number;
+  findings: string[];
+  finalRoundPending: boolean;
+  finalRoundTimeoutMs: number;
+  ageMs: number;
+  expected: AddressStallStatus;
+};
+
+describe("addressStallStatus (server) — shared parity fixture (server ↔ UI drift lock)", () => {
+  // The SAME fixture is asserted by ui/src/lib/review-status.test.ts against the mirrored UI
+  // copy; drift between the two implementations fails one suite.
+  const cases = JSON.parse(
+    readFileSync(new URL("./fixtures/review-status-parity.json", import.meta.url), "utf8"),
+  ) as ParityCase[];
+  for (const { name, ageMs, expected, ...fields } of cases) {
+    it(name, () => {
+      expect(addressStallStatus(makeVerdict({ ...fields, updatedAt: NOW - ageMs }), NOW)).toBe(
+        expected,
+      );
+    });
+  }
 });

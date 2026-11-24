@@ -3632,12 +3632,6 @@ export class SessionService {
     };
   }
 
-  /** Run plugin onSpawn hooks (issue #1124) and fold the result into spawn inputs: the
-   *  env overlay to merge LAST into both membrane.extraEnv and spawnEnv (so a plugin's
-   *  CLAUDE_CONFIG_DIR wins over api-key mode's credential-less mirror) + the inner argv
-   *  with any extraArgs appended. No-op passthrough when no registry is wired. A hook's
-   *  ctx.abortSpawn surfaces as PluginSpawnAborted → returned as a holdReason so the
-   *  caller models it as an auto-refuse (create rolls back, resume returns null). */
   /** {@link runSpawnHookPatch}, then (unless it held) {@link prepareAgentSecrets}. */
   private async runSpawnHookAndSecrets(
     innerArgv: string[],
@@ -3653,6 +3647,12 @@ export class SessionService {
     return "holdReason" in secrets ? secrets : { ...hook, secrets };
   }
 
+  /** Run plugin onSpawn hooks (issue #1124) and fold the result into spawn inputs: the
+   *  env overlay to merge LAST into both membrane.extraEnv and spawnEnv (so a plugin's
+   *  CLAUDE_CONFIG_DIR wins over api-key mode's credential-less mirror) + the inner argv
+   *  with any extraArgs appended. No-op passthrough when no registry is wired. A hook's
+   *  ctx.abortSpawn surfaces as PluginSpawnAborted → returned as a holdReason so the
+   *  caller models it as an auto-refuse (create rolls back, resume returns null). */
   private async runSpawnHookPatch(
     innerArgv: string[],
     ctx: Parameters<SessionService["prepareSpawn"]>[1],

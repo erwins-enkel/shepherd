@@ -53,6 +53,7 @@ import { schedules } from "./schedules.svelte";
 import { reviews, planGates, spawnNotices, repoConfig } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { amendments } from "./amendments.svelte";
+import { reviewFeedback } from "./review-feedback.svelte";
 import { upNext } from "./up-next.svelte";
 import { issueFilterSettings } from "./issue-filter-settings.svelte";
 import { toasts } from "./toasts.svelte";
@@ -767,6 +768,7 @@ export class HerdStore {
         // #2225: an archived session's amendments are gone from the snapshot too (the server's
         // snapshot is active-only), and nothing renders them once the row leaves the Herd.
         amendments.drop(ev.data.id);
+        reviewFeedback.drop(ev.data.id); // #4126: the server drops an archived session's rows
         this.clearDraftReconcileToast(ev.data.id);
         break;
       case "session:working-blocked":
@@ -1008,6 +1010,9 @@ export class HerdStore {
         return true;
       case "session:amendments":
         amendments.apply(ev.data);
+        return true;
+      case "session:review-feedback":
+        reviewFeedback.apply(ev.data);
         return true;
       case "session:review":
         reviews.apply(ev.data);

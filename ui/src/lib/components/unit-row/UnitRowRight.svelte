@@ -10,6 +10,7 @@
   import IssueBadge from "../IssueBadge.svelte";
   import PrBadge from "../PrBadge.svelte";
   import CriticBadge from "../CriticBadge.svelte";
+  import ReviewFeedbackBadge from "../ReviewFeedbackBadge.svelte";
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import GoalChip from "../GoalChip.svelte";
@@ -159,8 +160,10 @@
       type="button"
       aria-disabled="true"
       aria-label={m.viewport_decommission_aria()}
-      use:statusTip={{ text: remoteTip }}>✕</button
+      use:statusTip={{ text: remoteTip }}
     >
+      ✕
+    </button>
   {/if}
   <!-- D4 (docs/design/mobile-herd): on a coarse pointer every badge below that has a click of its
        own is a READ-ONLY readout. Six ~15px tap targets stacked in one card cannot meet iOS HIG
@@ -194,8 +197,10 @@
               text: previewServeFailed
                 ? m.unitrow_preview_badge_degraded()
                 : m.unitrow_preview_badge(),
-            }}>{m.unitrow_preview_badge()}</span
+            }}
           >
+            {m.unitrow_preview_badge()}
+          </span>
         {:else}
           <span
             class="preview-badge"
@@ -217,8 +222,10 @@
                 e.preventDefault();
                 onPreviewActivate(e);
               }
-            }}>{m.unitrow_preview_badge()}</span
+            }}
           >
+            {m.unitrow_preview_badge()}
+          </span>
         {/if}
       </span>
     {/if}
@@ -233,6 +240,8 @@
     <IssueBadge {session} {git} interactive={badgesInteractive} />
     <PrBadge {git} sessionId={session.id} interactive={badgesInteractive} />
     <CriticBadge sessionId={session.id} tip interactive={badgesInteractive} prUrl={git?.url} />
+    <!-- #4126: PR review feedback waiting for the agent; additive, never the status badge. -->
+    <ReviewFeedbackBadge sessionId={session.id} {git} interactive={badgesInteractive} />
     <BuildQueueBadge
       sessionId={session.id}
       planPhase={session.planPhase}
@@ -259,8 +268,10 @@
         class="badge quota-stalled"
         role="img"
         aria-label={quotaLabel}
-        use:statusTip={{ text: quotaTip }}>{quotaLabel}</span
+        use:statusTip={{ text: quotaTip }}
       >
+        {quotaLabel}
+      </span>
     {/if}
     <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
     {#if !reviewing}<AutopilotBadge
@@ -276,47 +287,54 @@
         role="img"
         aria-label={m.session_sandbox_degraded_label()}
         use:statusTip={{ text: m.session_sandbox_degraded_title() }}
-        >{m.session_sandbox_degraded_label()}</span
       >
+        {m.session_sandbox_degraded_label()}
+      </span>
     {:else if session.sandboxApplied === "autonomous" && session.egressDegraded}
       <span
         class="badge sandbox-warn"
         role="img"
         aria-label={m.session_sandbox_egress_degraded_label()}
         use:statusTip={{ text: m.session_sandbox_egress_degraded_title() }}
-        >{m.session_sandbox_egress_degraded_label()}</span
       >
+        {m.session_sandbox_egress_degraded_label()}
+      </span>
     {:else if session.sandboxApplied === "autonomous"}
       <span
         class="badge sandbox"
         role="img"
         aria-label={m.session_sandbox_autonomous_label()}
         use:statusTip={{ text: m.session_sandbox_autonomous_title() }}
-        >{m.session_sandbox_autonomous_label()}</span
       >
+        {m.session_sandbox_autonomous_label()}
+      </span>
     {:else if session.sandboxApplied === "standard"}
       <span
         class="badge sandbox"
         role="img"
         aria-label={m.session_sandbox_standard_label()}
         use:statusTip={{ text: m.session_sandbox_standard_title() }}
-        >{m.session_sandbox_standard_label()}</span
       >
+        {m.session_sandbox_standard_label()}
+      </span>
     {:else if session.sandboxApplied === "trusted" && session.auto}
       <span
         class="badge sandbox-warn"
         role="img"
         aria-label={m.session_sandbox_unconfined_label()}
         use:statusTip={{ text: m.session_sandbox_unconfined_title() }}
-        >{m.session_sandbox_unconfined_label()}</span
       >
+        {m.session_sandbox_unconfined_label()}
+      </span>
     {/if}
     {#if inMergeQueue(git)}
       <span
         class="badge merging"
         id="u-status-{session.id}"
-        use:statusTip={{ text: m.status_in_merge_queue_tip() }}>{m.status_in_merge_queue()}</span
+        use:statusTip={{ text: m.status_in_merge_queue_tip() }}
       >
+        {m.status_in_merge_queue()}
+      </span>
     {:else if changesRequested}
       <span
         class="badge attention"
@@ -326,26 +344,31 @@
             reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
           }),
         }}
-        >{m.unitrow_changes_requested({
-          reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
-        })}</span
       >
+        {m.unitrow_changes_requested({
+          reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
+        })}
+      </span>
     {:else if branchProtectionBlocked}
       <span
         class="badge attention"
         id="u-status-{session.id}"
-        use:statusTip={{ text: m.unitrow_merge_blocked_title() }}>{m.unitrow_merge_blocked()}</span
+        use:statusTip={{ text: m.unitrow_merge_blocked_title() }}
       >
+        {m.unitrow_merge_blocked()}
+      </span>
     {:else if isMerging(session, nowMs)}
       <span
         class="badge merging"
         id="u-status-{session.id}"
-        use:statusTip={{ text: m.status_merging_tip() }}>{m.status_merging()}</span
+        use:statusTip={{ text: m.status_merging_tip() }}
       >
+        {m.status_merging()}
+      </span>
     {:else if session.readyToMerge}
-      <span class="badge" id="u-status-{session.id}" use:statusTip={{ text: m.status_ready_tip() }}
-        >{m.status_ready_to_merge()}</span
-      >
+      <span class="badge" id="u-status-{session.id}" use:statusTip={{ text: m.status_ready_tip() }}>
+        {m.status_ready_to_merge()}
+      </span>
     {/if}
   </div>
   <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>

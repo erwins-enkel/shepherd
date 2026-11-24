@@ -1355,3 +1355,64 @@ export function leitrechnerExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Repo settings → Review → "Review feedback" (#4126): what counts, the four modes, the cap. */
+export function reviewFeedbackModeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_review_feedback_title(),
+    summary: m.tooltip_review_feedback_summary(),
+    sections: [
+      { label: m.tooltip_review_feedback_counts(), text: m.tooltip_review_feedback_counts_body() },
+      {
+        label: m.tooltip_review_feedback_modes(),
+        text: "",
+        rows: [
+          { text: m.tooltip_review_feedback_mode_off() },
+          { text: m.tooltip_review_feedback_mode_manual() },
+          { text: m.tooltip_review_feedback_mode_autopilot() },
+          { text: m.tooltip_review_feedback_mode_always() },
+        ],
+      },
+      { label: m.tooltip_review_feedback_cap(), text: m.tooltip_review_feedback_cap_body() },
+    ],
+  };
+}
+
+/** Repo settings → Review → "Review bots" (#4126): which bot accounts match, and the preset. */
+export function reviewFeedbackBotsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_review_bots_title(),
+    summary: m.tooltip_review_bots_summary(),
+    sections: [
+      { label: m.tooltip_review_bots_match(), text: m.tooltip_review_bots_match_body() },
+      { label: m.tooltip_review_bots_default(), text: m.tooltip_review_bots_default_body() },
+    ],
+  };
+}
+
+/** The Herd card's / git rail's "N review comments" chip (#4126): whose comments wait, why, and —
+ *  when the rolling cap hit — that automatic sending paused. */
+export function reviewFeedbackBadgeExplanation(
+  count: number,
+  autoPaused: boolean,
+): TooltipExplanation {
+  return {
+    title: m.tooltip_review_comments_title(),
+    summary:
+      count === 1
+        ? m.tooltip_review_comments_summary_one()
+        : m.tooltip_review_comments_summary_other({ count }),
+    sections: [
+      { label: m.tooltip_review_comments_from(), text: m.tooltip_review_comments_from_body() },
+      ...(autoPaused
+        ? [
+            {
+              label: m.tooltip_review_comments_paused(),
+              text: m.tooltip_review_comments_paused_body(),
+            },
+          ]
+        : []),
+    ],
+    footer: [m.tooltip_review_comments_click()],
+  };
+}

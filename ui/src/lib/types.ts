@@ -1298,6 +1298,44 @@ export interface TaskAmendment {
   retractedAt: number | null;
 }
 
+/** One piece of PR review feedback ingested for a session (#4126): a review body (`review`), an
+ *  inline review comment (`rc`) or a PR conversation comment (`ic`), from someone with write access
+ *  or an allowlisted review bot. Mirrors the server's `ReviewFeedbackItem`. `body` is untrusted
+ *  Markdown — render it only through `renderMarkdown`. */
+export interface ReviewFeedbackItem {
+  /** `review:<id>`, `rc:<id>` or `ic:<id>`. */
+  id: string;
+  kind: "review" | "rc" | "ic";
+  author: string;
+  isBot: boolean;
+  body: string;
+  /** Epoch ms. */
+  createdAt: number;
+  /** Kind `review` only. */
+  reviewState?: "approved" | "changes_requested" | "commented";
+  /** Kind `rc` only: the commented file. */
+  path?: string;
+  /** Kind `rc` only: the commented line; null when outdated. */
+  line?: number | null;
+  /** Kind `rc` only: `review:<id>` of the review the comment belongs to. */
+  parentReviewId?: string;
+  status: "pending" | "sent" | "dismissed" | "primed";
+  sentAt: number | null;
+  sentBy: "auto" | "operator" | null;
+}
+
+/** A session's pending review feedback plus the rolling-cap cue: automatic sends paused after 5
+ *  steers in an hour (#4126). */
+export interface ReviewFeedbackPending {
+  items: ReviewFeedbackItem[];
+  autoPaused: boolean;
+}
+
+/** Per-repo review-feedback delivery (#4126): `off` fetches nothing; `manual` shows it on the card
+ *  only; `autopilot` (default) sends automatically while autopilot is on; `always` sends
+ *  automatically in attended sessions too. */
+export type ReviewFeedbackMode = "off" | "manual" | "autopilot" | "always";
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 /** Sentinel for a server-authored no-verdict reason, rendered per-locale in the UI (mirrors server
  *  `ReviewSummaryCode`). Only `error` verdicts carry one. */
@@ -1460,6 +1498,10 @@ export interface RepoConfig {
   previewStartCommand?: string | null;
   /** What clicking a live Preview chip does by default for this repo. */
   previewOpenMode: "ask" | "inline" | "tab";
+  /** Whether PR review feedback reaches the task agent (#4126); absent from older servers. */
+  reviewFeedbackMode?: ReviewFeedbackMode;
+  /** Review-bot logins whose feedback counts (#4126), normalized; absent from older servers. */
+  reviewFeedbackBots?: string[];
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */
@@ -3827,6 +3869,11 @@ export type WsEvent =
   | { event: "schedules:changed"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
+  /** #4126: the session's FULL pending review-feedback list, so `[]` is a genuine all-clear. */
+  | {
+      event: "session:review-feedback";
+      data: { id: string; pending: ReviewFeedbackItem[]; autoPaused: boolean };
+    }
   | { event: "upnext:changed"; data: { version: string; computedAt: number } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "settings:issue-filter"; data: { issueFilter: IssueFilterSettings } }

@@ -178,6 +178,19 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
       description: m.automation_allprs_desc(),
     },
     {
+      section: "review",
+      field: "reviewFeedbackMode",
+      name: m.reposettings_review_feedback_name(),
+      description: m.reposettings_review_feedback_desc(),
+    },
+    {
+      section: "review",
+      field: "reviewFeedbackBots",
+      name: m.reposettings_review_bots_name(),
+      description: "",
+      fallbackField: "reviewFeedbackMode",
+    },
+    {
       section: "merge",
       field: "draftMode",
       name: m.reposettings_merge_mode_name(),

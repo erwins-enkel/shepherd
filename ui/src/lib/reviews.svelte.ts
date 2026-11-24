@@ -11,6 +11,7 @@ import type {
   RepoAgentProviderSetting,
   SpawnNotice,
   SpawnNoticeKind,
+  ReviewFeedbackMode,
 } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
@@ -18,6 +19,7 @@ import { mergeModePatch, type MergeMode } from "./merge-mode";
 import { autonomyPatch, type AutonomyLevel } from "./autonomy";
 import type { RepoConfigPatch, RepoConfigResponse, RepoLeitrechnerStatus } from "./api";
 import { SAFE_ID, dropKey, setKey } from "./safe-keys";
+import { REVIEW_FEEDBACK_PRESET_BOTS } from "./list-entries";
 import {
   getReviews,
   getReviewingIds,
@@ -430,6 +432,8 @@ const OVERLAY_MAPS = {
   maxAuto: "maxAuto",
   autoLabel: "autoLabel",
   priorityLabels: "priorityLabels",
+  reviewFeedbackMode: "reviewFeedbackMode",
+  reviewFeedbackBots: "reviewFeedbackBots",
   usageCeilingPct: "usageCeiling",
   automationConfirmed: "confirmed",
 } as const satisfies Partial<Record<keyof RepoConfigPatch, keyof RepoConfigStore>>;
@@ -478,6 +482,8 @@ export class RepoConfigStore {
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   priorityLabels = $state<Record<string, string[]>>({}); // labels drained first, besides shepherd:priority (#3446)
+  reviewFeedbackMode = $state<Record<string, ReviewFeedbackMode>>({}); // PR review feedback → agent (default "autopilot", #4126)
+  reviewFeedbackBots = $state<Record<string, string[]>>({}); // review bots whose feedback counts (default preset, #4126)
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
   confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
   rowExists = $state<Record<string, boolean>>({}); // a repo_config row exists server-side
@@ -556,6 +562,14 @@ export class RepoConfigStore {
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
     this.priorityLabels = { ...this.priorityLabels, [repoPath]: c.priorityLabels ?? [] };
+    this.reviewFeedbackMode = {
+      ...this.reviewFeedbackMode,
+      [repoPath]: c.reviewFeedbackMode ?? "autopilot",
+    };
+    this.reviewFeedbackBots = {
+      ...this.reviewFeedbackBots,
+      [repoPath]: c.reviewFeedbackBots ?? [...REVIEW_FEEDBACK_PRESET_BOTS],
+    };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     this.ingestOptional(repoPath, c);
     this.markSettled(repoPath);
@@ -899,6 +913,14 @@ export class RepoConfigStore {
     await this.write(repoPath, { priorityLabels: labels });
   }
 
+  async setReviewFeedbackMode(repoPath: string, mode: ReviewFeedbackMode) {
+    await this.write(repoPath, { reviewFeedbackMode: mode });
+  }
+
+  async setReviewFeedbackBots(repoPath: string, bots: string[]) {
+    await this.write(repoPath, { reviewFeedbackBots: bots });
+  }
+
   async setUsageCeiling(repoPath: string, n: number) {
     await this.write(repoPath, { usageCeilingPct: n });
   }
@@ -1093,6 +1115,16 @@ export class RepoConfigStore {
   /** The repo's extra priority labels; shepherd:priority always applies on top. */
   priorityLabelsFor(repoPath: string): string[] {
     return this.priorityLabels[repoPath] ?? [];
+  }
+
+  /** Whether PR review feedback reaches the agent; "autopilot" (the default) until loaded. */
+  reviewFeedbackModeFor(repoPath: string): ReviewFeedbackMode {
+    return this.reviewFeedbackMode[repoPath] ?? "autopilot";
+  }
+
+  /** The review bots whose feedback counts; the preset until loaded. */
+  reviewFeedbackBotsFor(repoPath: string): string[] {
+    return this.reviewFeedbackBots[repoPath] ?? [...REVIEW_FEEDBACK_PRESET_BOTS];
   }
 
   usageCeilingFor(repoPath: string): number {

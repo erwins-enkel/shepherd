@@ -105,6 +105,7 @@ import type {
   EpicAutoFixState,
   Recap,
   TaskAmendment,
+  ReviewFeedbackPending,
   CompletedEpic,
   RawAnswer,
   AnswerAskResult,
@@ -3023,6 +3024,36 @@ export async function retractAmendment(
   return r.json() as Promise<{ amendment: TaskAmendment }>;
 }
 
+/** Every session's pending PR review feedback (#4126); sessions with nothing pending are absent. */
+export async function getPendingReviewFeedback(): Promise<Record<string, ReviewFeedbackPending>> {
+  return getJson("/api/review-feedback/pending", "review feedback");
+}
+
+/** Send a session's pending review feedback to its agent as one steer: the given items, or all
+ *  when `ids` is absent. False when the agent isn't running (409) — the items stay pending. */
+export async function sendReviewFeedback(id: string, ids?: string[]): Promise<boolean> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/review-feedback/send`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+  if (r.status === 409) return false;
+  if (!r.ok) {
+    flagIfUnauthorized(r.status);
+    throw await failed(r, "send review feedback");
+  }
+  return true;
+}
+
+/** Dismiss pending review feedback items: they never reach the agent. */
+export async function dismissReviewFeedback(id: string, ids: string[]): Promise<void> {
+  await postJson(
+    `/api/sessions/${encodeURIComponent(id)}/review-feedback/dismiss`,
+    { ids },
+    "dismiss review feedback",
+  );
+}
+
 /** Sessions archived within the Done-lens window (last 48h), newest-first. */
 export async function getDoneSessions(): Promise<Session[]> {
   return getJson("/api/sessions/done", "done sessions");
@@ -3454,6 +3485,8 @@ export type RepoConfigPatch = Partial<
     | "previewStartScript"
     | "previewStartCommand"
     | "previewOpenMode"
+    | "reviewFeedbackMode"
+    | "reviewFeedbackBots"
   >
 > & { automationConfirmed?: boolean; leitrechner?: string | null };
 

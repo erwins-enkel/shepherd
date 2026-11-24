@@ -30,6 +30,7 @@ const MOTION_WAKE_EVENTS: ReadonlySet<string> = new Set([
   "session:plangate-reviewing",
   "session:working-blocked",
   "session:login-request",
+  "session:gh-permission-request",
   "session:git",
 ]);
 

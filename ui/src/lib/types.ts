@@ -828,6 +828,7 @@ export type HoldCode =
   | "ready-merge"
   | "manual-steps"
   | "login-request"
+  | "gh-permission-request"
   | "misrouted-target"
   | "epic-run-stopped";
 
@@ -843,6 +844,7 @@ export interface HoldParams {
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
   host?: string; // login-request: host of the page the agent wants logged in
+  permission?: string; // gh-permission-request: the opt-in gh permission asked for (#4119)
   target?: string; // misrouted-target: the `owner/name` the ticket targets (#3245)
   epic?: number; // epic-run-stopped: the epic the session is a child of (#2735)
   leadEpic?: number; // epic-run-stopped: the paused epic that leads the repo, when one does
@@ -855,6 +857,26 @@ export interface LoginRequest {
   url: string;
   reason: string;
   createdAt: number;
+}
+
+/** Opt-in gh permission a sandboxed session can ask for (#4119). */
+export type GhOptInPermission = "workflows";
+
+/** A sandboxed agent's open gh permission request (#4119): its push needs `permission`; it waits
+ *  until the operator grants or denies. `reason` and `files` are agent text — plain text only. */
+export interface GhPermissionRequest {
+  id: string;
+  permission: GhOptInPermission;
+  reason: string;
+  files: string[];
+  createdAt: number;
+}
+
+/** An opt-in gh grant on a session (#4119). `grantedBy`: `operator` or `token:<name>`. */
+export interface GhGrant {
+  permission: GhOptInPermission;
+  grantedAt: number;
+  grantedBy: string;
 }
 
 /** The Operator Assistant's open Action Request (audit F08): an action in an `ask` group, held
@@ -2218,6 +2240,8 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged (P2). */
   manualStepsAckedAt: number | null;
+  /** Opt-in gh permissions the operator granted this sandboxed session (#4119); absent/[] = none. */
+  ghGrants?: GhGrant[];
   /** Comparison-experiment group id this session belongs to; null = not part of an experiment. */
   experimentId: string | null;
   /** This session's role within its experiment; null when not in one. */
@@ -3746,6 +3770,11 @@ export type WsEvent =
   | { event: "session:hold"; data: { id: string; hold: HoldReason | null } }
   | { event: "session:login-request"; data: { id: string; request: LoginRequest | null } }
   | { event: "session:action-request"; data: { id: string; request: ActionRequest | null } }
+  | {
+      event: "session:gh-permission-request";
+      data: { id: string; request: GhPermissionRequest | null };
+    }
+  | { event: "session:gh-grants"; data: { id: string; ghGrants: GhGrant[] } }
   | {
       event: "session:halt";
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };

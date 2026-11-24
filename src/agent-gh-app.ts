@@ -26,8 +26,7 @@ import {
   type GhOptInPermission,
 } from "./agent-gh-env";
 
-export { AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV, GH_OPT_IN_PERMISSIONS };
-export { isGhOptInPermission, type GhOptInPermission } from "./agent-gh-env";
+export { AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV, type GhOptInPermission };
 
 const GITHUB_API = "https://api.github.com";
 /** One deadline for all API calls of a single mint, so a GitHub outage delays a spawn ≤ this. */

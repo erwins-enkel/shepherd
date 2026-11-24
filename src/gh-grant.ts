@@ -335,13 +335,16 @@ export class GhGrantService {
       for (const g of grants) this.#log(sessionId, g.permission, "archive", "shepherd", null);
       this.#emit(sessionId, []);
     }
-    await this.#release(sessionId, grants.map((g) => g.permission).join(",") || "-", grants.length);
+    // Nothing granted and nothing revoked (the common archive) leaves no audit row.
+    const permissions = grants.map((g) => g.permission).join(",") || "-";
+    await this.#release(sessionId, permissions, grants.length === 0);
   }
 
-  /** Revoke the session's widened tokens at GitHub and audit the outcome. Never throws. */
-  async #release(sessionId: string, permission: string, logIfNone = 1): Promise<void> {
+  /** Revoke the session's widened tokens at GitHub and audit the outcome (`quietIfNone`: skip
+   *  the row when there was nothing to revoke). Never throws. */
+  async #release(sessionId: string, permission: string, quietIfNone = false): Promise<void> {
     const r = await this.deps.source.releaseSession(sessionId);
-    if (r.ok && r.revoked === 0 && logIfNone === 0) return;
+    if (r.ok && r.revoked === 0 && quietIfNone) return;
     if (r.ok) {
       this.#log(sessionId, permission, "github-revoke", "shepherd", `${r.revoked} token(s)`);
       return;

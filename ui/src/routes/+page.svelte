@@ -50,6 +50,7 @@
     blockStates,
     holdStates,
     loginRequestStates,
+    ghPermissionRequestStates,
     actionRequestStates,
     getOperatorAssistant,
     subagentStates,
@@ -1215,6 +1216,9 @@
       .catch(() => {});
     loginRequestStates()
       .then((m) => store.setLoginRequests(m))
+      .catch(() => {});
+    ghPermissionRequestStates()
+      .then((m) => store.setGhPermissionRequests(m))
       .catch(() => {});
     actionRequestStates()
       .then((m) => store.setActionRequests(m))
@@ -2711,6 +2715,9 @@
     loginRequestStates()
       .then((m) => store.setLoginRequests(m))
       .catch(() => {});
+    ghPermissionRequestStates()
+      .then((m) => store.setGhPermissionRequests(m))
+      .catch(() => {});
     actionRequestStates()
       .then((m) => store.setActionRequests(m))
       .catch(() => {});
@@ -4093,15 +4100,17 @@
       <!-- Herd-level "revive all" affordance for a daemon-restart mass-strand (#1630): a persistent,
            always-visible entry point (complements the sticky toast, which can be dismissed). -->
       <div class="stranded-banner" role="status">
-        <span class="stranded-banner__text"
-          >{m.toast_sessions_stranded({ count: store.strandedCount })}</span
-        >
+        <span class="stranded-banner__text">
+          {m.toast_sessions_stranded({ count: store.strandedCount })}
+        </span>
         <button
           type="button"
           class="stranded-banner__btn"
           title={m.herd_revive_all_title()}
-          onclick={() => void store.reviveAllStranded()}>{m.herd_revive_all()}</button
+          onclick={() => void store.reviveAllStranded()}
         >
+          {m.herd_revive_all()}
+        </button>
       </div>
     {/if}
     {#if mobile.current}
@@ -4247,9 +4256,9 @@
       {:else if herdFilter === "done"}
         <!-- Done lens detail (mobile): read-only recap; back returns to the done list -->
         <div class="col">
-          <button type="button" class="done-back" onclick={() => (mobileScreen = "list")}
-            >{m.done_back_to_list()}</button
-          >
+          <button type="button" class="done-back" onclick={() => (mobileScreen = "list")}>
+            {m.done_back_to_list()}
+          </button>
           {#if doneSelected}
             <LazyMount load={loadDoneRecapPanel}>
               {#snippet children(DoneRecapPanel)}
@@ -4305,6 +4314,7 @@
             {openPreviewTick}
             {browserRequest}
             loginRequest={store.loginRequests[selected.id]}
+            ghPermissionRequest={store.ghPermissionRequests[selected.id]}
             {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
@@ -4348,8 +4358,10 @@
             class="reopen-tab"
             title={m.herd_expand()}
             aria-label={m.herd_expand()}
-            onclick={toggleSidebar}>›</button
+            onclick={toggleSidebar}
           >
+            ›
+          </button>
         {:else}
           <div class="herd-col" class:with-rail={canCollapse} bind:this={herdColEl}>
             {@render repoRail(canCollapse)}
@@ -4555,6 +4567,7 @@
               {openPreviewTick}
               {browserRequest}
               loginRequest={store.loginRequests[selected.id]}
+              ghPermissionRequest={store.ghPermissionRequests[selected.id]}
               {renameRequest}
               buildQueue={store.buildQueues[selected.id] ?? null}
               onSeedBuildQueue={(q) => store.setBuildQueue(q)}

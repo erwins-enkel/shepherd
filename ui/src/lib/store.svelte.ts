@@ -36,6 +36,7 @@ import type {
   DocAgentOutcome,
   HoldReason,
   LoginRequest,
+  GhPermissionRequest,
   ActionRequest,
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
@@ -205,6 +206,8 @@ export class HerdStore {
   holds = $state<Record<string, HoldReason>>({});
   /** Open Login Requests (#2882), keyed by session id. */
   loginRequests = $state<Record<string, LoginRequest>>({});
+  /** Open gh permission requests of sandboxed sessions (#4119), keyed by session id. */
+  ghPermissionRequests = $state<Record<string, GhPermissionRequest>>({});
   /** The assistant's open Action Requests (audit F08), keyed by session id. */
   actionRequests = $state<Record<string, ActionRequest>>({});
   /** Live per-session preview-listener port (sessionId → port), pushed by the
@@ -386,6 +389,10 @@ export class HerdStore {
   /** Seed (or replace) the open Login Requests after the bootstrap GET. */
   setLoginRequests(map: Record<string, LoginRequest>): void {
     this.loginRequests = map;
+  }
+  /** Seed (or replace) the open gh permission requests after the bootstrap GET (#4119). */
+  setGhPermissionRequests(map: Record<string, GhPermissionRequest>): void {
+    this.ghPermissionRequests = map;
   }
   /** Seed (or replace) the loaded-plugins list after the bootstrap GET /api/plugins. */
   setPlugins(list: PluginInfo[]): void {
@@ -743,6 +750,7 @@ export class HerdStore {
         this.backgroundBusy = dropKey(this.backgroundBusy, ev.data.id);
         this.holds = dropKey(this.holds, ev.data.id);
         this.loginRequests = dropKey(this.loginRequests, ev.data.id);
+        this.ghPermissionRequests = dropKey(this.ghPermissionRequests, ev.data.id);
         this.actionRequests = dropKey(this.actionRequests, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
         this.previewServe = dropKey(this.previewServe, ev.data.id);
@@ -961,6 +969,14 @@ export class HerdStore {
         this.loginRequests = ev.data.request
           ? setKey(this.loginRequests, ev.data.id, ev.data.request)
           : dropKey(this.loginRequests, ev.data.id);
+        return true;
+      case "session:gh-permission-request":
+        this.ghPermissionRequests = ev.data.request
+          ? setKey(this.ghPermissionRequests, ev.data.id, ev.data.request)
+          : dropKey(this.ghPermissionRequests, ev.data.id);
+        return true;
+      case "session:gh-grants":
+        this.patchSession(ev.data.id, { ghGrants: ev.data.ghGrants });
         return true;
       case "session:action-request":
         this.actionRequests = ev.data.request

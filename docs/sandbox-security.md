@@ -152,6 +152,47 @@ The membrane keeps two token surfaces readable to any in-membrane tool call
   with ≤ 5 min left (or no token the refresher has vouched for since start) is
   the file emptied.
 
+  **Opt-in `workflows` grant (#4119).** The default App token has no
+  `workflows` permission, so a push that creates or changes
+  `.github/workflows/*` fails with `refusing to allow a GitHub App to create or
+update workflow … without workflows permission`. A workflow edit on a branch
+  can add triggers, widen `permissions:`, reference `secrets.*` or reach an
+  OIDC federation, so it stays off by default. A sandboxed Claude task session
+  that hits the rejection calls the `gh_request_permission` MCP tool
+  (`src/agent-control.ts`). The session then shows a `gh-permission-request`
+  hold and a banner with the agent's reason and files, and the operator answers
+  **Grant** or **Deny**. Only the operator app can answer: the route is not
+  reachable through agent ingress. Codex sessions never hit this, because they
+  always run `trusted` with the operator's own `gh`.
+
+  - **Grant** (`GhGrantService`, `src/gh-grant.ts`) first mints a token with
+    `workflows: write` added. If the App installation itself lacks that
+    permission, GitHub answers 422. The banner then says to grant it on the App
+    installation first, nothing is stored, and the request stays open. On
+    success the grant is stored on the session (`sessions.ghGrantsJson`) and
+    the membrane file is re-minted at once. Every refresh after that mints the
+    widened set for that session alone. A later 422 on refresh (the permission
+    was removed from the installation) falls back to the default set, never
+    further.
+  - **Scope**: widened tokens are cached per session, never per repo. Other
+    sessions on the same repo, and every aux role (plan gate, critic, doc and
+    plugin agents), keep the default token.
+  - **Revoke** (the `workflows` badge in the session header) and **archive**
+    end the grant. Shepherd writes a default token back into the file, then
+    revokes every widened token the session got at GitHub
+    (`DELETE /installation/token`, authenticated with that token). A copied
+    token stops working at once. If that call fails, or the server restarted
+    since the mint (the token cache lives in memory), the widened token stays
+    valid until it expires, within 1 h.
+  - **Audit**: `gh_grant_log` records each grant, revoke, archive and
+    GitHub-side revoke outcome, with the actor (`operator`, or `token:<name>`
+    for an access token) and the agent's reason.
+
+  Withholding `workflows` is a partial boundary. `contents: write` already lets
+  an agent change code or scripts that existing workflows run. What the default
+  blocks is new triggers, wider `permissions:` and new secret references, not
+  every CI-side effect.
+
 Not a token surface: task sessions also get a derived mise config
 (`prepareMembraneMiseConfig`) bound RO at `/tmp/.shepherd-mise/config.toml` and
 named by `MISE_SYSTEM_CONFIG_FILE`. `--tmpfs $HOME` hides the host global config,

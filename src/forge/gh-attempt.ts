@@ -9,6 +9,7 @@
  * UI's retry state can name the paths instead of guessing at a rate limit.
  */
 
+import { redactKnownSecretValues } from "../redact";
 import { isRateLimitError } from "./rate-limit";
 
 /** Which `gh` transport produced the failure. */
@@ -75,7 +76,9 @@ function errorText(err: unknown): string {
 /** ANSI-free, single-line, credential-redacted, length-capped view of a `gh` failure.
  *  Redaction runs BEFORE the cap so a secret can never survive as a truncated head. */
 export function sanitizeDetail(raw: string): string {
-  let out = raw.replace(ANSI, "").replace(/\s+/g, " ").trim();
+  // Exact stored values go first, on the raw text: whitespace collapsing or a pattern pass
+  // could otherwise alter a value (interior newline, partial token match) so it never matches.
+  let out = redactKnownSecretValues(raw).replace(ANSI, "").replace(/\s+/g, " ").trim();
   for (const [pattern, replacement] of REDACTIONS) out = out.replace(pattern, replacement);
   return out.length > DETAIL_MAX ? `${out.slice(0, DETAIL_MAX - 1)}…` : out;
 }

@@ -3226,9 +3226,10 @@ export class GithubForge implements GitForge {
     const out = await this.run([
       "api",
       "graphql",
-      "-F",
+      // -f keeps owner/name raw strings (-F would coerce a repo named "123" or "true").
+      "-f",
       `owner=${owner}`,
-      "-F",
+      "-f",
       `name=${name}`,
       "-F",
       `number=${prNumber}`,

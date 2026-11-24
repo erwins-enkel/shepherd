@@ -835,7 +835,6 @@ async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<numb
   }
 }
 
-/** Sweep one directory: readdir (skip a missing/unreadable dir) then sum sweepEntry over it. */
 async function sweepDir(dir: string, ctx: SweepCtx): Promise<number> {
   let entries: Dirent[];
   try {
@@ -1005,7 +1004,7 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
  * and bytes actually accumulate — is reclaimed only when `worktreePath` is genuinely a worktree,
  * i.e. contains `WORKTREE_MARKER`.
  *
- * That gate is load-bearing, not defensive noise. `WorktreeService.remove` does not itself verify
+ * That gate is load-bearing, not defensive noise. `WorktreeMgr.remove` does not itself verify
  * it was handed a worktree; its callers guard individually (`wt.worktreePath !== repoPath`,
  * `if (s.isolated)`). While only the doubled base was in scope, a mis-call on a MAIN CHECKOUT was
  * harmless because nothing nests scratch under a main checkout's doubled base. The single base is
@@ -1072,8 +1071,9 @@ interface ReapFallowOpts {
   log?: (msg: string) => void;
   /**
    * Overrides the directories scanned (default: computed `[claudeTmpRoot(), claude-$uid subdir,
-   * tmpdir()]` set). Lets a test isolate the scan to a controlled root so the bare-`/tmp` scan
-   * can't pull in a concurrent process's caches. Reference #817.
+   * tmpdir()]` set, plus `agentTmpDir()` when enabled). Lets a test isolate the scan to a
+   * controlled root so the bare-`/tmp` scan can't pull in a concurrent process's caches.
+   * Reference #817.
    */
   roots?: string[];
 }
@@ -1150,10 +1150,6 @@ async function reapFallowEntry(root: string, ent: Dirent, ctx: ReapFallowCtx): P
   }
 }
 
-/**
- * Reaps one root directory: readdirs it (skipping missing/unreadable roots silently) then
- * sums `reapFallowEntry` over every entry. Returns the count of dirs removed.
- */
 async function reapFallowRoot(root: string, ctx: ReapFallowCtx): Promise<number> {
   let entries: Dirent[];
   try {
@@ -1172,8 +1168,9 @@ async function reapFallowRoot(root: string, ctx: ReapFallowCtx): Promise<number>
  * inode pressure — decoupled from the `sweepClaudeTmp` threshold gate.
  *
  * Scans the deduped set of roots `[claudeTmpRoot(), join(claudeTmpRoot(), "claude-"+uid()),
- * tmpdir()]` (the third catches caches whose `TMPDIR` was the bare system `/tmp`). Only considers
- * entries whose name starts with `FALLOW_CACHE_PREFIX`. For each stale cache dir it removes the
+ * tmpdir()]` (the third catches caches whose `TMPDIR` was the bare system `/tmp`), plus the bare
+ * disk `agentTmpDir()` when enabled. Only considers entries whose name starts with
+ * `FALLOW_CACHE_PREFIX`. For each stale cache dir it removes the
  * dir and every `FALLOW_SIDECARS` file beside it; a sidecar whose dir is already gone is
  * age-gate-removed on its own. Per-entry try/catch — never aborts the pass, never rejects.
  * Returns `{ removed }` — entries removed, dirs and orphaned sidecars alike.
@@ -1293,15 +1290,6 @@ async function resolveAllRealpaths(
  *  with `node_modules`/`.git` pruned from descent; exhaustion resolves to *keep*. */
 const FRESHNESS_ENTRY_BUDGET = 10_000;
 
-/**
- * True when the worktree looks fresh (recently touched) — the KEEP-biased direction.
- * Bounded DFS from `root`, statting every entry for its mtime but pruning `node_modules`
- * and `.git` from DESCENT (they are stat'd for their own mtime — a recent install/git op
- * shows there — but never walked: `node_modules/.pnpm` alone is thousands of dirs and
- * would exhaust the budget). ANY of {a mtime within the window, a stat/readdir error,
- * budget exhaustion} ⇒ `true` (keep). Only a full, error-free walk finding nothing fresh
- * ⇒ `false` (provably stale ⇒ reapable).
- */
 /** Mutable entry budget shared across a single freshness/idle walk. */
 interface Budget {
   n: number;
@@ -1340,6 +1328,15 @@ async function scanFreshDir(
   return { stop: false, children };
 }
 
+/**
+ * True when the worktree looks fresh (recently touched) — the KEEP-biased direction.
+ * Bounded DFS from `root`, statting every entry for its mtime but pruning `node_modules`
+ * and `.git` from DESCENT (they are stat'd for their own mtime — a recent install/git op
+ * shows there — but never walked: `node_modules/.pnpm` alone is thousands of dirs and
+ * would exhaust the budget). ANY of {a mtime within the window, a stat/readdir error,
+ * budget exhaustion} ⇒ `true` (keep). Only a full, error-free walk finding nothing fresh
+ * ⇒ `false` (provably stale ⇒ reapable).
+ */
 async function worktreeIsFresh(
   root: string,
   cutoff: number,
@@ -1614,12 +1611,6 @@ export function resolveStoreVersionDirs(rootEntries: Dirent[]): string[] {
   return rootEntries.filter((e) => e.isDirectory() && /^v\d+$/.test(e.name)).map((e) => e.name);
 }
 
-/**
- * Provably idle iff a full depth-2 enumeration from the versioned dir finds every mtime
- * <= `cutoff`. Depth 2 is load-bearing: a mid-install store's depth-<=1 mtimes stop moving
- * once the buckets exist, so a shallower probe reads a busy store as idle. Any error, or a
- * budget overrun, ⇒ `false` (keep).
- */
 /** Every entry directly under `dir` has an mtime <= `cutoff` (and budget wasn't exhausted).
  *  Throws propagate to the caller's catch. */
 async function childrenAllStale(
@@ -1636,6 +1627,12 @@ async function childrenAllStale(
   return true;
 }
 
+/**
+ * Provably idle iff a full depth-2 enumeration from the versioned dir finds every mtime
+ * <= `cutoff`. Depth 2 is load-bearing: a mid-install store's depth-<=1 mtimes stop moving
+ * once the buckets exist, so a shallower probe reads a busy store as idle. Any error, or a
+ * budget overrun, ⇒ `false` (keep).
+ */
 async function storeVersionDirIsIdle(
   vdir: string,
   cutoff: number,

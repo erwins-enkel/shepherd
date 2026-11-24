@@ -89,8 +89,8 @@ import {
 import { sessionIssue } from "./target-repo";
 import { backoffDelay } from "./async";
 
-// Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
-// service reuses them). Re-exported here so existing importers (and tests) keep their paths.
+// Session-agnostic critic helpers live in ./critic-core (the standalone PR critic reuses
+// them). Re-exported here so existing importers (and tests) keep their paths.
 export { reviewPrompt, defaultComputePatchId, scopeFindings };
 
 /** Outcome of a consider()/forceReview() call: a critic was spawned, the run was declined
@@ -214,17 +214,6 @@ function errorRetryDue(v: ReviewVerdict | null, now: number): boolean {
   );
 }
 
-/**
- * Classify WHY a run is finishing with no usable verdict. PURE — the single source of truth for
- * both halves of the diagnosis: the `detail` prose goes to the server log, the `code` rides on the
- * verdict as `summaryCode` and is rendered per-locale in the badge. Deriving both here is what
- * stops the log and the operator-facing reason from drifting apart.
- *
- * Order matters: an unparseable verdict wins outright — the critic DID write something, and that is
- * the more specific fact. Below it, a wedged pane outranks the deadline, because it is the only
- * cause that names something the operator can act on and would otherwise be reported as a plain
- * timeout (it is one, but "stuck on a dialog nobody can answer" is the useful half of that sentence).
- */
 export interface NoVerdictCause {
   code: ReviewSummaryCode;
   detail: string;
@@ -255,6 +244,17 @@ function alreadySurfaced(
   );
 }
 
+/**
+ * Classify WHY a run is finishing with no usable verdict. PURE — the single source of truth for
+ * both halves of the diagnosis: the `detail` prose goes to the server log, the `code` rides on the
+ * verdict as `summaryCode` and is rendered per-locale in the badge. Deriving both here is what
+ * stops the log and the operator-facing reason from drifting apart.
+ *
+ * Order matters: an unparseable verdict wins outright — the critic DID write something, and that is
+ * the more specific fact. Below it, a wedged pane outranks the deadline, because it is the only
+ * cause that names something the operator can act on and would otherwise be reported as a plain
+ * timeout (it is one, but "stuck on a dialog nobody can answer" is the useful half of that sentence).
+ */
 export function noVerdictCause(
   read: VerdictRead<RawVerdict>,
   elapsedMs: number,
@@ -884,7 +884,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // (A0, issue #1816): passing it as the `slug` makes the critic's cwd unique per spawn, which is
     // the invariant the Codex rollout resolver relies on (`session_meta.cwd` → exactly one rollout).
     // Without it, two reviews at the same head SHA would share `…-review-<sha>` and the resolver
-    // couldn't tell their rollouts apart. criticArgv takes the pre-minted id and pins the same
+    // couldn't tell their rollouts apart. criticArgvFor takes the pre-minted id and pins the same
     // `--session-id`, so the path/transcript wiring is unchanged.
     const criticSessionId = randomUUID();
 
@@ -1292,8 +1292,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *  inspects an UNTRUSTED PR diff, so a prompt-injection hidden in that diff must not be able
    *  to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
    *  (an unattended PTY would otherwise hang on a permission prompt); the allowlist is
-   *  read-only inspection + read-only git + writing files in its own disposable worktree. */
-  /** #1944: build the argv for an ALREADY-composed prompt under a PINNED session id. `criticArgv`
+   *  read-only inspection + read-only git + writing files in its own disposable worktree.
+   *
+   *  #1944: build the argv for an ALREADY-composed prompt under a PINNED session id. `criticArgv`
    *  used to mint the id itself (`buildTransientAgentArgv` falls back to `randomUUID()`), which is
    *  fine when the argv is built once — but the clamp ladder rebuilds it for the budget probe and
    *  again for the clamped prompt, and three unpinned builds would mint three different ids. The
@@ -1558,12 +1559,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     }
   }
 
-  /** Record WHY a run is about to finalize as an `error` verdict. Logs the environment, the
-   *  elapsed-vs-deadline that decided it, and (best-effort) the spawn's terminal tail, which is
-   *  where a CLI-level failure (expired login, weekly-limit refusal, a model the account can't use)
-   *  prints before exiting. The cause itself comes from the SHARED noVerdictCause() that also sets
-   *  the verdict's `summaryCode`, so the log and the operator-facing badge can never disagree.
-   *  Never throws: diagnostics must not strand a finalize. */
   /**
    * Classify and log a no-verdict run, returning the cause the verdict will carry (null when the
    * critic DID produce something). Classified ONCE here and shared by the log and the badge — two
@@ -1590,6 +1585,12 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     return cause;
   }
 
+  /** Record WHY a run is about to finalize as an `error` verdict. Logs the environment, the
+   *  elapsed-vs-deadline that decided it, and (best-effort) the spawn's terminal tail, which is
+   *  where a CLI-level failure (expired login, weekly-limit refusal, a model the account can't use)
+   *  prints before exiting. The cause itself comes from the SHARED noVerdictCause() that also sets
+   *  the verdict's `summaryCode`, so the log and the operator-facing badge can never disagree.
+   *  Never throws: diagnostics must not strand a finalize. */
   private async logNoVerdict(
     f: InFlight,
     read: VerdictRead<RawVerdict>,
@@ -2060,16 +2061,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     }
   }
 
-  /**
-   * Close the loop: feed the verdict's findings back to the task agent and return the
-   * new streak round. Only real (non-error) verdicts reach here — error verdicts are
-   * counted on the separate no-progress streak in finalize(). Empty findings = clean
-   * (e.g. a "comment" verdict with nothing left to fix) → reset to 0. Otherwise, if auto-address
-   * is enabled and the prior round is under the cap, steer once and advance — but only
-   * if the steer actually reached the agent (a dead/unreachable pane holds the round).
-   * At/over the cap we stop steering and leave the round in place; the posted review,
-   * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
-   */
   async resumeCapacity(session: Session, git: GitState, fingerprint?: string): Promise<void> {
     const verdict = this.deps.store.getReview(session.id);
     if (
@@ -2115,6 +2106,16 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     );
   }
 
+  /**
+   * Close the loop: feed the verdict's findings back to the task agent and return the
+   * new streak round. Only real (non-error) verdicts reach here — error verdicts are
+   * counted on the separate no-progress streak in finalize(). Empty findings = clean
+   * (e.g. a "comment" verdict with nothing left to fix) → reset to 0. Otherwise, if auto-address
+   * is enabled and the prior round is under the cap, steer once and advance — but only
+   * if the steer actually reached the agent (a dead/unreachable pane holds the round).
+   * At/over the cap we stop steering and leave the round in place; the posted review,
+   * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
+   */
   private async runAutoAddress(
     f: InFlight,
     verdict: ReviewVerdict,
@@ -2220,16 +2221,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     };
   }
 
-  /**
-   * Persist an onSpawn-abort (the critic never spawned — e.g. the claude-swap pool had no usable
-   * account) as a visible `error` verdict carrying the abort reason. The row is flagged
-   * `spawnAborted` so consider()'s same-head dedup re-attempts it (the head was never reviewed) —
-   * which means consider() reaches here again every poll while the pool stays cold; the (headSha,
-   * reason) dedup below keeps that from churning putReview/onChange every tick. The verdict is
-   * intentionally NOT findings-bearing (findings:[]) and preserves the prior streak/error counters,
-   * so an abort neither trips the spawn ceiling nor escalates the consecutive-error stall — it is a
-   * pre-spawn refusal, not a finished critic run.
-   */
   /** Nothing more to do for this head — the two ways that can be true, so `consider` carries one
    *  branch instead of five. Both are bypassed by `force`, which the caller applies.
    *
@@ -2420,6 +2411,16 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     else this.publishSpawnAbort(session, git, reason, prior);
   }
 
+  /**
+   * Persist an onSpawn-abort (the critic never spawned — e.g. the claude-swap pool had no usable
+   * account) as a visible `error` verdict carrying the abort reason. The row is flagged
+   * `spawnAborted` so consider()'s same-head dedup re-attempts it (the head was never reviewed) —
+   * which means consider() reaches here again every poll while the pool stays cold; the (headSha,
+   * reason) dedup below keeps that from churning putReview/onChange every tick. The verdict is
+   * intentionally NOT findings-bearing (findings:[]) and preserves the prior streak/error counters,
+   * so an abort neither trips the spawn ceiling nor escalates the consecutive-error stall — it is a
+   * pre-spawn refusal, not a finished critic run.
+   */
   private publishSpawnAbort(
     session: Session,
     git: GitState,
@@ -2485,8 +2486,8 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *
    *  The orphan SIGNAL is the surviving disposable worktree — finalize() always removes
    *  it, so a present worktree means finalize() NEVER ran (i.e., a true restart-orphan).
-   *  A row whose worktree is already gone (finalize ran but captureUsage's `if (usage)`
-   *  guard left the row uncompleted) is NOT an orphan: it's a completed-but-unclosed row.
+   *  A row whose worktree is already gone (finalize ran but the row was left uncompleted,
+   *  e.g. captureUsage threw) is NOT an orphan: it's a completed-but-unclosed row.
    *  We close those too (step a), but we do NOT reap/drop/re-kick them — preserving any
    *  genuine-timeout `error` verdict's errorRound/streak escalation accounting.
    *
@@ -2531,8 +2532,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     row: ReviewerSpawnRow,
   ): Promise<{ kind: "dangling" } | { kind: "orphan"; reKickId: string | null }> {
     // a. Always close the dangling row first — read real usage when available, else NULL (so the
-    //    row is never re-listed every boot). This is ONE unconditional completion, avoiding
-    //    captureUsage's `if (usage)` double-complete trap. null (an unresolved Codex rollout) books
+    //    row is never re-listed every boot). null (an unresolved Codex rollout) books
     //    NULL token columns (unknown, backfillable), NOT 0 — 0 is reserved for a resolved-but-empty
     //    transcript (issue #1816).
     const usage = await this.readUsage(
@@ -2631,10 +2631,6 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     this.codexResolver.reset(f.criticSessionId);
   }
 }
-
-/** Latest meaningful tool-use summary from the critic's JSONL transcript (its claude
- *  session id forces a predictable path under the disposable worktree). null when the
- *  transcript is missing or has no parseable activity yet. */
 
 /** #1812 finding A: read the session's WORKING `.shepherd-plan.md` from the LIVE session worktree.
  *  null when absent/unreadable. Mirrors plan-gate.ts's reader — the plan file is git-excluded, so

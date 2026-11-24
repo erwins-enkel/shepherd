@@ -810,7 +810,7 @@ export class StatusPoller {
       // with no surrounding try/catch, so an unhandled throw would crash shepherd
       // (→ a restart-502, the very thing this design removes). Skip the tick on any
       // herdr failure and retry next cadence — same best-effort stance as the
-      // read-based maybeStall/maybeClassify paths below. Probe herdr before the
+      // read-based maybeProbe/maybeClassify paths below. Probe herdr before the
       // store so a failure bails without touching session state.
       let agents: HerdrAgent[];
       try {
@@ -947,7 +947,7 @@ export class StatusPoller {
     this.lastLivenessSweepAt = t;
     // Terminal sessions are exempt: scanClaudeAliveByWorktree matches agent comms only, so a
     // shell would read husk/stranded and auto-revive could re-spawn it. Pane existence is
-    // their real signal (sweepTerminalPanes). So is the Operator Assistant: only the operator
+    // their real signal (maybeSweepTerminalPanes). So is the Operator Assistant: only the operator
     // resumes it (opening its panel), never auto-revive or "revive all" (#1446).
     const candidates = sessions.filter(
       (s) => s.worktreePath && !s.terminal && !isOperatorAssistant(s),
@@ -1042,7 +1042,6 @@ export class StatusPoller {
     if (state === "stranded" && prev !== "stranded") this.onStrandedGrew?.(this.strandedCount());
   }
 
-  /** Number of sessions currently classified `stranded`. */
   private strandedCount(): number {
     let n = 0;
     for (const v of this.lastLiveness.values()) if (v === "stranded") n++;
@@ -1270,7 +1269,7 @@ export class StatusPoller {
     if (!s || s.status === "archived") return;
     if (s.herdrAgentId !== listed.herdrAgentId || s.status !== listed.status) return;
     // Clean-terminal sessions (pane-direct) have NO herdr agent: reconciling would read
-    // "gone" every tick. Their liveness is pane existence — sweepTerminalPanes below.
+    // "gone" every tick. Their liveness is pane existence — maybeSweepTerminalPanes below.
     if (s.terminal) return;
     const agent = matched.get(s.id) ?? null;
     if (!agent) this.reapGone(s);
@@ -1488,7 +1487,7 @@ export class StatusPoller {
    * onHalt so the UI can patch the live row.
    */
   private detectUsageHalt(s: Session): void {
-    if (s.haltReason) return; // already set; skip
+    if (s.haltReason) return;
     if (s.operatorAssistant && s.agentProvider === "codex") {
       this.captureCodexSessionId?.(s);
       const current = this.store.get(s.id);

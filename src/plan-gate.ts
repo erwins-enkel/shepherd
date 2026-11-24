@@ -179,9 +179,9 @@ export const PLAN_BASELINE_FILE = ".shepherd-plan-previous.md";
  *
  *  Applied ONLY to the plan text embedded in {@link planReviewPrompt} — the plan file on disk, the
  *  UI's copy and the planning agent's own view are untouched, and so are `task` / `issueBody` /
- *  prior findings (see below). `planAnchorSha` co-locates the planner's and reviewer's trees so a
- *  line number correct on one side is correct on the other in the common case; this strip is the
- *  deterministic backstop for the case the anchor cannot reach — a plan reference into code the
+ *  prior findings (see below). `defaultPlanAnchorSha` co-locates the planner's and reviewer's trees
+ *  so a line number correct on one side is correct on the other in the common case; this strip is
+ *  the deterministic backstop for the case the anchor cannot reach — a plan reference into code the
  *  planner has itself committed this session, which the merge-base anchor deliberately excludes.
  *  The prompt FORBIDS line-number findings; this makes them unraisable.
  *
@@ -224,10 +224,10 @@ export function stripPlanLineRefs(text: string): string {
   );
 }
 
-/** What the reviewer's detached worktree is checked out at, when `planAnchorSha` resolved the
- *  merge-base (`anchored`). `sha` is that commit; `ahead` is how many commits the planning agent
- *  has made past it in its own worktree — the count that decides whether an unresolvable symbol
- *  reference is a defect or merely invisible from here. */
+/** What the reviewer's detached worktree is checked out at, when `defaultPlanAnchorSha` resolved
+ *  the merge-base (`anchored`). `sha` is that commit; `ahead` is how many commits the planning
+ *  agent has made past it in its own worktree — the count that decides whether an unresolvable
+ *  symbol reference is a defect or merely invisible from here. */
 export interface PlanAnchor {
   sha: string;
   ahead: number;
@@ -555,11 +555,9 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_CAP = 5;
 const CODEX_EXIT_GRACE_MS = 5_000;
 
-/** Zeroed usage for a completed reviewer whose transcript yields no totals — notably a Codex
- *  role spawn (`codex exec` writes no Claude JSONL) or a half-written transcript. Recording
- *  completion with zeros rather than skipping it keeps `reviewer_spawns.completedAt` honest: the
- *  review DID finish and apply a verdict; only per-run token attribution is unavailable. Mirrors
- *  review.ts's zeroedUsage. */
+/** Usage booked for a reviewer whose spawn FAILED (herdr start threw): nothing ran, so zero is
+ *  the true count, and completing the row keeps `reviewer_spawns` from carrying a never-started
+ *  spawn as dangling. */
 const ZEROED_USAGE: SessionUsage = {
   input: 0,
   output: 0,
@@ -2277,7 +2275,6 @@ function startedStatus(prior: PlanGate | null, cap: number): PlanReviewTrigger {
   return (prior?.round ?? 0) >= cap ? "started-at-cap" : "started";
 }
 
-/** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */
 /** How many times a refusal may steer the planning agent before it becomes operator-only (#1944).
  *  Without a bound, an agent that edits the plan without shrinking it enough would re-trigger
  *  refusal→steer forever: every edit mints a new `planHash`, which clears the suppression. */
@@ -2306,6 +2303,7 @@ function refusalSteerText(fitted: {
   );
 }
 
+/** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */
 function planSteerText(findings: string[]): string {
   return (
     "The plan reviewer raised these points on `.shepherd-plan.md`. Revise the plan to address each, then stop so it can be re-reviewed:\n\n" +
@@ -2761,10 +2759,6 @@ export function readPlanFile(worktreePath: string): string | null {
   }
 }
 
-/** Latest meaningful tool-use summary from the plan reviewer's JSONL transcript (its claude
- *  session id forces a predictable path under the disposable worktree). null when the transcript
- *  is missing or has no parseable activity yet. Mirrors review.ts's defaultReadActivity. */
-
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a
  *  partial-write parse failure (retried next tick). */
 function defaultReadVerdict(worktreePath: string, spawnSessionId?: string): RawPlanVerdict | null {
@@ -2803,7 +2797,7 @@ export interface PlanAnchorResolution {
  *  pre-existing file and a location reference correct for one is correct for the other.
  *
  *  Merge-base, NOT the session worktree's raw HEAD, for two reasons:
- *  - `ShepherdService.advanceToExecutionOnPr` exists precisely because agents write code and open
+ *  - `SessionService.advanceToExecutionOnPr` exists precisely because agents write code and open
  *    PRs while `planPhase` is still `"planning"`, so HEAD often carries the planner's own commits.
  *  - More importantly, HEAD is UNTRUSTED. A worktree at the session branch contains whatever the
  *    planning agent has committed — including `CLAUDE.md`, `.claude/settings.json`, hooks and

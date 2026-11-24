@@ -281,12 +281,6 @@ import type { GitForge, GitState, IssueComment } from "./forge/types";
 import { waitingAttachments } from "./remote-instances/dispatch";
 import { sleep, withTimeout } from "./async";
 
-/** Post-archive late-credit await window: after a merge-train session archives,
- *  its completion-tracker entry waits this long for a poller-gated late merge to
- *  credit it before the sweep reclaims it (no-credit); also bounds the same await
- *  started in clearMergingForTrain. NOTE: per-session marks are NOT aged out by
- *  this — they persist for the life of the train (see sweepStaleMerging, which
- *  releases a mark only when its train leaves #liveTrains). */
 export class RestoreError extends Error {
   constructor(public readonly code: "not_archived" | "cannot_restore") {
     super(`restore failed: ${code}`);
@@ -369,11 +363,18 @@ const SHEPHERD_INSTALL_ROOT = resolve(import.meta.dir, "..");
 /** The Operator Assistant's base session name (uniqueName de-dupes it against live herdr agents). */
 const OPERATOR_ASSISTANT_NAME = "operator-assistant";
 
+/** Post-archive late-credit await window: after a merge-train session archives,
+ *  its completion-tracker entry waits this long for a poller-gated late merge to
+ *  credit it before the sweep reclaims it (no-credit); also bounds the same await
+ *  started in clearMergingForTrain. NOTE: per-session marks are NOT aged out by
+ *  this — they persist for the life of the train (see sweepStaleMerging, which
+ *  releases a mark only when its train leaves #liveTrains). */
 export const MERGE_STALE_MS = 30 * 60_000;
 
 /** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a
  *  train session that dies without ever emitting `session:archived` would orphan
- *  its live entry forever, so the sweep reclaims a live entry this long after launch.
+ *  its live entry forever, so the sweep deregisters a train this long after its last
+ *  activity (`max(registeredAt, updatedAt)`) and reclaims its live entry.
  *  Set far beyond any realistic run (no merge train runs for a day) so it can only
  *  reclaim a genuinely dead train, never one still landing PRs. */
 export const TRAIN_TRACKER_MAX_MS = 24 * 60 * 60_000;
@@ -1908,15 +1909,6 @@ export function buildQueueDirective(args: {
 }
 
 /**
- * Pre-execution PLAN GATE directives. When the plan gate is on for a session, one of these
- * REPLACES the autopilot directive during the planning phase — planning deliberately suppresses
- * autopilot so the agent stops to plan/grill instead of rushing to a PR. The interactive variant
- * grills a present human ACTIVELY — clarifying questions are asked via AskUserQuestion / in the
- * conversation, never parked as an open-questions list in the plan; the auto variant runs
- * unattended (drain) and just writes the plan. English, not i18n'd — agent-facing prompt text,
- * same precedent as AUTOPILOT_DIRECTIVE.
- */
-/**
  * Returns agent-facing instructions for optionally emitting a `.shepherd-plan-blocks.json`
  * sidecar alongside `.shepherd-plan.md`. Not i18n'd — same precedent as the directives.
  * When `allowQuestionForm` is false (interactive), the `question-form` block type is omitted
@@ -2090,6 +2082,15 @@ function planGateDirectiveInteractive(
     planBlockInstructions({ allowQuestionForm: false, agentProvider, operatorLanguage })
   );
 }
+/**
+ * Pre-execution PLAN GATE directives. When the plan gate is on for a session, one of these
+ * REPLACES the autopilot directive during the planning phase — planning deliberately suppresses
+ * autopilot so the agent stops to plan/grill instead of rushing to a PR. The interactive variant
+ * grills a present human ACTIVELY — clarifying questions are asked via AskUserQuestion / in the
+ * conversation, never parked as an open-questions list in the plan; the auto variant runs
+ * unattended (drain) and just writes the plan. English, not i18n'd — agent-facing prompt text,
+ * same precedent as AUTOPILOT_DIRECTIVE.
+ */
 const PLAN_GATE_DIRECTIVE_INTERACTIVE = planGateDirectiveInteractive("claude");
 /**
  * The unattended (drain) plan-gate directive, provider-adjusted. The auto path has NO human to catch
@@ -6140,7 +6141,6 @@ export class SessionService {
     return live ? this.replaceOperatorAssistant(live) : this.createOperatorAssistant(repo);
   }
 
-  /** Archive `old` and spawn a fresh assistant in the same scope. */
   private async replaceOperatorAssistant(old: Session): Promise<Session> {
     await this.archive(old.id);
     return this.createOperatorAssistant(old.assistantRepo ?? null);

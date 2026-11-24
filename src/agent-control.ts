@@ -54,6 +54,8 @@ import { pinnedVersionError, validateEpicDraft } from "./epic-author";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
+import { agentGhAppConfigured, isGhOptInPermission } from "./agent-gh-env";
+import type { GhPermissionRequestService } from "./gh-grant";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import type { ActionRequestService } from "./action-request";
 import {
@@ -122,6 +124,12 @@ export interface AgentControlDeps {
   egressBlocked?: (sessionId: string) => string[] | null;
   /** The `ci_download` broker (src/ci-download.ts); absent ⇒ the tool answers "unavailable". */
   ciDownloads?: Pick<CiDownloads, "request">;
+  /** gh permission requests (#4119); absent ⇒ `gh_request_permission` answers "unavailable". */
+  ghPermissionRequests?: Pick<GhPermissionRequestService, "request" | "wait">;
+  /** One `gh_request_permission` call's wait window (ms); default `GH_PERMISSION_WAIT_MS`. */
+  ghPermissionWaitMs?: number;
+  /** Is GitHub App mode configured? default `agentGhAppConfigured(process.env)`. */
+  ghAppModeConfigured?: () => boolean;
 }
 
 /** `self_status.preview`: the HUD's `PreviewReach` plus the dev port the slot proxies to. */
@@ -481,6 +489,76 @@ async function applyBrowserRequestLogin(
   };
 }
 
+// ── gh permission request (#4119) ────────────────────────────────────────────
+
+/** One call's wait window — under Claude Code's hard 60s HTTP MCP cap, like the login request. */
+const GH_PERMISSION_WAIT_MS = 50_000;
+const MAX_GH_REASON_CHARS = 500;
+const MAX_GH_FILES = 50;
+const MAX_GH_FILE_CHARS = 300;
+
+const GH_PERMISSION_PENDING_NEXT =
+  "The operator has not answered yet. Call gh_request_permission again with the same permission to keep waiting.";
+const GH_PERMISSION_GRANTED_NEXT =
+  "Granted for the rest of this session: push again (your gh/git credentials already carry it).";
+const GH_PERMISSION_DENIED_NEXT =
+  "The operator declined. Do not ask again or work around it: report that the workflow change needs a manual push, and stop.";
+
+/** Validated `{permission, reason, files}`, or the error the agent should correct. */
+function ghPermissionArgs(
+  args: Record<string, unknown>,
+): { permission: "workflows"; reason: string; files: string[] } | string {
+  if (!isGhOptInPermission(args.permission)) return 'permission must be "workflows"';
+  const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+  if (!reason) return "reason is required";
+  const raw = args.files ?? [];
+  if (!Array.isArray(raw) || raw.some((f) => typeof f !== "string"))
+    return "files must be an array of paths";
+  const files = (raw as string[])
+    .map((f) => f.trim().slice(0, MAX_GH_FILE_CHARS))
+    .filter(Boolean)
+    .slice(0, MAX_GH_FILES);
+  return { permission: args.permission, reason: reason.slice(0, MAX_GH_REASON_CHARS), files };
+}
+
+/** Ask the operator for an opt-in gh permission and wait (one bounded window) for the answer. A
+ *  permission already granted answers `granted` at once, without a request. */
+async function applyGhRequestPermission(
+  deps: AgentControlDeps,
+  sessionId: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<ApplyResult<unknown>> {
+  const session = deps.store.get(sessionId);
+  if (!deps.ghPermissionRequests || !session)
+    return { ok: false, status: 503, error: "gh permission requests unavailable" };
+  const parsed = ghPermissionArgs(args);
+  if (typeof parsed === "string") return { ok: false, status: 400, error: parsed };
+  if (session.ghGrants?.some((g) => g.permission === parsed.permission))
+    return { ok: true, data: { status: "granted", next: GH_PERMISSION_GRANTED_NEXT } };
+  const state = deps.ghPermissionRequests.request(
+    sessionId,
+    parsed.permission,
+    parsed.reason,
+    parsed.files,
+  );
+  const outcome =
+    state.status === "open"
+      ? await deps.ghPermissionRequests.wait(
+          sessionId,
+          state.request.id,
+          deps.ghPermissionWaitMs ?? GH_PERMISSION_WAIT_MS,
+          signal,
+        )
+      : state.status;
+  const next = {
+    pending: GH_PERMISSION_PENDING_NEXT,
+    granted: GH_PERMISSION_GRANTED_NEXT,
+    denied: GH_PERMISSION_DENIED_NEXT,
+  }[outcome];
+  return { ok: true, data: { status: outcome, next } };
+}
+
 // ── tool catalog ─────────────────────────────────────────────────────────────
 
 /** One MCP tool as `tools/list` reports it. */
@@ -675,6 +753,35 @@ const BROWSER_REQUEST_LOGIN: McpTool = {
   },
 };
 
+const GH_REQUEST_PERMISSION: McpTool = {
+  name: "gh_request_permission",
+  description:
+    "Ask the operator to grant this session an extra GitHub permission. Use it when `git push` is " +
+    "refused with `refusing to allow a GitHub App to create or update workflow ... without " +
+    "`workflows` permission`: don't retry the push, rewrite history to dodge it, or ask for " +
+    "another token. Call this with permission `workflows`, the workflow files you changed and a " +
+    "one-line reason. Each call waits up to ~50s: `pending` means call it again to keep waiting; " +
+    "`granted` means push again; `denied` means stop and report that the workflow change needs " +
+    "a manual push.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      permission: { type: "string", enum: ["workflows"], description: "The permission needed." },
+      reason: {
+        type: "string",
+        description: "One line for the operator: why this session must change workflows.",
+      },
+      files: {
+        type: "array",
+        items: { type: "string" },
+        description: "The `.github/workflows/*` files your push changes.",
+      },
+    },
+    required: ["permission", "reason"],
+    additionalProperties: false,
+  },
+};
+
 const SCHEDULE_NOOP: McpTool = {
   name: "schedule_noop",
   description:
@@ -741,6 +848,9 @@ export interface AgentCapabilities {
   scheduleNoop: boolean;
   /** `ci_download` — a non-plain, egress-confined (autonomous) Claude session in a forge repo. */
   ciDownload?: boolean;
+  /** `gh_request_permission` (#4119) — a non-plain, sandboxed Claude task session in a forge repo
+   *  while GitHub App mode is configured. */
+  ghPermissionRequest?: boolean;
 }
 
 /** An unknown session's capabilities: none. */
@@ -795,6 +905,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
   if (caps.scheduleNoop) tools.push(SCHEDULE_NOOP);
   if (caps.ciDownload) tools.push(CI_DOWNLOAD);
+  if (caps.ghPermissionRequest) tools.push(GH_REQUEST_PERMISSION);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   if (caps.operatorCodex) tools.push(ASSISTANT_SHELL_TOOL, ASSISTANT_VIEW_TOOL);
   if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
@@ -835,6 +946,25 @@ export function ciDownloadAllowed(o: {
   );
 }
 
+/** The `ghPermissionRequest` rule (#4119), shared by the spawn path (resolved profile) and the row
+ *  path (`sandboxApplied`): only a sandboxed session runs on the App token — trusted keeps the
+ *  operator's own `gh` — and Codex sessions get no MCP control plane. */
+export function ghPermissionRequestAllowed(o: {
+  plain: boolean | undefined;
+  profile: string | null;
+  repoMode: string;
+  agentProvider?: string | null;
+  appModeConfigured: boolean;
+}): boolean {
+  return (
+    o.appModeConfigured &&
+    !o.plain &&
+    (o.profile === "standard" || o.profile === "autonomous") &&
+    o.repoMode !== "lightweight" &&
+    o.agentProvider !== "codex"
+  );
+}
+
 /** A stored session's capabilities; an unknown session has none. Reads the session's PERSISTED
  *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
@@ -864,6 +994,13 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
       profile: session.sandboxApplied,
       repoMode: repoConfig.repoMode,
       agentProvider: session.agentProvider,
+    }),
+    ghPermissionRequest: ghPermissionRequestAllowed({
+      plain: session.plain,
+      profile: session.sandboxApplied,
+      repoMode: repoConfig.repoMode,
+      agentProvider: session.agentProvider,
+      appModeConfigured: (deps.ghAppModeConfigured ?? agentGhAppConfigured)(),
     }),
   };
 }
@@ -972,6 +1109,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     applyBrowserRequestLogin(deps, id, args, signal),
   schedule_noop: (deps, id, args) => applyScheduleNoop(deps, id, args),
   ci_download: (deps, id, args, signal) => applyCiDownload(deps, id, args, signal),
+  gh_request_permission: (deps, id, args, signal) =>
+    applyGhRequestPermission(deps, id, args, signal),
   herd_status: (deps, id, args) => applyHerdStatus(deps, args, assistantScope(deps, id)),
   repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),

@@ -55,6 +55,7 @@ import {
   agentMcpConfigArg,
   browserLoginAllowed,
   ciDownloadAllowed,
+  ghPermissionRequestAllowed,
   hasAgentTools,
   isNonCodeMode,
   OPERATOR_ASSISTANT_CAPABILITIES,
@@ -232,6 +233,8 @@ import {
   type MembraneMiseInputs,
   type MembraneStateInputs,
 } from "./membrane-state";
+import { agentGhAppConfigured } from "./agent-gh-env";
+import type { GhGrantService } from "./gh-grant";
 import type { PreviewLaunch } from "./preview-launch";
 import {
   detectEgressBackend as detectRealEgressBackend,
@@ -550,6 +553,9 @@ export interface ServiceDeps {
    *  installation tokens last 1 h): started after a spawn that bound one, stopped at teardown,
    *  resumed at boot. Absent ⇒ none. Wired to `ghHostsRefresher` in index.ts. */
   ghHostsRefresh?: Pick<GhHostsRefresher, "start" | "stop">;
+  /** Ends a session's opt-in gh grants at archive (#4119). Absent ⇒ none. Wired to
+   *  `GhGrantService` in index.ts. */
+  ghGrants?: Pick<GhGrantService, "endForArchive">;
   /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
    *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
   prepareScratchpadBind?: (
@@ -4099,7 +4105,18 @@ export class SessionService {
         "mise config",
         mise ? () => mise({ ...base, pinnedBins: [nodeBinReal, config.bunBin] }) : null,
       ),
-      ghHostsFile: await attempt("gh hosts", gh ? () => gh({ ...base, repoPath }) : null),
+      ghHostsFile: await attempt(
+        "gh hosts",
+        // A resume keeps the session's granted opt-in permissions (#4119).
+        gh
+          ? () =>
+              gh({
+                ...base,
+                repoPath,
+                ghPermissions: this.deps.store.get(sessionId)?.ghGrants?.map((g) => g.permission),
+              })
+          : null,
+      ),
       ghBin: await attempt("gh binary", this.deps.resolveMembraneGhBin ?? null),
     };
   }
@@ -4579,6 +4596,12 @@ export class SessionService {
         plain: input.plain,
         profile,
         repoMode: repoConfig.repoMode,
+      }),
+      ghPermissionRequest: ghPermissionRequestAllowed({
+        plain: input.plain,
+        profile,
+        repoMode: repoConfig.repoMode,
+        appModeConfigured: agentGhAppConfigured(),
       }),
     };
     // #3337: `--settings` / `--mcp-config` as 0600 file paths carrying the ingress key.
@@ -9848,6 +9871,9 @@ export class SessionService {
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
     this.deps.ghHostsRefresh?.stop(id); // before its file goes with the membrane state
+    // #4119: archive ends every gh grant and revokes the widened token at GitHub — after the stop,
+    // so no refresh mints a widened token again. Never throws.
+    await this.deps.ghGrants?.endForArchive(id);
     removeMembraneState(id);
     this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);

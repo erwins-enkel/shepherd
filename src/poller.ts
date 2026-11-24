@@ -246,10 +246,8 @@ function hookSignalsActive(): boolean {
 }
 
 /** A genuinely sandboxed session — a non-`trusted` profile actually applied AND not degraded to
- *  unconfined. Only these run behind the `bwrap` membrane, so only these are externally REGISTERED
- *  on 0.7.5 (herdr can't observe them) and have their state owned+pushed by Shepherd (#1891). A
- *  trusted 0.7.5 spawn is NOT registered — herdr auto-detects it and owns its status — so Shepherd
- *  must never push for it (a push would claim authority and freeze herdr's own detection). */
+ *  unconfined. Never push state for any other session: a push claims authority and freezes herdr's
+ *  own detection. See docs/adr/0002-shepherd-owns-status-only-for-sandboxed-sessions.md. */
 function isSandboxedSession(s: {
   sandboxApplied: SandboxProfile | null;
   sandboxDegraded: boolean;

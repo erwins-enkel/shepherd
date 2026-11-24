@@ -1,8 +1,9 @@
-// PATH shims that put a Codex session's heavy checks behind the heavy-check slot (#3550).
-// Codex has no rewriting PreToolUse hook, so each tool the guard's detection can call heavy gets a
-// tiny `sh` shim in one directory that is put first on the Codex session's PATH; the shim runs
-// scripts/slot-shim.mjs, which decides (scripts/tool-guard.mjs → isHeavyCommand) and either goes
-// through the slot runner or execs the real binary. See docs-site operating.md → heavy-check slot.
+// PATH shims that put a Codex session's heavy checks behind the heavy-check slot (#3550). Each tool
+// the guard's detection can call heavy gets a tiny `sh` shim in one directory that is put first on
+// the Codex session's PATH; the shim runs scripts/slot-shim.mjs, which decides
+// (scripts/tool-guard.mjs → isHeavyCommand) and either goes through the slot runner or execs the
+// real binary. See docs-site operating.md → heavy-check slot, and
+// docs/adr/0004-codex-heavy-checks-via-path-shims.md for why shims and not a hook.
 import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";

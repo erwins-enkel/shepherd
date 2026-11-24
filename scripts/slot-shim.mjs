@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // PATH shim that routes a Codex session's heavy checks through the heavy-check slot (#3550).
 //
-// Codex has no PreToolUse rewrite hook the way Claude does (scripts/tool-guard.mjs), so Shepherd
-// puts a directory of tiny `sh` shims for `bun`/`cargo`/`vitest`/… first on the Codex session's
-// PATH. Each one runs this file as `slot-shim.mjs <tool> <args…>`:
+// Instead of a rewriting hook like Claude's (scripts/tool-guard.mjs), Shepherd puts a directory of
+// tiny `sh` shims for `bun`/`cargo`/`vitest`/… first on the Codex session's PATH. Each one runs
+// this file as `slot-shim.mjs <tool> <args…>`:
 //   - heavy (the SAME detection as the guard: isHeavyCommand) → the heavy-slot runner, which asks
 //     the server for the slot, queues with exit 75, or runs the command with SHEPHERD_HEAVY_JOB set;
 //   - anything else → the real binary, untouched.
 // Inside the runner SHEPHERD_HEAVY_JOB is set, so the nested `bun` it starts passes straight through.
 //
 // Every failure FAILS OPEN to the real binary: a broken shim must never stop an agent working.
+// See docs/adr/0004-codex-heavy-checks-via-path-shims.md.
 
 import { spawn } from "node:child_process";
 import { accessSync, constants as fsConstants, realpathSync, statSync } from "node:fs";

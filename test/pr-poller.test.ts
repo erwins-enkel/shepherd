@@ -34,6 +34,14 @@ test("gitStateChanged: true when the running-checks set changes", () => {
   ).toBe(true);
 });
 
+test("gitStateChanged: true when only the PR's updatedAt moves (a new comment, #4126)", () => {
+  const at = "2026-11-24T10:00:00Z";
+  expect(
+    gitStateChanged(openGit({ updatedAt: at }), openGit({ updatedAt: "2026-11-24T10:05:00Z" })),
+  ).toBe(true);
+  expect(gitStateChanged(openGit({ updatedAt: at }), openGit({ updatedAt: at }))).toBe(false);
+});
+
 test("gitStateChanged: false when running-checks only reorders (set-equal)", () => {
   expect(
     gitStateChanged(openGit({ runningChecks: ["a", "b"] }), openGit({ runningChecks: ["b", "a"] })),

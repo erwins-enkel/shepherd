@@ -1301,6 +1301,12 @@ export interface AppDeps {
       parent: number,
     ): Promise<import("./drain").RepairLandingCiResult>;
   };
+  /** #4126: pending PR review feedback per session, and the operator's send / dismiss. Absent in
+   *  tests that don't exercise it. */
+  reviewFeedback?: Pick<
+    import("./review-feedback").ReviewFeedbackService,
+    "pendingAll" | "sendNow" | "dismiss"
+  >;
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
   /** Injectable `gh` CLI runner for the POST /api/projects remote step. Absent in

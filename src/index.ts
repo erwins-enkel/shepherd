@@ -165,6 +165,7 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
+import { ReviewFeedbackService } from "./review-feedback";
 import { attachMergeSteer } from "./merge-steer";
 import { CiRestartHolds } from "./ci-restart-hold";
 import { CiStartupFailureService } from "./ci-startup-failure";
@@ -2657,6 +2658,18 @@ const ciSteer = attachCiSteer(events, store, {
   ciRestartHeld: (id) => ciRestartHolds.held(id),
   onRestartRelease: (cb) => ciRestartHolds.onRelease(cb),
 });
+// #4126: steer PR review feedback from people with write access / allowlisted bots to the agent.
+const reviewFeedback = new ReviewFeedbackService({
+  store,
+  resolveForge,
+  reply: (id, text) => service.reply(id, text, { automatic: true }),
+  lastSteerAt: (id) => service.lastSteerAt(id),
+  autopilotOn: (s) => effectiveAutopilot(s, store.getRepoConfig(s.repoPath).autopilotEnabled),
+  criticHeld: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
+  emit: (payload) => events.emit("session:review-feedback", payload),
+  seed: prPoller.snapshot(),
+});
+reviewFeedback.attach(events);
 // Tell a live attended agent once when its PR merges, so it stops pushing to a landed branch.
 attachMergeSteer(events, store, {
   reply: (id, text) => service.reply(id, text, { automatic: true }),
@@ -4849,6 +4862,7 @@ const appDeps: AppDeps = {
     pushedLandingGate: (repoPath, parent) => drain.pushedLandingGate(repoPath, parent),
   } satisfies Required<NonNullable<AppDeps["drain"]>>,
   autoMerge: { snapshot: () => autoMerge.snapshot() },
+  reviewFeedback,
   heavySlot,
   holds: { snapshot: () => holdService.snapshot() },
   // Read the source session's recent terminal history off its live pane and hand it to a

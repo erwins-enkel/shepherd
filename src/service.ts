@@ -3158,6 +3158,9 @@ export class SessionService {
    * is being torn down.
    */
   private readonly steersInFlight = new Map<string, number>();
+  /** #4126: when a steer last set off toward each session (stamped before any await), so the
+   *  review-feedback steer can wait until the agent has taken a turn since. In-memory only. */
+  readonly #lastSteerAt = new Map<string, number>();
   private readonly planReleaseInFlight = new Map<string, Promise<boolean>>();
 
   /**
@@ -6286,6 +6289,7 @@ export class SessionService {
     // best-effort: the replaced agent may already be gone
     if (old?.herdrAgentId) await this.deps.herdr.stop(old.herdrAgentId).catch(() => {});
     this.deps.events?.emit("session:archived", { id });
+    this.#lastSteerAt.delete(id);
     await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch((err) => {
       console.warn(`[operator-assistant] ingress spawn file cleanup failed for ${id}:`, err);
     });
@@ -8227,6 +8231,7 @@ export class SessionService {
    * try/await.
    */
   reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    this.#lastSteerAt.set(id, Date.now()); // #4126: synchronous, before any await
     if (this.isProviderHandoffHeld(id) && !this.providerHandoffAccess(id, opts.providerHandoff))
       return Promise.resolve(false);
     return this.#steer(id, false, async () =>
@@ -8955,6 +8960,7 @@ export class SessionService {
     opts: SteerOpts = {},
     operator = false,
   ): Promise<boolean> {
+    this.#lastSteerAt.set(s.id, Date.now()); // #4126
     if (this.isProviderHandoffHeld(s.id) && !this.providerHandoffAccess(s.id, opts.providerHandoff))
       return false;
     // FUNNEL GUARD — the herdr.send invariant: every steer in the codebase (reply, broadcast,
@@ -9826,6 +9832,11 @@ export class SessionService {
     return p;
   }
 
+  /** #4126: when the last steer to `id` set off (epoch ms), or undefined if none since boot. */
+  lastSteerAt(id: string): number | undefined {
+    return this.#lastSteerAt.get(id);
+  }
+
   /** An archive of this session is running: resume, reply, relaunch and shelving refuse. */
   isClosing(id: string): boolean {
     return this.archiveInFlight.has(id);
@@ -9950,6 +9961,7 @@ export class SessionService {
     );
     await this.removeAgentSecretDir(s.id);
     this.deps.store.archive(id, reason);
+    this.#lastSteerAt.delete(id);
     publishUsagePause(s, null, this.deps.events);
     if (s.operatorAssistant) this.cleanupArchivedAssistant(s);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is

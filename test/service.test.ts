@@ -4608,6 +4608,45 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
   expect(first.split("\x1b").length - 1).toBe(2);
 });
 
+test("reply stamps lastSteerAt synchronously, before the send settles (#4126)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [{ terminalId: "term_z" }],
+      stop: async () => {},
+      send: async () => {},
+    } as any,
+  });
+  expect(svc.lastSteerAt(s.id)).toBeUndefined();
+  const before = Date.now();
+  const pending = svc.reply(s.id, "hi", { automatic: true });
+  // Visible in the caller's tick: a listener reacting to the same event sees the steer.
+  const stamped = svc.lastSteerAt(s.id);
+  expect(stamped).toBeGreaterThanOrEqual(before);
+  expect(await pending).toBe(true);
+  expect(svc.lastSteerAt(s.id)).toBeGreaterThanOrEqual(stamped!);
+});
+
 test("sanitizeSteerText: fixed-point marker strip, CR→LF, controls dropped, LF/TAB kept", () => {
   expect(sanitizeSteerText("a\x1b[201\x1b[201~~b")).toBe("ab");
   expect(sanitizeSteerText("\x1b[20\x1b[200~0~x\x1b[2\x1b[201~01~")).toBe("x");

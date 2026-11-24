@@ -251,6 +251,8 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     prev.authorLogin !== git.authorLogin ||
     !sameSet(prev.requestedReviewers, git.requestedReviewers) ||
     prev.headSha !== git.headSha ||
+    // #4126: a new review or comment moves only this; the review-feedback fetch keys on it.
+    prev.updatedAt !== git.updatedAt ||
     prev.baseRefName !== git.baseRefName ||
     prev.inMergeQueue !== git.inMergeQueue ||
     prev.issueUrl !== git.issueUrl ||

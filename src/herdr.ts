@@ -19,6 +19,7 @@ import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 import { execFileAsync } from "./instrument";
 import { sleep as defaultSleep } from "./async";
+import { secretLauncherSkip } from "./agent-secrets";
 
 export interface HerdrAgent {
   agent: string;
@@ -742,9 +743,11 @@ export function winchRelayPath(): string {
 }
 
 /** Index of the actual command in a (possibly membrane-wrapped) argv: `bwrap … -- claude …`
- *  hides it behind the `--` separator, a trusted spawn starts with it. */
+ *  hides it behind the `--` separator, a trusted spawn starts with it. The per-repo secret
+ *  launcher (#4122) that may follow is skipped too. */
 function innerCommandStart(argv: string[]): number {
-  return argv[0] === "bwrap" ? argv.indexOf("--") + 1 : 0;
+  const start = argv[0] === "bwrap" ? argv.indexOf("--") + 1 : 0;
+  return start + secretLauncherSkip(argv, start);
 }
 
 /** A headless Codex role shares its tab's process lifetime with the initial shell pane.

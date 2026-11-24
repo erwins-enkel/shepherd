@@ -65,6 +65,12 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
     },
     {
       section: "agent",
+      field: "agentSecrets",
+      name: m.automation_secrets_name(),
+      description: m.automation_secrets_desc(),
+    },
+    {
+      section: "agent",
       field: "sharedBrowserEnabled",
       name: m.automation_shared_browser_name(),
       description: m.automation_shared_browser_desc(),

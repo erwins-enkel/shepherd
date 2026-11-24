@@ -6,6 +6,7 @@ import {
   sanitizeDetail,
   type GhFetchAttempt,
 } from "../../src/forge/gh-attempt";
+import { setKnownSecretValues } from "../../src/redact";
 import { CURRENT_GHS_TOKEN } from "../helpers/gh-token-shapes";
 
 /** execFile-shaped rejection: `gh` writes its diagnosis to stderr. */
@@ -154,4 +155,15 @@ test("attemptsOf: null for an untagged error, a non-object, and an empty trail",
   expect(attemptsOf(new Error("plain"))).toBeNull();
   expect(attemptsOf("nope")).toBeNull();
   expect(attemptsOf(attachAttempts(new Error("plain"), []))).toBeNull();
+});
+
+test("sanitizeDetail: a registered agent secret value is redacted, even across whitespace", () => {
+  setKnownSecretValues(["plain-value-123", "multi\nline  value"]);
+  try {
+    expect(sanitizeDetail("auth failed for plain-value-123 and multi\nline  value")).toBe(
+      "auth failed for <redacted> and <redacted>",
+    );
+  } finally {
+    setKnownSecretValues([]);
+  }
 });

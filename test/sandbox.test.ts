@@ -21,6 +21,7 @@ import {
   resolveCodexMembrane,
   resolveClaudeMembrane,
   membraneForArgv,
+  membraneInnerArgv,
   MEMBRANE_MISE_CONFIG,
   MEMBRANE_TOOL_BIN,
   type MembraneInputs,
@@ -28,6 +29,7 @@ import {
   type ClaudeMembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
+import { secretEnvLauncher, secretLauncherSkip } from "../src/agent-secrets";
 import { AGENT_SHELL_MARKERS } from "../src/agent-shell-env";
 import { CODEX_ROLE_SCHEMA_DIR } from "../src/codex-role-output-schema";
 import type { EgressBackend } from "../src/egress";
@@ -1720,6 +1722,60 @@ describe("buildMembraneFlags ingress spawn files (#3337)", () => {
     expect(buildMembraneFlags(fakeMembrane({ ingressFiles: [] }), detDeps)).toEqual(
       buildMembraneFlags(fakeMembrane(), detDeps),
     );
+  });
+});
+
+describe("per-repo agent secret dir (#4122)", () => {
+  const dir = "/home/me/.shepherd/agent-spawn/s1.secrets";
+  const claudeDeps = {
+    ...detDeps,
+    whichAll: () => ["/opt/node/bin/claude"],
+    realpath: () => "/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+  };
+
+  test("bound RO (no -try) at the same path; absent → byte-identical", () => {
+    const f = buildMembraneFlags(fakeMembrane({ secretEnvDir: dir }), detDeps);
+    expect(hasTriple(f, "--ro-bind", dir, dir)).toBe(true);
+    expect(buildMembraneFlags(fakeMembrane({ secretEnvDir: undefined }), detDeps)).toEqual(
+      buildMembraneFlags(fakeMembrane(), detDeps),
+    );
+  });
+
+  test("launcher right after `--`, claude membrane detection still applied on the raw argv", () => {
+    const inner = ["claude", "--model", "opus", "task"];
+    const out = wrapArgv(
+      inner,
+      { profile: "standard", backend: "bwrap", membrane: fakeMembrane({ secretEnvDir: dir }) },
+      claudeDeps,
+    );
+    const sep = out.indexOf("--");
+    expect(out.slice(sep + 1)).toEqual(secretEnvLauncher(dir, inner));
+    expect(secretLauncherSkip(out, sep + 1)).toBe(5);
+    expect(out[sep + 1 + 5]).toBe("claude");
+    const flags = out.slice(1, sep);
+    expect(hasTriple(flags, "--ro-bind-try", "/opt/node/bin", "/opt/node/bin")).toBe(true);
+    expect(hasTriple(flags, "--ro-bind", dir, dir)).toBe(true);
+  });
+
+  test("no dir → inner argv unchanged after `--`; trusted passes the argv through", () => {
+    const inner = ["claude", "task"];
+    const out = wrapArgv(
+      inner,
+      { profile: "standard", backend: "bwrap", membrane: fakeMembrane() },
+      claudeDeps,
+    );
+    expect(out.slice(out.indexOf("--") + 1)).toEqual(inner);
+    expect(membraneInnerArgv(inner, fakeMembrane())).toEqual(inner);
+    expect(membraneInnerArgv(inner, fakeMembrane({ secretEnvDir: dir }))).toEqual(
+      secretEnvLauncher(dir, inner),
+    );
+    expect(
+      wrapArgv(inner, {
+        profile: "trusted",
+        backend: "bwrap",
+        membrane: fakeMembrane({ secretEnvDir: dir }),
+      }),
+    ).toEqual(inner);
   });
 });
 

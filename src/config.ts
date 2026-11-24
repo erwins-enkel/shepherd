@@ -58,6 +58,10 @@ const pluginsDir = process.env.SHEPHERD_PLUGINS_DIR ?? join(dirname(dbPath), "pl
 // served by any route. SHEPHERD_PLUGIN_SECRETS overrides.
 const pluginSecretsPath =
   process.env.SHEPHERD_PLUGIN_SECRETS ?? join(dirname(dbPath), "plugin-secrets.json");
+// Per-repo agent secrets (#4122): one 0600 JSON file beside the db, values never served by any
+// route. SHEPHERD_AGENT_SECRETS overrides.
+const agentSecretsPath =
+  process.env.SHEPHERD_AGENT_SECRETS ?? join(dirname(dbPath), "agent-secrets.json");
 // APNs credentials entered in Settings → Notifications (#2696): one 0600 JSON file beside the db,
 // never served by any route.
 const apnsStorePath = join(dirname(dbPath), "apns.json");
@@ -710,6 +714,7 @@ export const config = {
   chromiumBin: process.env.SHEPHERD_CHROMIUM_BIN || null,
   pluginsDir,
   pluginSecretsPath,
+  agentSecretsPath,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrUpdateLogPath,
   updateJournalPath,

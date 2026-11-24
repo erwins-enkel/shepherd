@@ -3,6 +3,7 @@ import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import type {
   EgressBlock,
   EgressSuggestion,
+  RepoSecret,
   EpicLanding,
   SandboxProfile,
   AssistantPermissions,
@@ -3654,6 +3655,56 @@ export async function getRepoEgressSuggestions(
     `/api/repo-egress-suggestions?repo=${encodeURIComponent(repoPath)}`,
     "repo-egress-suggestions",
   );
+}
+
+/** {@link failed} for the repo-secret routes, whose `{error}` IS the stable code
+ *  (`invalid-name`, `reserved-name`, …): the {@link ApiError}'s `code` carries it. */
+async function secretFailed(r: Response, label: string): Promise<Error> {
+  const body = (await r.json().catch(() => null)) as { error?: string; code?: string } | null;
+  return apiError(
+    r.status,
+    body ? { error: body.error, code: body.code ?? body.error } : null,
+    `${label} failed: ${r.status}`,
+  );
+}
+
+const repoSecretsUrl = (repoPath: string) =>
+  `/api/repo-secrets?repo=${encodeURIComponent(repoPath)}`;
+
+/** A repo's agent secrets (#4122): names and timestamps only, the server never returns a value. */
+export async function listRepoSecrets(repoPath: string): Promise<RepoSecret[]> {
+  const r = await fetch(repoSecretsUrl(repoPath));
+  if (!r.ok) throw await secretFailed(r, "repo secrets");
+  const body = (await r.json()) as { secrets?: RepoSecret[] };
+  return body.secrets ?? [];
+}
+
+/** Save (add or replace) one agent secret. A refusal throws an {@link ApiError} whose `code` is
+ *  the server's reason (`invalid-name`, `reserved-name`, `invalid-value`, `too-many`). */
+export async function putRepoSecret(
+  repoPath: string,
+  name: string,
+  value: string,
+): Promise<{ name: string; updatedAt: number }> {
+  const r = await fetch(repoSecretsUrl(repoPath), {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ name, value }),
+  });
+  if (!r.ok) throw await secretFailed(r, "repo secret save");
+  return r.json();
+}
+
+/** Delete one agent secret; `deleted` is false when it was already gone. */
+export async function deleteRepoSecret(
+  repoPath: string,
+  name: string,
+): Promise<{ deleted: boolean }> {
+  const r = await fetch(`${repoSecretsUrl(repoPath)}&name=${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw await secretFailed(r, "repo secret delete");
+  return r.json();
 }
 
 export async function getRepoCollaborators(repoPath: string): Promise<{

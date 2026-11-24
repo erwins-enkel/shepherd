@@ -12,6 +12,7 @@ import {
 import { PluginSpawnAborted } from "../src/plugins/types";
 import type { MembraneLaunch } from "../src/membrane-launch";
 import { config } from "../src/config";
+import { SECRET_LAUNCHER_ARGV0 } from "../src/agent-secrets";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
 const stubEnv: MembraneEnv = {
@@ -111,6 +112,19 @@ describe("resolveSpawnMembrane", () => {
     expect(backend).toBeNull();
     expect(wrapped).toEqual(argv);
     expect(calls).toContain("/wt/task");
+  });
+
+  test("#4122: an aux spawn never gets the per-repo secret launcher or a secret dir bind", () => {
+    const { wrapped } = resolveSpawnMembrane({
+      argv,
+      worktreePath: "/wt/task",
+      repoPath: "/repo",
+      worktree: worktreeStub(),
+      seams: { detectBackend: () => "bwrap", membraneLaunch: okLaunch, membraneEnv: () => stubEnv },
+    });
+    expect(wrapped.slice(wrapped.indexOf("--") + 1)).toEqual(argv);
+    expect(wrapped).not.toContain(SECRET_LAUNCHER_ARGV0);
+    expect(wrapped.some((t) => t.endsWith(".secrets"))).toBe(false);
   });
 
   test("#3351: the env's bun dir rides onto the membrane PATH", () => {

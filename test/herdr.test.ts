@@ -18,6 +18,7 @@ import {
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 import { refreshMiseClaude, __resetMiseClaude } from "../src/mise-claude";
+import { secretEnvLauncher } from "../src/agent-secrets";
 import { __resetAgentScope, __setAgentScope, agentScopePrefix } from "../src/agent-scope";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
@@ -394,6 +395,15 @@ test("isHeadlessCodexExec recognizes direct and bwrap-wrapped exec roles only", 
     isHeadlessCodexExec(["bwrap", "--die-with-parent", "--", "codex", "--no-alt-screen"]),
   ).toBe(false);
   expect(isHeadlessCodexExec(["claude", "codex exec appears only in prompt"])).toBe(false);
+});
+
+test("isHeadlessCodexExec sees through the per-repo secret launcher (#4122)", () => {
+  const dir = "/s/x.secrets";
+  expect(isHeadlessCodexExec(secretEnvLauncher(dir, ["codex", "exec", "go"]))).toBe(true);
+  expect(
+    isHeadlessCodexExec(["bwrap", "--", ...secretEnvLauncher(dir, ["codex", "exec", "go"])]),
+  ).toBe(true);
+  expect(isHeadlessCodexExec(secretEnvLauncher(dir, ["codex", "--no-alt-screen"]))).toBe(false);
 });
 
 const TAB_LIST = JSON.stringify({
@@ -1678,6 +1688,23 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
     expect(
       buildWrappedArgv(["bwrap", "--ro-bind", "/x", "/x", "--", "codex", "exec"]),
     ).not.toContain(PIN);
+  });
+
+  test("claude behind the per-repo secret launcher (#4122) is still pinned, trusted + bwrap", async () => {
+    await pin(true);
+    const dir = "/home/op/.shepherd/agent-spawn/s1.secrets";
+    expect(buildWrappedArgv(secretEnvLauncher(dir, ["claude", "-p"]))).toContain(PIN);
+    expect(
+      buildWrappedArgv([
+        "bwrap",
+        "--ro-bind",
+        dir,
+        dir,
+        "--",
+        ...secretEnvLauncher(dir, ["claude"]),
+      ]),
+    ).toContain(PIN);
+    expect(buildWrappedArgv(secretEnvLauncher(dir, ["codex", "exec"]))).not.toContain(PIN);
   });
 });
 

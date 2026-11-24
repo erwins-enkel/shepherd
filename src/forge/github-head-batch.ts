@@ -27,7 +27,7 @@ const PR_FRAGMENT =
   "checkSuite{workflowRun{workflow{name}}} status conclusion startedAt completedAt detailsUrl}}}}}}} " +
   "headRefOid baseRefName reviews(first:100){nodes{author{login} submittedAt body state}} " +
   "reviewRequests(first:100){nodes{requestedReviewer{__typename ...on User{login} ...on Bot{login}}}} " +
-  "headRepositoryOwner{login}}";
+  "headRepositoryOwner{login} updatedAt}";
 
 const LOOKUP = "states:[OPEN,CLOSED,MERGED],first:1,orderBy:{field:CREATED_AT,direction:DESC}";
 

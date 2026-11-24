@@ -48,6 +48,7 @@ import { headBatcherFor, headKey } from "./github-head-batch";
 import { currentGhCaller } from "./gh-caller";
 import { readEpicStructureByParts } from "./epic-structure";
 import { downloadGithubArtifactZip } from "./github-artifact";
+import { PR_FEEDBACK_QUERY, parsePrFeedback } from "./github-pr-feedback";
 import { Semaphore } from "../semaphore";
 import { backoffDelay, sleep as defaultSleep } from "../async";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
@@ -89,6 +90,7 @@ import type {
   PrComment,
   PrReviewerState,
   PrReviewMeta,
+  PrFeedback,
   PrStatus,
   PullRequest,
   RedeployInput,
@@ -268,6 +270,9 @@ const REST_OPEN_PULLS_REVALIDATE_MS = 5_000;
  *  and merged between two list reads doesn't, so it is still bounded. "No PR" is never cached:
  *  an agent's own `gh pr create` must show on the next (targeted) poll. */
 const REST_TERMINAL_BRANCH_TTL_MS = 30 * 60_000;
+/** A collaborator-permission answer (#4126) holds this long: standing changes rarely, and the
+ *  review-feedback ingest asks once per new commenter. */
+const WRITE_ACCESS_TTL_MS = 60 * 60_000;
 /** How long {@link GithubForge.listWorkflowRuns} answers from its cache: the Actions tab polls
  *  every 12s and each fetch fans out to a `gh run view` per workflow (#2660). */
 const WORKFLOW_RUNS_CACHE_TTL_MS = 30_000;
@@ -289,7 +294,7 @@ const EPIC_STRUCTURE_RETRY_MS = 30_000;
 /** `gh pr` JSON fields of an open-PR snapshot row — the listing and the single-PR re-read
  *  ({@link GithubForge.openPullRequest}) read the same ones, so a patched row matches. */
 const OPEN_PR_FIELDS =
-  "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner";
+  "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner,updatedAt";
 
 /** Issue fields of the GraphQL single-issue reads ({@link GithubForge.getIssue}, the epic
  *  parent). Carries the author's authorAssociation for the autonomous-spawn author trust gate. */
@@ -1089,6 +1094,7 @@ export interface GhPr {
   reviews?: GhReview[];
   reviewRequests?: { login?: string }[];
   headRepositoryOwner?: { login?: string };
+  updatedAt?: string;
 }
 
 interface RestPull {
@@ -1343,6 +1349,8 @@ export class GithubForge implements GitForge {
     string,
     { at: number; keyed: boolean; value: Pick<PrStatus, "latestReview" | "reviewerStates"> }
   >();
+  /** {@link hasWriteAccess} answers per lowercased login. */
+  private readonly writeAccessCache = new Map<string, { at: number; value: boolean }>();
   /** Own-write generations guard in-flight reads; content keys validate cached data. */
   private issuesCache: GithubCacheEntry<Issue[]> | null = null;
   private issuesInflight: Promise<Issue[]> | null = null;
@@ -2494,6 +2502,7 @@ export class GithubForge implements GitForge {
       runningChecks: running.length ? running : undefined,
       jobs: jobs.length ? jobs : undefined,
       headSha: pr.headRefOid,
+      updatedAt: pr.updatedAt,
       baseRefName: pr.baseRefName,
       latestReview: latestHumanReview(pr.reviews),
       reviewerStates: reviewerStatesFromReviews(pr.reviews),
@@ -2590,6 +2599,7 @@ export class GithubForge implements GitForge {
       isDraft: pr.draft ?? false,
       checks,
       headSha: pr.head?.sha,
+      updatedAt: pr.updated_at,
       baseRefName: pr.base?.ref ?? undefined,
       requestedReviewers: (pr.requested_reviewers ?? [])
         .map((r) => r.login ?? undefined)
@@ -2833,7 +2843,7 @@ export class GithubForge implements GitForge {
         "--state",
         "all",
         "--json",
-        "number,url,title,state,author,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
+        "number,url,title,state,author,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner,updatedAt",
         "--limit",
         this.forkOwner ? "30" : "1",
       ]);
@@ -3206,6 +3216,49 @@ export class GithubForge implements GitForge {
     } finally {
       this.invalidatePrs();
     }
+  }
+
+  /** One GraphQL read of the PR's reviews, review threads and conversation comments (#4126).
+   *  Throws under the GraphQL backoff and on a host error; the caller retries on its next trigger. */
+  async listPrFeedback(prNumber: number): Promise<PrFeedback> {
+    if (graphRateLimit.blocked()) throw new Error("graphql rate limit backoff");
+    const [owner, name] = this.slug.split("/");
+    const out = await this.run([
+      "api",
+      "graphql",
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `name=${name}`,
+      "-F",
+      `number=${prNumber}`,
+      "-f",
+      `query=${withRateLimit(PR_FEEDBACK_QUERY)}`,
+    ]);
+    return parsePrFeedback(out);
+  }
+
+  /** `login` holds admin or write on the repo (GitHub reports maintain as write, triage as read).
+   *  Fails closed: a 404 caches false, any other error answers false uncached. */
+  async hasWriteAccess(login: string): Promise<boolean> {
+    const key = login.toLowerCase();
+    const hit = this.writeAccessCache.get(key);
+    if (hit && Date.now() - hit.at < WRITE_ACCESS_TTL_MS) return hit.value;
+    let value: boolean;
+    try {
+      const out = await this.run(
+        this.restGetArgs(
+          `repos/${this.slug}/collaborators/${encodeURIComponent(login)}/permission`,
+        ),
+      );
+      const { permission } = JSON.parse(out || "{}") as { permission?: string };
+      value = permission === "admin" || permission === "write";
+    } catch (err) {
+      if (!isGhNotFound(err)) return false;
+      value = false;
+    }
+    this.writeAccessCache.set(key, { at: Date.now(), value });
+    return value;
   }
 
   async openPr(o: OpenPrInput): Promise<PrStatus> {

@@ -345,6 +345,7 @@ const FLAT_OPTIONAL_GIT_FIELDS = {
   runningChecks: isStringArray,
   jobs: isWorkflowJobArray,
   headSha: (value: unknown) => typeof value === "string",
+  updatedAt: (value: unknown) => typeof value === "string",
   requestedReviewers: isStringArray,
   isDraft: (value: unknown) => typeof value === "boolean",
   isFork: (value: unknown) => typeof value === "boolean",

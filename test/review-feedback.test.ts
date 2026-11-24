@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { EventHub } from "../src/events";
 import type { GitForge, GitState, PrFeedback, PrFeedbackItem } from "../src/forge/types";
-import { STEER_QUIET_MS, type ReviewFeedbackMode } from "../src/review-feedback-core";
+import {
+  MAX_STEER_ITEMS,
+  STEER_QUIET_MS,
+  type ReviewFeedbackMode,
+} from "../src/review-feedback-core";
 import {
   FETCH_MIN_GAP_MS,
   ReviewFeedbackService,
@@ -413,4 +417,17 @@ test("an allowlisted bot counts without a write check", async () => {
   expect(h.writeChecks).toEqual([]);
   expect(h.sent).toHaveLength(1);
   expect(h.sent[0]).toContain("@coderabbitai[bot] (bot)");
+});
+
+test("a steer carries at most MAX_STEER_ITEMS; the overflow stays pending for the next one", async () => {
+  const h = harness();
+  for (let i = 1; i <= MAX_STEER_ITEMS + 5; i++)
+    h.feedback.items.push(
+      h.item({ id: `ic:${i}`, kind: "ic", reviewState: undefined, body: `c${i}` }),
+    );
+  h.pushGit("u1");
+  await settle();
+  expect(h.sent).toHaveLength(1);
+  expect(h.sent[0]).not.toContain("more — see the PR");
+  expect(h.pending()).toHaveLength(5);
 });

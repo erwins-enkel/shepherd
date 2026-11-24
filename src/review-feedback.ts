@@ -10,6 +10,7 @@ import type { GitForge, GitState, PrFeedbackItem } from "./forge/types";
 import { steerable } from "./ci-steer";
 import {
   AUTO_WINDOW_MS,
+  MAX_STEER_ITEMS,
   REVIEW_FEEDBACK_PRESET_BOTS,
   autoSendAllowed,
   buildReviewFeedbackSteer,
@@ -350,9 +351,11 @@ export class ReviewFeedbackService {
   ): Promise<boolean> {
     if (this.#flushing.has(id)) return false;
     this.#flushing.add(id);
+    // Only what the steer shows is marked sent; overflow stays pending for the next one.
+    const batch = items.slice(0, MAX_STEER_ITEMS);
     let sent = false;
     try {
-      sent = await this.#deps.reply(id, buildReviewFeedbackSteer(prNumber, items));
+      sent = await this.#deps.reply(id, buildReviewFeedbackSteer(prNumber, batch));
     } catch (err) {
       console.warn(`[review-feedback] steer for ${id}:`, err);
     } finally {
@@ -361,7 +364,7 @@ export class ReviewFeedbackService {
     if (!sent) return false;
     this.#deps.store.markReviewFeedbackSent(
       id,
-      items.map((i) => i.id),
+      batch.map((i) => i.id),
       by,
       this.#now(),
     );

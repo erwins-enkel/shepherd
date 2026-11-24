@@ -97,7 +97,8 @@ export function steerConsumed(
 }
 
 const MAX_BODY_CHARS = 4000;
-const MAX_STEER_ITEMS = 20;
+/** Items one steer carries; the rest stay pending for the next one. */
+export const MAX_STEER_ITEMS = 20;
 const FENCE_LABEL = "review comment";
 
 const REVIEW_STATE_LABEL: Record<NonNullable<PrFeedbackItem["reviewState"]>, string> = {

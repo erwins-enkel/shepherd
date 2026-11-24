@@ -290,3 +290,12 @@ describe("misrouted-target copy (#3245)", () => {
     expect(renderHold(hold, "de")).toContain("org/B");
   });
 });
+
+describe("gh-permission-request copy (#4119)", () => {
+  it("names the permission in EN and DE", () => {
+    expect(
+      renderHold({ code: "gh-permission-request", params: { permission: "workflows" } }, "en"),
+    ).toBe("Asks for the GitHub `workflows` permission to push — grant or deny.");
+    expect(renderHold({ code: "gh-permission-request" }, "de")).toContain("`workflows`");
+  });
+});

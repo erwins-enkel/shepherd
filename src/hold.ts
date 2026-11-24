@@ -67,6 +67,8 @@ const EN: CopyMap = {
   "plan-question": () => "The plan has questions waiting on your answer.",
   "login-request": (p) =>
     p.host ? `Wants you to log in at ${p.host}.` : "Wants you to log in in the Shared Browser.",
+  "gh-permission-request": (p) =>
+    `Asks for the GitHub \`${p.permission ?? "workflows"}\` permission to push — grant or deny.`,
   "critic-rework": (p) =>
     p.findings !== undefined
       ? `Critic requested changes (${p.findings} open) — steered back to the agent.`
@@ -118,6 +120,8 @@ const DE: CopyMap = {
     p.host
       ? `Bittet dich, dich bei ${p.host} anzumelden.`
       : "Bittet dich, dich im Shared Browser anzumelden.",
+  "gh-permission-request": (p) =>
+    `Bittet um die GitHub-Berechtigung \`${p.permission ?? "workflows"}\` zum Pushen — erteilen oder ablehnen.`,
   "critic-rework": (p) =>
     p.findings !== undefined
       ? `Kritiker fordert Änderungen (${p.findings} offen) — zurück zum Agenten gesteuert.`

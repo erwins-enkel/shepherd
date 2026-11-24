@@ -639,9 +639,6 @@ export class GhHostsRefresher {
   }
 }
 
-/** The process-wide refresher (wired into SessionService in index.ts). */
-export const ghHostsRefresher = new GhHostsRefresher();
-
 export interface MembraneGhBinDeps {
   /** Every executable `gh` on Shepherd's PATH, in order; default scans `process.env.PATH`. */
   whichAll?: () => string[];

@@ -2176,6 +2176,7 @@ export type HoldCode =
   | "ready-merge"
   | "manual-steps"
   | "login-request"
+  | "gh-permission-request"
   | "misrouted-target"
   | "epic-run-stopped";
 
@@ -2191,6 +2192,7 @@ export interface HoldParams {
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
   host?: string; // login-request: host of the page the agent wants logged in
+  permission?: string; // gh-permission-request: the opt-in gh permission asked for (#4119)
   target?: string; // misrouted-target: the `owner/name` the ticket targets (#3245)
   epic?: number; // epic-run-stopped: the epic the session is a child of (#2735)
   leadEpic?: number; // epic-run-stopped: the paused epic that leads the repo, when one does

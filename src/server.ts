@@ -188,6 +188,7 @@ import {
   parseMintRequest,
   type VerifiedToken,
 } from "./access-tokens";
+import { isGhOptInPermission } from "./agent-gh-env";
 import {
   instanceIdentity,
   instancePlatform,
@@ -944,6 +945,13 @@ export interface AppDeps {
   >;
   /** Test seam: one `browser_request_login` call's wait window (ms); default LOGIN_WAIT_MS. */
   loginWaitMs?: number;
+  /** gh permission requests (#4119); absent → `gh_request_permission` answers "unavailable". */
+  ghPermissionRequests?: Pick<
+    import("./gh-grant").GhPermissionRequestService,
+    "request" | "wait" | "resolve" | "snapshot" | "get"
+  >;
+  /** Opt-in gh grants (#4119); absent → the grant/revoke routes answer 503. */
+  ghGrants?: Pick<import("./gh-grant").GhGrantService, "grant" | "revoke">;
   /** Operator approvals for the assistant's `ask` actions (audit F08); absent ⇒ those refuse. */
   actionRequests?: Pick<
     import("./action-request").ActionRequestService,
@@ -9692,6 +9700,75 @@ async function handleSessionLoginRequest({ req, parts, deps }: Ctx): Promise<Res
   return json({ ok: true });
 }
 
+// GET /api/gh-permission-requests — every open gh permission request (#4119), keyed by session id
+// (bootstrap).
+function handleGhPermissionRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
+  if (
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "gh-permission-requests" &&
+    !parts[2]
+  ) {
+    return json(tokenMap(token, deps, deps.ghPermissionRequests?.snapshot() ?? {}));
+  }
+  return null;
+}
+
+/** Who answered: the cookie operator, or the access token (by name) a client used. */
+function grantActor(deps: AppDeps, token: VerifiedToken | null | undefined): string {
+  if (!token) return "operator";
+  const name = accessTokens(deps)
+    .list()
+    .find((t) => t.id === token.id)?.name;
+  return `token:${name ?? token.id}`;
+}
+
+// POST /api/sessions/:id/gh-permission-request {outcome: "granted"|"denied"} — the operator answers
+// a session's gh permission request (#4119). Operator app only: deliberately NOT an
+// AGENT_LEAF_ROUTES leaf, so an agent can never grant itself. A grant that cannot be applied
+// (the App installation lacks the permission, a mint failure) answers 409/502 with `code` and
+// leaves the request open.
+async function handleSessionGhPermissionRequest({
+  req,
+  parts,
+  deps,
+  token,
+}: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "gh-permission-request"))
+    return null;
+  const id = parts[2];
+  if (!id || parts[4] || req.method !== "POST") return null;
+  const body = ((await readJsonBody(req)) ?? {}) as { outcome?: unknown };
+  if (body.outcome !== "granted" && body.outcome !== "denied")
+    return json({ error: "outcome must be granted or denied" }, 400);
+  const request = deps.ghPermissionRequests?.get(id);
+  if (!request || !deps.ghGrants) return json({ error: "no open gh permission request" }, 404);
+  if (body.outcome === "denied") {
+    deps.ghPermissionRequests?.resolve(id, "denied");
+    return json({ ok: true });
+  }
+  const r = await deps.ghGrants.grant(id, request.permission, grantActor(deps, token));
+  return r.ok ? json({ ok: true }) : json({ error: r.error, code: r.code }, r.status);
+}
+
+// DELETE /api/sessions/:id/gh-grants/:permission — revoke an opt-in gh grant (#4119). The session's
+// membrane gets a default token back and its widened token is revoked at GitHub.
+async function handleSessionGhGrantRevoke({
+  req,
+  parts,
+  deps,
+  token,
+}: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "gh-grants")) return null;
+  const id = parts[2];
+  const permission = parts[4];
+  if (!id || !permission || parts[5] || req.method !== "DELETE") return null;
+  if (!isGhOptInPermission(permission)) return json({ error: "unknown permission" }, 400);
+  if (!deps.ghGrants) return json({ error: "gh grants unavailable" }, 503);
+  const r = await deps.ghGrants.revoke(id, permission, grantActor(deps, token));
+  return r.ok ? json({ ok: true }) : json({ error: r.error, code: r.code }, r.status);
+}
+
 // GET /api/action-requests — every open Action Request (audit F08), keyed by assistant session id
 // (bootstrap). A repo-restricted token sees none: no assistant lives in a repo.
 function handleActionRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
@@ -15749,8 +15826,11 @@ const ROUTE_HANDLERS = [
   handleAssistantViewHook,
   handleSessionMcp,
   handleSessionLoginRequest,
+  handleSessionGhPermissionRequest,
+  handleSessionGhGrantRevoke,
   handleSessionActionRequest,
   handleLoginRequestsSnapshot,
+  handleGhPermissionRequestsSnapshot,
   handleActionRequestsSnapshot,
   handleOperatorAssistant,
   handleBuildQueue,

@@ -16,6 +16,9 @@ import { watchBatteryPauseNotice } from "./battery-pause-notice";
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
 import { LoginRequestService } from "./login-request";
+import { GhGrantService, GhPermissionRequestService } from "./gh-grant";
+import { agentGhAppTokenFromEnv } from "./agent-gh-app";
+import { agentGhAppConfigured } from "./agent-gh-env";
 import { BrowserTokenSigner, loadOrCreateBrowserBrokerKey } from "./browser-token";
 import { ActionRequestService } from "./action-request";
 import { CodexResetCoordinator } from "./codex-reset";
@@ -242,7 +245,7 @@ import { FIRST_PASS_RANGE } from "./maintain-core";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import {
-  ghHostsRefresher,
+  GhHostsRefresher,
   prepareMembraneClaudeState,
   prepareMembraneGhHosts,
   prepareMembraneMiseConfig,
@@ -1064,6 +1067,20 @@ const sharedBrowser = new SharedBrowserManager({
 });
 // Login Requests (#2882): an agent's ask for a Handoff Login, held until the operator answers.
 const loginRequests = new LoginRequestService({ events });
+// #4119: opt-in gh permission grants. The refresher mints each live membrane's App token widened
+// by that session's grants; the grant service shares the same token source (minter + caches).
+const ghHostsRefresher = new GhHostsRefresher({
+  grants: (id) => store.get(id)?.ghGrants?.map((g) => g.permission) ?? [],
+});
+const ghPermissionRequests = new GhPermissionRequestService({ events });
+const ghGrants = new GhGrantService({
+  store,
+  events,
+  requests: ghPermissionRequests,
+  source: agentGhAppTokenFromEnv,
+  refresher: ghHostsRefresher,
+  appModeConfigured: () => agentGhAppConfigured(),
+});
 // Action Requests (audit F08): the assistant's `ask` actions, held until the operator approves.
 const actionRequests = new ActionRequestService({ events });
 // Browser Attach token signer. A broken key file disables Browser Attach (no env injected, every
@@ -1142,6 +1159,7 @@ const service = new SessionService({
   prepareMembraneMiseConfig,
   prepareMembraneGhHosts,
   ghHostsRefresh: ghHostsRefresher,
+  ghGrants,
   prepareScratchpadBind: sandboxScratchpadBind,
   resolveMembraneGhBin: () => resolveMembraneGhBin(),
   readCodexAuthMode,
@@ -4604,6 +4622,8 @@ const appDeps: AppDeps = {
   sharedBrowser,
   netnsDevForward,
   loginRequests,
+  ghPermissionRequests,
+  ghGrants,
   actionRequests,
   browserToken,
   assistantIngress,

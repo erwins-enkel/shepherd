@@ -749,6 +749,17 @@ test("an open login request is a Tier-1 signal with a login-request hold naming 
   });
 });
 
+test("an open gh permission request is a Tier-1 gh-permission-request hold (#4119)", () => {
+  const caches: ClassifyCaches = { ghPermissionRequest: { permission: "workflows" } };
+  const { tier, signals } = classifyAttention(session({ status: "running" }), caches, NOW);
+  expect(tier).toBe(1);
+  expect(signals).toContain("gh-permission-request");
+  expect(explainHold(session({ status: "running" }), caches, NOW)).toEqual({
+    code: "gh-permission-request",
+    params: { permission: "workflows" },
+  });
+});
+
 test("a live PTY block outranks the login request as the primary hold", () => {
   const block: BlockReason = { shape: "yes-no", options: [], tail: [] };
   const hold = explainHold(

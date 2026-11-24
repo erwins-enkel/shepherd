@@ -551,7 +551,7 @@ export interface ServiceDeps {
   prepareMembraneGhHosts?: (i: MembraneGhInputs) => Promise<string | null>;
   /** Keep a live task membrane's gh `hosts.yml` carrying a fresh GitHub App token (App mode only;
    *  installation tokens last 1 h): started after a spawn that bound one, stopped at teardown,
-   *  resumed at boot. Absent ⇒ none. Wired to `ghHostsRefresher` in index.ts. */
+   *  resumed at boot. Absent ⇒ none. Wired to the `GhHostsRefresher` built in index.ts. */
   ghHostsRefresh?: Pick<GhHostsRefresher, "start" | "stop">;
   /** Ends a session's opt-in gh grants at archive (#4119). Absent ⇒ none. Wired to
    *  `GhGrantService` in index.ts. */

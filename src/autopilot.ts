@@ -465,9 +465,6 @@ export class AutopilotService {
     this.deps.store.setAutopilotState(s.id, { stepCount: s.autopilotStepCount + 1 });
   }
 
-  /** Empty-completion handler (#1009): the session reported complete with no diff and no PR. Re-prompt
-   *  the agent exactly once (bounded by the persisted completionRepromptCount), then hand it to a
-   *  human rather than silently filing it as done. */
   /** Accept (or gate) a `complete` verdict. Pre-completion verification gate (#1009): for a
    *  DRAIN/auto session with no PR, verify deterministically (no LLM) that something happened — a
    *  committed diff — before marking done; on empty, re-prompt once then route to needs-human.
@@ -496,6 +493,9 @@ export class AutopilotService {
     this.markComplete(s, summary);
   }
 
+  /** Empty-completion handler (#1009): the session reported complete with no diff and no PR. Re-prompt
+   *  the agent exactly once (bounded by the persisted completionRepromptCount), then hand it to a
+   *  human rather than silently filing it as done. */
   private async handleEmptyCompletion(s: Session): Promise<void> {
     if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     if (s.completionRepromptCount >= 1) {

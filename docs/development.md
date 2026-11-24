@@ -52,6 +52,20 @@ one of three treatments: log it, propagate it, or mark a deliberate swallow with
 `best-effort: <why>` comment (colon + reason) inside the block or call, trailing on its line, or on
 its own line directly above `.catch`.
 
+### Detached JSDoc (`shepherd/no-detached-jsdoc`)
+
+Only the last `/** … */` block above a declaration attaches to it, so a JSDoc block directly
+followed by another one (only spaces and at most one newline between them) documents nothing. It
+is usually a doc left behind when its function moved. The rule rejects it: move the block to its
+owner, merge the two, or delete it. A blank line between the blocks exempts them, which keeps
+module and section headers legal. `jsdoc/check-param-names` (from `eslint-plugin-jsdoc`) also
+rejects a `@param` that names no real parameter. Partial `@param` lists are fine.
+
+Both rules apply to everything the root `bun run lint` covers. Existing detached blocks in files
+under parallel cleanup are recorded in `eslint-suppressions.json`. ESLint fails on a suppression
+that no longer matches a violation, so after fixing a suppressed hit run
+`bun run lint -- --prune-suppressions` and commit the smaller file. Never add entries by hand.
+
 ## Project layout
 
 ```

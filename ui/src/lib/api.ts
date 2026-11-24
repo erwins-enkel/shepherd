@@ -1130,12 +1130,12 @@ export const putMachinePlatformOrder = (
   order: string[],
 ): Promise<{ machinePlatformOrder: string[] }> => patchSettings({ machinePlatformOrder: order });
 
-/** The operator's House Stack (#3108); the server validates and normalizes it. */
 /** Partial default issue filter (#3017), merged onto the stored value server-side. */
 export const putIssueFilter = (
   issueFilter: Partial<IssueFilterSettings>,
 ): Promise<{ issueFilter: IssueFilterSettings }> => patchSettings({ issueFilter });
 
+/** The operator's House Stack (#3108); the server validates and normalizes it. */
 export const putHouseStack = (houseStack: HouseStack): Promise<{ houseStack: HouseStack }> =>
   patchSettings({ houseStack });
 

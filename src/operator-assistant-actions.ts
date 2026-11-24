@@ -356,14 +356,14 @@ function runDefaultsRefusal(
   return null;
 }
 
-/** A run-now's answer: its outcome, the started session's desig (never its id) and the reason,
- *  redacted and clipped — it can carry a launch error. */
 /** A re-review's answer: whether the critic run started, was skipped or failed to start. */
 function reviewAnswer(body: unknown): Record<string, unknown> {
   const status = record(body).status;
   return typeof status === "string" ? { status } : {};
 }
 
+/** A run-now's answer: its outcome, the started session's desig (never its id) and the reason,
+ *  redacted and clipped — it can carry a launch error. */
 function runAnswer(body: unknown, resolve: Resolve): Record<string, unknown> {
   const b = record(body);
   const desig = typeof b.sessionId === "string" ? resolve.desig(b.sessionId) : null;

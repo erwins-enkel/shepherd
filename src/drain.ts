@@ -827,6 +827,8 @@ export class DrainService {
   private claimDecidedAt = new Map<string, number>();
   // #3016: repos whose last emitted status listed an open remote settle (see owesSettlePicture).
   private settleShown = new Set<string>();
+  /** #3245: (repoPath#issue) keys already reported as naming an unregistered target repo. */
+  private unregisteredTargetSignaled = new Set<string>();
   /** #790: `${repoPath}#${issueNumber}` → last spawn failure; throttles re-spawn of an issue whose
    *  create() keeps throwing. Cleared on a successful spawn. In-memory.
    *
@@ -835,8 +837,6 @@ export class DrainService {
    *  `epic_base_unavailable` hold from that, applying the cooldown freshness test ITSELF: the lazy
    *  expiry delete lives inside doSpawn (below), which the hold PREVENTS from running — so a
    *  membership-only check would latch the hold forever instead of letting it lapse and retry. */
-  /** #3245: (repoPath#issue) keys already reported as naming an unregistered target repo. */
-  private unregisteredTargetSignaled = new Set<string>();
   private spawnFailures = new Map<string, { at: number; epicBase?: string }>();
   private approvedNext = new Set<string>();
   /** What the clients last saw per repo: a leading or winding-down epic (`live`), an epic child
@@ -896,6 +896,11 @@ export class DrainService {
     this.approvedNext.add(repoPath);
   }
 
+  /** The global default profile (#2100) through this service's backend seam, so a test's injected
+   *  backend decides the built-in standard-vs-trusted fallback too. */
+  private readonly defaultProfile = (): SandboxProfile =>
+    defaultSandboxProfile(() => this.detectBackend());
+
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-check
    *  (not `?? real()`) since the seam legitimately returns null.
    *
@@ -904,11 +909,6 @@ export class DrainService {
    *  while `config.nodeBin` honours it — so on a host that sets it the self-test would run against a
    *  different node than every real spawn. The verdict is pinned for the whole process, and `null`
    *  means RUN UNCONFINED, so whichever caller probes first must get this right. */
-  /** The global default profile (#2100) through this service's backend seam, so a test's injected
-   *  backend decides the built-in standard-vs-trusted fallback too. */
-  private readonly defaultProfile = (): SandboxProfile =>
-    defaultSandboxProfile(() => this.detectBackend());
-
   private detectBackend(): SandboxBackend {
     if (this.deps.detectBackend) return this.deps.detectBackend();
     return detectBackend({

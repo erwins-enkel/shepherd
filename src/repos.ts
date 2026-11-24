@@ -677,6 +677,8 @@ function localFailureDetail(e: unknown): string {
  * Pre-commit failures clean up the half-created directory.
  * Remote failures never clean up — the local repo is kept.
  *
+ * @param input - The new project's name, idea, remote toggle, visibility and optional owner.
+ * @param repoRoot - Parent directory the project is created under (`~` is expanded).
  * @param ghRunner - Injectable async runner for `gh` CLI calls (default: promisified execFile + 60s timeout).
  * @param _identityCheck - Injectable identity checker; defaults to `gitIdentityPresent()`. Exposed for tests
  *   because Bun's process.env mutations don't propagate to child processes in the same way Node does.

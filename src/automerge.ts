@@ -496,7 +496,6 @@ export class AutoMergeService {
     }
   }
 
-  /** Drop migration-probe entries for sessions no longer live, so the cache stays bounded. */
   /** Whether a CI repo's open PR has sat at `checks:"none"` on its current head for
    *  CHECKS_ABSENT_MS while GitHub calls it `clean` (#3221). Stamps the first sighting. */
   private checksAbsent(id: string, pr: ReturnType<typeof AutoMergeService.prFields>): boolean {
@@ -513,6 +512,7 @@ export class AutoMergeService {
     return pr.mergeStateStatus === "clean" && this.now() - seen.since >= CHECKS_ABSENT_MS;
   }
 
+  /** Drop migration-probe entries for sessions no longer live, so the cache stays bounded. */
   private pruneMigrationsCache(live: Session[]): void {
     if (this.migrationsCache.size === 0) return;
     const ids = new Set(live.filter((s) => s.status !== "archived").map((s) => s.id));

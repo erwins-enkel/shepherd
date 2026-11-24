@@ -8,6 +8,7 @@
  * freshness, the missing-requirement verdict, the coordinator's view of a machine's report and the
  * platform release gate. The host-touching probes live in `capability-probe.ts`.
  */
+
 /** Bump when an entry is renamed or its meaning changes; adding an entry needs no bump. */
 export const CAPABILITY_VOCABULARY_VERSION = 1;
 

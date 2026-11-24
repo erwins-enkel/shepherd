@@ -27,15 +27,15 @@ export function shapeBlocker(i: ShapeAvailability): ShapeBlocker | null {
 export const SHAPE_ERRORS = ["empty-prompt", "spawn-failed", "timeout", "unavailable"] as const;
 export type ShapeErrorKey = (typeof SHAPE_ERRORS)[number];
 
+/** Everything the round can fail at, from the operator's side: the server's slugs plus "compose" —
+ *  the brief step, which runs after the questions are answered and has its own copy. */
+export type ShapeFailure = ShapeErrorKey | "compose";
+
 /**
  * Map a server error slug to the key half of its message. Unknown slugs (a newer server, a proxy
  * error page) collapse to "timeout" — the round produced nothing either way, and a generic
  * "something went wrong" would tell the operator less than "it didn't finish in time".
  */
-/** Everything the round can fail at, from the operator's side: the server's slugs plus "compose" —
- *  the brief step, which runs after the questions are answered and has its own copy. */
-export type ShapeFailure = ShapeErrorKey | "compose";
-
 export function shapeErrorKey(error: string): ShapeErrorKey {
   return (SHAPE_ERRORS as readonly string[]).includes(error) ? (error as ShapeErrorKey) : "timeout";
 }

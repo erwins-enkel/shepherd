@@ -165,7 +165,6 @@ export interface ReadinessRow {
 
 const READINESS_LOOKUP_CHUNK = 500;
 
-/** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 /** Deep copy of `v` with every string passed through {@link redactKnownSecretValues} (#4122) —
  *  for agent-authored JSON (recap open items / blocks, plan edits) before it is persisted. */
 function redactStringsDeep<T>(v: T): T {
@@ -184,6 +183,7 @@ function redactStringsDeep<T>(v: T): T {
   return v;
 }
 
+/** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (typeof raw !== "string" || raw === "") return fallback;
   try {
@@ -962,7 +962,6 @@ function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapP
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
-/** SQLite row shape for the sessions table (INTEGER booleans, JSON strings). */
 /** SQLite row shape for the schedules table (#3469). */
 type ScheduleRow = {
   id: string;
@@ -981,6 +980,7 @@ type ScheduleRow = {
   updatedAt: number;
 };
 
+/** SQLite row shape for the sessions table (INTEGER booleans, JSON strings). */
 type SessionRow = {
   id: string;
   scheduleId: string | null;
@@ -2796,9 +2796,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** Dispatches not settled for good, oldest first: the ones no machine has confirmed yet (#2774:
-   *  `sending`, `unknown`, `canceling`), the ones waiting here for their machine and the ones held
-   *  there (#2775: `waiting`, `held`). What the reconciler follows up and the herd shows. */
   /** Spawns the drain sent to other machines for `project` (client keys `drain/…`, see
    *  src/drain-remote.ts) that may still be on their way or running there, updated since `since`;
    *  newest first. */
@@ -2813,6 +2810,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .all(project, since) as RemoteDispatchRow[];
   }
 
+  /** Dispatches not settled for good, oldest first: the ones no machine has confirmed yet (#2774:
+   *  `sending`, `unknown`, `canceling`), the ones waiting here for their machine and the ones held
+   *  there (#2775: `waiting`, `held`). What the reconciler follows up and the herd shows. */
   listOpenRemoteDispatches(): RemoteDispatchRow[] {
     return this.db
       .query(

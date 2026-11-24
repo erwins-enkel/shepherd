@@ -1367,6 +1367,15 @@ export interface EgressSuggestion {
   sources: string[];
 }
 
+/** A repo's agent secret (#4122) as the server lists it: the name and timestamps, never the value. */
+export interface RepoSecret {
+  name: string;
+  /** Epoch ms of the last save. */
+  updatedAt: number;
+  /** Epoch ms a task agent last received it; null = never. */
+  lastInjectedAt: number | null;
+}
+
 export type EgressIncludeStandard = "inherit" | "on" | "off";
 
 export interface RepoConfig {

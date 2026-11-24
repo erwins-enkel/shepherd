@@ -505,6 +505,21 @@ export function egressExtraHostsExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings › Agent › Agent secrets (#4122): who gets them, where they're readable, what to
+ *  store, when a change applies. */
+export function agentSecretsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_agent_secrets_title(),
+    summary: m.tooltip_agent_secrets_summary(),
+    sections: [
+      { label: m.tooltip_agent_secrets_who(), text: m.tooltip_agent_secrets_who_body() },
+      { label: m.tooltip_agent_secrets_where(), text: m.tooltip_agent_secrets_where_body() },
+      { label: m.tooltip_agent_secrets_advice(), text: m.tooltip_agent_secrets_advice_body() },
+      { label: m.tooltip_agent_secrets_when(), text: m.tooltip_agent_secrets_when_body() },
+    ],
+  };
+}
+
 /** Settings › Session › Standard allowed hosts: what the list is, who gets it, when it applies. */
 export function egressStandardHostsExplanation(): TooltipExplanation {
   return {

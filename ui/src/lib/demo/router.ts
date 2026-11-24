@@ -298,6 +298,9 @@ const repoLensGetRoutes: Record<string, GetHandler> = {
   "/api/repo-egress-blocks": () => json({ hosts: [] }),
   // …and no repo checkout to read lockfiles from (#3927).
   "/api/repo-egress-suggestions": () => json({ hosts: [] }),
+  // The demo spawns no agents, so no repo holds agent secrets (#4122). Saving one lands on the
+  // permissive tail; the list stays empty.
+  "/api/repo-secrets": () => json({ secrets: [] }),
   "/api/drain/queue": (url) => json(demoState.drainQueue(repoParam(url))),
   "/api/doc-agent/runs": (url) => json(demoState.docAgentRuns(repoParam(url))),
 };

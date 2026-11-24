@@ -30,6 +30,7 @@
   import AgentExtensions from "../automation-settings/AgentExtensions.svelte";
   import EgressBlockedHosts from "./EgressBlockedHosts.svelte";
   import EgressSuggestedHosts from "./EgressSuggestedHosts.svelte";
+  import AgentSecrets from "./AgentSecrets.svelte";
   import { drainSandboxHeld } from "./drain-hold";
   import "../automation-settings/automation-fields.css";
 
@@ -235,6 +236,8 @@
   {#if autonomous}
     <EgressSuggestedHosts {repoPath} />
   {/if}
+  <!-- Agent secrets (#4122) are machine-local, like the blocked hosts above. -->
+  <AgentSecrets {repoPath} {autonomous} coach={armCoachmarks ? "agent-secrets" : ""} />
 {/if}
 
 <RepoSettingRow
@@ -252,8 +255,10 @@
         class="bs-btn browser-open"
         type="button"
         disabled={openingBrowser}
-        onclick={openSharedBrowser}>{m.automation_shared_browser_open()}</button
+        onclick={openSharedBrowser}
       >
+        {m.automation_shared_browser_open()}
+      </button>
     {/if}
   {/snippet}
 </RepoSettingRow>

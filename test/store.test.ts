@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
 import { renderHouseStackRules } from "../src/house-stack";
+import { REVIEW_FEEDBACK_PRESET_BOTS } from "../src/review-feedback-core";
 import { isEpicChild } from "../src/epic-branch";
 import type {
   CriticFinding,
@@ -398,6 +399,8 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewOpenMode: "ask",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -476,6 +479,8 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewOpenMode: "tab",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -554,6 +559,8 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewOpenMode: "ask",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
   });
 });
 

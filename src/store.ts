@@ -107,7 +107,8 @@ import type { EpicLandingState, EpicOutcome } from "./completed-epic";
 import type { LandingManualStep } from "./epic-landing";
 import { epicParentFromBranch } from "./epic-branch";
 import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
-import type { GitState, WorkflowJob } from "./forge/types";
+import type { GitState, PrFeedbackItem, WorkflowJob } from "./forge/types";
+import { REVIEW_FEEDBACK_PRESET_BOTS, type ReviewFeedbackMode } from "./review-feedback-core";
 import type {
   Schedule,
   ScheduleInput,
@@ -767,6 +768,12 @@ export interface RepoConfig {
   /** #3780: personal (~/.claude/skills) skill names this repo's non-drain Claude spawns keep;
    *  every other personal skill is switched off. `null`/absent (default) → skills untouched. */
   skillAllowlist?: string[] | null;
+  /** #4126: how PR review feedback reaches the task agent. Optional so full-config literals stay
+   *  valid; reads always fill it (default "autopilot"). Omitted on a write → unchanged. */
+  reviewFeedbackMode?: ReviewFeedbackMode;
+  /** #4126: review-bot logins whose feedback counts without a write check. Reads always fill it
+   *  (default: the preset). Omitted on a write → unchanged. */
+  reviewFeedbackBots?: string[];
 }
 
 /** A repo's own coding CLI, default model, effort and execution effort (#3447), as stored —
@@ -1187,6 +1194,59 @@ type PrReviewRow = {
   updatedAt: number;
 };
 
+// ── review_feedback (#4126) ───────────────────────────────────────────────────
+
+/** Settings key: when the review-feedback table first existed. Feedback older than this is primed. */
+const REVIEW_FEEDBACK_ACTIVATED_KEY = "reviewFeedbackActivatedAt";
+
+export type ReviewFeedbackStatus = "pending" | "sent" | "dismissed" | "primed";
+
+/** One stored feedback item plus its delivery state. */
+export interface ReviewFeedbackRow extends PrFeedbackItem {
+  status: ReviewFeedbackStatus;
+  sentAt: number | null;
+  sentBy: "auto" | "operator" | null;
+}
+
+type ReviewFeedbackDbRow = {
+  itemId: string;
+  kind: string;
+  author: string;
+  isBot: number;
+  reviewState: string | null;
+  path: string | null;
+  line: number | null;
+  parentReviewId: string | null;
+  body: string;
+  createdAt: number;
+  status: string;
+  sentAt: number | null;
+  sentBy: string | null;
+};
+
+const REVIEW_FEEDBACK_COLS = `itemId, kind, author, isBot, reviewState, path, line,
+  parentReviewId, body, createdAt, status, sentAt, sentBy`;
+
+/** Optional item fields are present only when stored, matching the forge's shape. */
+function reviewFeedbackFromRow(r: ReviewFeedbackDbRow): ReviewFeedbackRow {
+  const row: ReviewFeedbackRow = {
+    id: r.itemId,
+    kind: r.kind as PrFeedbackItem["kind"],
+    author: r.author,
+    isBot: !!r.isBot,
+    body: r.body,
+    createdAt: r.createdAt,
+    status: r.status as ReviewFeedbackStatus,
+    sentAt: r.sentAt,
+    sentBy: r.sentBy as ReviewFeedbackRow["sentBy"],
+  };
+  if (r.reviewState) row.reviewState = r.reviewState as PrFeedbackItem["reviewState"];
+  if (r.path !== null) row.path = r.path;
+  if (r.kind === "rc") row.line = r.line;
+  if (r.parentReviewId) row.parentReviewId = r.parentReviewId;
+  return row;
+}
+
 // ── repo_config row type + helpers ────────────────────────────────────────────
 
 type RepoCfgRow = {
@@ -1228,6 +1288,8 @@ type RepoCfgRow = {
   previewOpenMode: string;
   pluginAllowlist: string | null;
   skillAllowlist: string | null;
+  reviewFeedbackMode: string;
+  reviewFeedbackBots: string | null;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -1435,6 +1497,26 @@ function nullableStringListJson(list: string[] | null | undefined): string | nul
   return list ? JSON.stringify(list) : null;
 }
 
+const REVIEW_FEEDBACK_MODES: readonly ReviewFeedbackMode[] = [
+  "off",
+  "manual",
+  "autopilot",
+  "always",
+];
+
+function normalizeReviewFeedbackMode(raw: string | null | undefined): ReviewFeedbackMode {
+  return REVIEW_FEEDBACK_MODES.find((m) => m === raw) ?? "autopilot";
+}
+
+/** NULL when the list is the preset, so a later preset change still reaches the repo. */
+function reviewFeedbackBotsJson(bots: string[] | undefined): string | null {
+  if (!bots) return null;
+  const preset =
+    bots.length === REVIEW_FEEDBACK_PRESET_BOTS.length &&
+    bots.every((b, i) => b === REVIEW_FEEDBACK_PRESET_BOTS[i]);
+  return preset ? null : JSON.stringify(bots);
+}
+
 function normalizePreviewOpenMode(raw: string | null | undefined): RepoConfig["previewOpenMode"] {
   return raw === "inline" || raw === "tab" || raw === "ask" ? raw : "ask";
 }
@@ -1475,6 +1557,8 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       previewOpenMode: "ask",
       pluginAllowlist: null,
       skillAllowlist: null,
+      reviewFeedbackMode: "autopilot",
+      reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     };
   }
   return {
@@ -1520,6 +1604,10 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     previewOpenMode: normalizePreviewOpenMode(r.previewOpenMode),
     pluginAllowlist: parseNullableStringListJson(r.pluginAllowlist),
     skillAllowlist: parseNullableStringListJson(r.skillAllowlist),
+    reviewFeedbackMode: normalizeReviewFeedbackMode(r.reviewFeedbackMode),
+    reviewFeedbackBots: parseNullableStringListJson(r.reviewFeedbackBots) ?? [
+      ...REVIEW_FEEDBACK_PRESET_BOTS,
+    ],
   };
 }
 
@@ -1564,6 +1652,8 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.previewOpenMode,
     nullableStringListJson(cfg.pluginAllowlist),
     nullableStringListJson(cfg.skillAllowlist),
+    cfg.reviewFeedbackMode ?? "autopilot",
+    reviewFeedbackBotsJson(cfg.reviewFeedbackBots),
     Date.now(),
   ];
 }
@@ -2412,6 +2502,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!usageCols.some((c) => c.name === "claudeSessionId")) {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
     }
+    // #4126: PR review feedback ingested per session. The item id is the dedupe key: a restart or
+    // an edited comment never re-sends. `primed` rows predate the cutoff and are never shown.
+    this.db.run(`CREATE TABLE IF NOT EXISTS review_feedback (
+      sessionId TEXT NOT NULL, itemId TEXT NOT NULL, kind TEXT NOT NULL, author TEXT NOT NULL,
+      isBot INTEGER NOT NULL, reviewState TEXT, path TEXT, line INTEGER, parentReviewId TEXT,
+      body TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL,
+      sentAt INTEGER, sentBy TEXT,
+      PRIMARY KEY (sessionId, itemId))`);
+    this.db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, [
+      REVIEW_FEEDBACK_ACTIVATED_KEY,
+      String(Date.now()),
+    ]);
     this.db.run(DISPATCHES_DDL);
     this.db.run(REMOTE_DISPATCHES_DDL);
     this.db.run(HEAVY_SLOT_JOBS_DDL);
@@ -2893,21 +2995,22 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
-                pluginAllowlist, skillAllowlist
+                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
     return repoConfigFromRow(r);
   }
 
-  setRepoConfig(repoPath: string, cfg: RepoConfig): void {
+  setRepoConfig(repoPath: string, input: RepoConfig): void {
+    const cfg = this.withStoredReviewFeedback(repoPath, input);
     this.db.run(
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2946,9 +3049,22 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          previewOpenMode = excluded.previewOpenMode,
          pluginAllowlist = excluded.pluginAllowlist,
          skillAllowlist = excluded.skillAllowlist,
+         reviewFeedbackMode = excluded.reviewFeedbackMode,
+         reviewFeedbackBots = excluded.reviewFeedbackBots,
          updatedAt = excluded.updatedAt`,
       repoConfigParams(repoPath, cfg),
     );
+  }
+
+  /** #4126: a write that omits the review-feedback fields keeps the stored values. */
+  private withStoredReviewFeedback(repoPath: string, cfg: RepoConfig): RepoConfig {
+    if (cfg.reviewFeedbackMode !== undefined && cfg.reviewFeedbackBots !== undefined) return cfg;
+    const stored = this.getLocalRepoConfig(repoPath);
+    return {
+      ...cfg,
+      reviewFeedbackMode: cfg.reviewFeedbackMode ?? stored.reviewFeedbackMode,
+      reviewFeedbackBots: cfg.reviewFeedbackBots ?? stored.reviewFeedbackBots,
+    };
   }
 
   /** repoPaths flagged hidden from the Backlog repos panel — one batch read for the
@@ -5471,6 +5587,128 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`DELETE FROM reviews WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── review feedback (#4126) ──────────────────────────────────────────────
+  /** Stores `item` unless its id is already known for the session (an edit never overwrites).
+   *  Returns whether a row was inserted. */
+  insertReviewFeedbackIfAbsent(
+    sessionId: string,
+    item: PrFeedbackItem,
+    status: "pending" | "primed",
+  ): boolean {
+    const res = this.db.run(
+      `INSERT OR IGNORE INTO review_feedback
+         (sessionId, itemId, kind, author, isBot, reviewState, path, line, parentReviewId, body,
+          createdAt, status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        sessionId,
+        item.id,
+        item.kind,
+        item.author,
+        item.isBot ? 1 : 0,
+        item.reviewState ?? null,
+        item.path ?? null,
+        item.line ?? null,
+        item.parentReviewId ?? null,
+        item.body,
+        item.createdAt,
+        status,
+      ],
+    );
+    return res.changes > 0;
+  }
+
+  knownReviewFeedbackIds(sessionId: string): Set<string> {
+    const rows = this.db
+      .query(`SELECT itemId FROM review_feedback WHERE sessionId = ?`)
+      .all(sessionId) as { itemId: string }[];
+    return new Set(rows.map((r) => r.itemId));
+  }
+
+  /** Pending items for one session, oldest first. */
+  listPendingReviewFeedback(sessionId: string): ReviewFeedbackRow[] {
+    const rows = this.db
+      .query(
+        `SELECT ${REVIEW_FEEDBACK_COLS} FROM review_feedback
+         WHERE sessionId = ? AND status = 'pending' ORDER BY createdAt, itemId`,
+      )
+      .all(sessionId) as ReviewFeedbackDbRow[];
+    return rows.map(reviewFeedbackFromRow);
+  }
+
+  /** Pending items of every session that has any, oldest first per session. */
+  listPendingReviewFeedbackAll(): Map<string, ReviewFeedbackRow[]> {
+    const rows = this.db
+      .query(
+        `SELECT sessionId, ${REVIEW_FEEDBACK_COLS} FROM review_feedback
+         WHERE status = 'pending' ORDER BY sessionId, createdAt, itemId`,
+      )
+      .all() as (ReviewFeedbackDbRow & { sessionId: string })[];
+    const out = new Map<string, ReviewFeedbackRow[]>();
+    for (const r of rows) {
+      const list = out.get(r.sessionId) ?? [];
+      list.push(reviewFeedbackFromRow(r));
+      out.set(r.sessionId, list);
+    }
+    return out;
+  }
+
+  /** Marks the given PENDING items sent; other statuses are left alone. */
+  markReviewFeedbackSent(
+    sessionId: string,
+    itemIds: string[],
+    sentBy: "auto" | "operator",
+    at: number,
+  ): void {
+    this.updatePendingReviewFeedback(sessionId, itemIds, "sent", sentBy, at);
+  }
+
+  /** Marks the given PENDING items dismissed; other statuses are left alone. */
+  markReviewFeedbackDismissed(sessionId: string, itemIds: string[]): void {
+    this.updatePendingReviewFeedback(sessionId, itemIds, "dismissed", null, null);
+  }
+
+  private updatePendingReviewFeedback(
+    sessionId: string,
+    itemIds: string[],
+    status: "sent" | "dismissed",
+    sentBy: "auto" | "operator" | null,
+    at: number | null,
+  ): void {
+    if (itemIds.length === 0) return;
+    const q = this.db.query(
+      `UPDATE review_feedback SET status = ?, sentBy = ?, sentAt = ?
+       WHERE sessionId = ? AND itemId = ? AND status = 'pending'`,
+    );
+    this.db.transaction(() => {
+      for (const itemId of itemIds) q.run(status, sentBy, at, sessionId, itemId);
+    })();
+  }
+
+  /** Distinct `sentAt` stamps of automatic sends at or after `sinceTs`: one per steer. */
+  reviewFeedbackAutoSentSince(sessionId: string, sinceTs: number): number[] {
+    const rows = this.db
+      .query(
+        `SELECT DISTINCT sentAt FROM review_feedback
+         WHERE sessionId = ? AND sentBy = 'auto' AND sentAt >= ? ORDER BY sentAt`,
+      )
+      .all(sessionId, sinceTs) as { sentAt: number }[];
+    return rows.map((r) => r.sentAt);
+  }
+
+  dropReviewFeedback(sessionId: string): void {
+    this.db.run(`DELETE FROM review_feedback WHERE sessionId = ?`, [sessionId]);
+  }
+
+  /** When the feature first ran on this DB (epoch ms), stamped at table creation. */
+  reviewFeedbackActivatedAt(): number {
+    const raw = Number(this.getSetting(REVIEW_FEEDBACK_ACTIVATED_KEY));
+    if (Number.isFinite(raw) && raw > 0) return raw;
+    const now = Date.now();
+    this.setSetting(REVIEW_FEEDBACK_ACTIVATED_KEY, String(now));
+    return now;
+  }
+
   // ── issue workflow log (one stamp per posted issue comment) ───────────────
   hasIssueLog(sessionId: string, key: string): boolean {
     return (
@@ -7897,6 +8135,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #3780: plugin / personal-skill allowlists; JSON string array, NULL = untouched.
     add("pluginAllowlist", `pluginAllowlist TEXT`);
     add("skillAllowlist", `skillAllowlist TEXT`);
+    // #4126: review-feedback steer mode + bot allowlist (JSON string array, NULL = preset).
+    add("reviewFeedbackMode", `reviewFeedbackMode TEXT NOT NULL DEFAULT 'autopilot'`);
+    add("reviewFeedbackBots", `reviewFeedbackBots TEXT`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

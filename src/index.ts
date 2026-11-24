@@ -1389,7 +1389,8 @@ deferredStarts.push(() => {
 // Remove per-repo agent secret dirs of sessions that no longer exist or are archived (a teardown
 // removal missed across a crash/restart). Best-effort, async.
 deferredStarts.push(() => {
-  // Checked per dir at sweep time (not a snapshot), so a session spawned meanwhile keeps its dir.
+  // Checked per dir at sweep time (not a snapshot). A create still in prepareSpawn has a dir but no
+  // row yet — sweepOrphanSecretDirs' mtime grace period keeps it.
   const live = (id: string) => {
     const s = store.get(id);
     return !!s && s.status !== "archived";

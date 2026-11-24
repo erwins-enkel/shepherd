@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,10 +23,21 @@ import {
   secretLauncherSkip,
   sessionSecretDir,
   sweepOrphanSecretDirs,
+  SECRET_DIR_SWEEP_GRACE_MS,
   validateSecretName,
   writeSessionSecretDir,
 } from "../src/agent-secrets";
 import { redactKnownSecretValues, setKnownSecretValues } from "../src/redact";
+
+/** Mode of a file read from an open handle (not path stat-then-read — CodeQL js/file-system-race). */
+async function fileMode(p: string): Promise<number> {
+  const fh = await open(p, "r");
+  try {
+    return (await fh.stat()).mode & 0o777;
+  } finally {
+    await fh.close();
+  }
+}
 
 let dir: string;
 beforeEach(async () => {
@@ -76,7 +97,7 @@ describe("AgentSecretStore", () => {
     expect(await s.set(REPO, "B_TOKEN", "value-b\n")).toEqual({ name: "B_TOKEN", updatedAt: 1000 });
     await s.set(REPO, "A_TOKEN", "value-a");
     await s.set("/other", "C", "value-c");
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(await fileMode(path)).toBe(0o600);
 
     const fresh = new AgentSecretStore(path);
     await fresh.load();
@@ -151,7 +172,7 @@ describe("session secret dir", () => {
     expect(out).toBe(sessionSecretDir(dir, "sess-1"));
     const d = out!;
     expect((await stat(d)).mode & 0o777).toBe(0o700);
-    expect((await stat(join(d, "A"))).mode & 0o777).toBe(0o600);
+    expect(await fileMode(join(d, "A"))).toBe(0o600);
     expect(await readFile(join(d, "B"), "utf8")).toBe("two");
 
     await writeSessionSecretDir(dir, "sess-1", { A: "uno" });
@@ -178,7 +199,11 @@ describe("session secret dir", () => {
     await writeFile(join(dir, "unrelated.json"), "{}");
     await removeSessionSecretDir(dir, "gone2");
     await writeSessionSecretDir(dir, "gone3", { A: "1" });
-    expect(await sweepOrphanSecretDirs(dir, (id) => id === "keep")).toBe(2);
+    // Fresh dirs are in-flight spawns (no session row yet): the default grace keeps them.
+    expect(await sweepOrphanSecretDirs(dir, (id) => id === "keep")).toBe(0);
+    expect((await readdir(dir)).length).toBe(4);
+    const later = () => Date.now() + SECRET_DIR_SWEEP_GRACE_MS + 1000;
+    expect(await sweepOrphanSecretDirs(dir, (id) => id === "keep", { now: later })).toBe(2);
     expect((await readdir(dir)).sort()).toEqual(["keep.secrets", "unrelated.json"]);
     expect(await sweepOrphanSecretDirs(join(dir, "missing"), () => false)).toBe(0);
   });

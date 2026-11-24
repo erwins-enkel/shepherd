@@ -3,7 +3,7 @@
 // when sandboxed), records the names-only audit, and archive removes the dir. Values never ride
 // the argv or the spawn env.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, open, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionService } from "../src/service";
@@ -84,8 +84,14 @@ async function expectSecretDir(id: string): Promise<string> {
   const dir = join(spawnDir, `${id}.secrets`);
   expect((await stat(dir)).mode & 0o777).toBe(0o700);
   const file = join(dir, "PKG_TOKEN");
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
-  expect(await readFile(file, "utf8")).toBe(VALUE);
+  // One handle for mode + content (no path stat-then-read: CodeQL js/file-system-race).
+  const fh = await open(file, "r");
+  try {
+    expect((await fh.stat()).mode & 0o777).toBe(0o600);
+    expect(await fh.readFile("utf8")).toBe(VALUE);
+  } finally {
+    await fh.close();
+  }
   return dir;
 }
 

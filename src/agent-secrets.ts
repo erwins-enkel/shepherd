@@ -312,10 +312,18 @@ export async function removeSessionSecretDir(baseDir: string, sessionId: string)
 
 /** Remove every `<id>.secrets` dir under `baseDir` whose session `keep` rejects. Returns the
  *  count removed; a missing `baseDir` is fine. */
+/** Dirs younger than this are never swept: a create writes its dir at the start of prepareSpawn,
+ *  but its session row lands only after herdr.start returns (up to the 30s spawn deadline), so a
+ *  fresh dir with no row yet is an in-flight spawn, not an orphan. */
+export const SECRET_DIR_SWEEP_GRACE_MS = 10 * 60 * 1000;
+
 export async function sweepOrphanSecretDirs(
   baseDir: string,
   keep: (sessionId: string) => boolean,
+  opts: { graceMs?: number; now?: () => number } = {},
 ): Promise<number> {
+  const graceMs = opts.graceMs ?? SECRET_DIR_SWEEP_GRACE_MS;
+  const now = opts.now ?? Date.now;
   let names: string[];
   try {
     names = await readdir(baseDir);
@@ -328,7 +336,11 @@ export async function sweepOrphanSecretDirs(
     if (!name.endsWith(SECRET_DIR_SUFFIX)) continue;
     const id = name.slice(0, -SECRET_DIR_SUFFIX.length);
     if (!SESSION_ID_RE.test(id) || keep(id)) continue;
-    await rm(join(baseDir, name), { recursive: true, force: true });
+    const path = join(baseDir, name);
+    // best-effort: an entry that vanished (or can't be stat'd) is left alone — nothing to sweep.
+    const st = await lstat(path).catch(() => null);
+    if (!st || now() - st.mtimeMs < graceMs) continue;
+    await rm(path, { recursive: true, force: true });
     removed++;
   }
   return removed;

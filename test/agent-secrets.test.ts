@@ -201,7 +201,12 @@ describe("launcher", () => {
       "inner",
       "passed arg",
     ]);
-    for (const v of Object.values(values)) expect(argv.some((a) => a.includes(v))).toBe(false);
+    // Substring check only for long values: a short one like "-n" can occur inside the random tmp
+    // dir path the argv legitimately carries; exact-element check covers every value.
+    for (const v of Object.values(values)) {
+      expect(argv.includes(v)).toBe(false);
+      if (v.length >= 8) expect(argv.some((a) => a.includes(v))).toBe(false);
+    }
     const p = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", env: { PATH: "/usr/bin:/bin" } });
     const out = await new Response(p.stdout).text();
     expect(await p.exited).toBe(0);

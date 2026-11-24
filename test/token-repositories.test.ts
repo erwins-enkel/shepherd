@@ -46,6 +46,16 @@ test("repository policy: method and full leaf must match, including normalized s
   expect(policy("GET", "/api/sessions/abc/plan")).toEqual({ kind: "session", id: "abc" });
   expect(policy("POST", "/api/sessions/abc/plan-edits")).toEqual({ kind: "session", id: "abc" });
   expect(policy("GET", "/api/sessions/abc/plan/revisions")).toEqual({ kind: "session", id: "abc" });
+  // #4126: review feedback is scoped to its session's repository; the pending map is filtered.
+  expect(policy("GET", "/api/review-feedback/pending")).toEqual({ kind: "collection" });
+  expect(policy("POST", "/api/sessions/abc/review-feedback/send")).toEqual({
+    kind: "session",
+    id: "abc",
+  });
+  expect(policy("POST", "/api/sessions/abc/review-feedback/dismiss")).toEqual({
+    kind: "session",
+    id: "abc",
+  });
   expect(policy("GET", "/api/dispatches/k1")).toEqual({ kind: "dispatch", id: "k1" });
   expect(policy("DELETE", "/api/dispatches/k1")).toEqual({ kind: "dispatch", id: "k1" });
   for (const [method, path] of [
@@ -62,6 +72,10 @@ test("repository policy: method and full leaf must match, including normalized s
     ["GET", "/api/sessions%2fabc/activity"],
     ["POST", "/api/sessions/abc/plan"],
     ["GET", "/api/sessions/abc/plan-edits"],
+    ["POST", "/api/sessions/abc/review-feedback"],
+    ["POST", "/api/sessions/abc/review-feedback/send/extra"],
+    ["GET", "/api/sessions/abc/review-feedback/send"],
+    ["POST", "/api/review-feedback/pending"],
   ] as const)
     expect(policy(method, path)).toBeNull();
 });
@@ -71,6 +85,8 @@ test("repository policy: unknown and unresolvable event shapes are not trusted",
   expect(filterRepositoryEvent("session:status", { id: "own" }, allowed)).toBe(true);
   expect(filterRepositoryEvent("queue:update", { sessionId: "own" }, allowed)).toBe(true);
   expect(filterRepositoryEvent("session:status", { id: "other" }, allowed)).toBe(false);
+  expect(filterRepositoryEvent("session:review-feedback", { id: "own" }, allowed)).toBe(true);
+  expect(filterRepositoryEvent("session:review-feedback", { id: "other" }, allowed)).toBe(false);
   expect(filterRepositoryEvent("future:event", { id: "own" }, allowed)).toBe(false);
   expect(
     filterRepositoryEvent(

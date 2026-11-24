@@ -84,6 +84,7 @@ import { loadIcons } from "./project-icons";
 import { attachMirrorPush } from "./remote-instances/push-relay";
 import { startRemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
 import { safeRepoDir } from "./validate";
+import { AgentSecretStore, sweepOrphanSecretDirs } from "./agent-secrets";
 import { refreshRepoConfigsAtStartup } from "./repo-config-file";
 import { instanceIdentity, instancePlatform } from "./remote-instances/identity";
 import { hostLoadReport, readHostLoad } from "./remote-instances/load";
@@ -1151,6 +1152,11 @@ const capacityInterrupted: CapacityInterruptionCheck = async (intent, worktreePa
   }
 };
 
+// Per-repo agent secrets (#4122): loaded once, before anything can spawn a task agent (load also
+// registers the values with the redaction set).
+const agentSecrets = new AgentSecretStore(config.agentSecretsPath);
+await agentSecrets.load();
+
 const assistantView = new AssistantViewRegistry();
 const service = new SessionService({
   capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
@@ -1160,6 +1166,7 @@ const service = new SessionService({
   prepareMembraneGhHosts,
   ghHostsRefresh: ghHostsRefresher,
   ghGrants,
+  agentSecrets,
   prepareScratchpadBind: sandboxScratchpadBind,
   resolveMembraneGhBin: () => resolveMembraneGhBin(),
   readCodexAuthMode,
@@ -1377,6 +1384,19 @@ deferredStarts.push(() => {
   } catch (err) {
     console.warn("[egress] startup temp-dir sweep failed:", err);
   }
+});
+
+// Remove per-repo agent secret dirs of sessions that no longer exist or are archived (a teardown
+// removal missed across a crash/restart). Best-effort, async.
+deferredStarts.push(() => {
+  // Checked per dir at sweep time (not a snapshot), so a session spawned meanwhile keeps its dir.
+  const live = (id: string) => {
+    const s = store.get(id);
+    return !!s && s.status !== "archived";
+  };
+  sweepOrphanSecretDirs(config.agentSpawnDir, live).catch((err: unknown) =>
+    console.warn("[agent-secrets] startup secret-dir sweep failed:", err),
+  );
 });
 
 // GitHub App mode: resume the gh token refresh of membranes that outlived the restart (after the
@@ -4624,6 +4644,7 @@ const appDeps: AppDeps = {
   loginRequests,
   ghPermissionRequests,
   ghGrants,
+  agentSecrets,
   actionRequests,
   browserToken,
   assistantIngress,

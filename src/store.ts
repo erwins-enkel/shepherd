@@ -4,6 +4,7 @@ import { effectiveRepoConfig, readRepoConfigFile, REPO_RULE_DEFAULTS } from "./r
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { redactKnownSecretValues } from "./redact";
 import type { GithubCacheKind, GithubCacheRow } from "./github-read-cache";
 import type { ResolvedHouseStack } from "./house-stack";
 import type {
@@ -164,6 +165,24 @@ export interface ReadinessRow {
 const READINESS_LOOKUP_CHUNK = 500;
 
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
+/** Deep copy of `v` with every string passed through {@link redactKnownSecretValues} (#4122) —
+ *  for agent-authored JSON (recap open items / blocks, plan edits) before it is persisted. */
+function redactStringsDeep<T>(v: T): T {
+  if (typeof v === "string") return redactKnownSecretValues(v) as T;
+  if (Array.isArray(v)) return v.map((x: unknown) => redactStringsDeep(x)) as T;
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v))
+      Object.defineProperty(out, k, {
+        value: redactStringsDeep(x),
+        enumerable: true,
+        writable: true,
+      });
+    return out as T;
+  }
+  return v;
+}
+
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (typeof raw !== "string" || raw === "") return fallback;
   try {
@@ -1729,6 +1748,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId TEXT NOT NULL, permission TEXT NOT NULL, action TEXT NOT NULL,
       actor TEXT NOT NULL, detail TEXT, at INTEGER NOT NULL)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS gh_grant_log_session ON gh_grant_log(sessionId, id)`);
+    // #4122: append-only audit of per-repo agent secrets handed to a task spawn — one row per
+    // injected NAME per spawn, never a value. No FK: the audit outlives a forgotten session row.
+    this.db.run(`CREATE TABLE IF NOT EXISTS agent_secret_log (
+      sessionId TEXT NOT NULL, repoPath TEXT NOT NULL, name TEXT NOT NULL, at INTEGER NOT NULL)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS agent_secret_log_repo ON agent_secret_log(repoPath, name)`,
+    );
     // Observed durations of finished green CI jobs, per repo and job name — the "usual" run time
     // the session status panel compares a running job against. Fed from the PR polls Shepherd
     // already makes (no extra forge calls); bounded per job by recordCiJobDurations.
@@ -5677,7 +5703,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `INSERT INTO plan_revisions (sessionId, revision, author, planHash, plan, edits, createdAt)
        VALUES (?,?,?,?,?,?,?)`,
-      [sessionId, revision, author, planHash, plan, JSON.stringify(edits), Date.now()],
+      [
+        sessionId,
+        revision,
+        author,
+        planHash,
+        redactKnownSecretValues(plan),
+        JSON.stringify(redactStringsDeep(edits)),
+        Date.now(),
+      ],
     );
     return revision;
   }
@@ -6128,14 +6162,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         recap.headSha ?? "",
         recap.base ?? "",
         recap.verdict ?? null,
-        recap.headline ?? "",
-        recap.body ?? "",
+        redactKnownSecretValues(recap.headline ?? ""),
+        redactKnownSecretValues(recap.body ?? ""),
         serializeRecapSkip(recap),
         serializeRecapFailure(recap),
         recap.diffState ?? null,
-        JSON.stringify(recap.openItems ?? []),
+        JSON.stringify(redactStringsDeep(recap.openItems ?? [])),
         JSON.stringify(recap.changedFiles ?? []),
-        JSON.stringify(recap.blocks ?? []),
+        JSON.stringify(redactStringsDeep(recap.blocks ?? [])),
         recap.spawnSessionId ?? "",
         recap.cwd ?? "",
         recap.model ?? null,
@@ -6670,6 +6704,33 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
        VALUES (?, ?, ?, ?, ?, ?)`,
       [row.sessionId, row.permission, row.action, row.actor, row.detail, row.at],
     );
+  }
+
+  /** Record that `names` (never values) were injected into `sessionId`'s spawn (#4122). */
+  recordAgentSecretInjection(
+    sessionId: string,
+    repoPath: string,
+    names: string[],
+    at = Date.now(),
+  ): void {
+    if (names.length === 0) return;
+    const insert = this.db.query(
+      `INSERT INTO agent_secret_log (sessionId, repoPath, name, at) VALUES (?, ?, ?, ?)`,
+    );
+    this.db.transaction(() => {
+      for (const name of names) insert.run(sessionId, repoPath, name, at);
+    })();
+  }
+
+  /** NAME → last injection time for `repoPath`'s agent secrets (#4122). */
+  agentSecretLastInjected(repoPath: string): Record<string, number> {
+    const rows = this.db
+      .query(`SELECT name, MAX(at) AS at FROM agent_secret_log WHERE repoPath = ? GROUP BY name`)
+      .all(repoPath) as { name: string; at: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows)
+      Object.defineProperty(out, r.name, { value: r.at, enumerable: true, writable: true });
+    return out;
   }
 
   /** A session's gh grant audit trail, oldest first (#4119). */

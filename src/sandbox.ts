@@ -36,6 +36,7 @@ import { resolveNodeBin } from "./node-bin";
 import { resolveWorktreePinSync } from "./safe-git";
 import type { EgressBackend } from "./egress";
 import { agentGhModeConfigured } from "./agent-gh-env";
+import { secretEnvLauncher } from "./agent-secrets";
 
 /** realpath that falls back to the input on any error (broken/missing path). */
 export function safeRealpath(p: string): string {
@@ -346,6 +347,10 @@ export interface MembraneInputs {
   /** This session's 0600 ingress spawn files (`--settings`, `--mcp-config`, key — see
    *  assistant-ingress.ts), bound RO at the same path. Not `-try`: the spawn just wrote them. */
   ingressFiles?: string[];
+  /** This session's 0700 per-repo agent secret dir (agent-secrets.ts, #4122), bound RO at the same
+   *  path and read by the secret launcher placed right after `--` ({@link membraneInnerArgv}).
+   *  Not `-try`: the spawn just wrote it. Absent → no flags, byte-identical. */
+  secretEnvDir?: string;
   /** This spawn's derived tools-only mise config (membrane-state.ts), bound RO at
    *  {@link MEMBRANE_MISE_CONFIG} and named by `MISE_SYSTEM_CONFIG_FILE`. The host
    *  `~/.config/mise` is never bound. Absent → no flags, byte-identical. */
@@ -670,6 +675,7 @@ function toolBinHostBacked(inputs: MembraneInputs): boolean {
     inputs.apiKeyHelperPath,
     ...(inputs.agentSupportPaths ?? []),
     ...(inputs.ingressFiles ?? []),
+    inputs.secretEnvDir,
   ].some(covers);
 }
 
@@ -678,6 +684,11 @@ function toolBinHostBacked(inputs: MembraneInputs): boolean {
 function toolBinMountFlags(inputs: MembraneInputs): string[] {
   if (toolBinHostBacked(inputs)) return [];
   return [...toolBinFlags(inputs.ghBin), ...launcherLinkFlags(inputs)];
+}
+
+/** RO bind of the session's agent secret dir (#4122) at the same path; empty when absent. */
+function secretEnvDirFlags(dir: string | undefined): string[] {
+  return dir ? ["--ro-bind", dir, dir] : [];
 }
 
 /** RO bind of the derived mise config; empty when absent. Must follow `--tmpfs /tmp`. */
@@ -1246,6 +1257,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
 
   // ── agent-ingress spawn files (issue #3337) ──────────────────────────────
   f.push(...(inputs.ingressFiles ?? []).flatMap((p) => ["--ro-bind", p, p]));
+  f.push(...secretEnvDirFlags(inputs.secretEnvDir));
 
   // ── symlinked user skills/commands (+ codex ~/.agents/skills) ────────────
   // After the home tmpfs and every config/toolchain bind (their dests are the "already mounted"
@@ -1302,7 +1314,18 @@ export function wrapArgv(
 ): string[] {
   if (opts.profile === "trusted" || opts.backend === null) return innerArgv;
   const membrane = membraneForArgv(innerArgv, opts.membrane, deps);
-  return ["bwrap", ...buildMembraneFlags(membrane, deps), "--", ...innerArgv];
+  return [
+    "bwrap",
+    ...buildMembraneFlags(membrane, deps),
+    "--",
+    ...membraneInnerArgv(innerArgv, membrane),
+  ];
+}
+
+/** The argv bwrap runs after `--`: the agent argv, behind the secret launcher when the membrane
+ *  binds a secret dir (#4122). Membrane detection ({@link membraneForArgv}) sees the RAW argv. */
+export function membraneInnerArgv(innerArgv: string[], membrane: MembraneInputs): string[] {
+  return membrane.secretEnvDir ? secretEnvLauncher(membrane.secretEnvDir, innerArgv) : innerArgv;
 }
 
 // ── auto-gate ─────────────────────────────────────────────────────────────────

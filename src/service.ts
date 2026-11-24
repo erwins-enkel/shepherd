@@ -213,6 +213,7 @@ import {
   wrapArgv,
   buildMembraneFlags,
   membraneForArgv,
+  membraneInnerArgv,
   safeRealpath,
   collectPassthroughEnv,
   SandboxAutoRefused,
@@ -235,6 +236,12 @@ import {
 } from "./membrane-state";
 import { agentGhAppConfigured } from "./agent-gh-env";
 import type { GhGrantService } from "./gh-grant";
+import {
+  removeSessionSecretDir,
+  secretEnvLauncher,
+  writeSessionSecretDir,
+  type AgentSecretStore,
+} from "./agent-secrets";
 import type { PreviewLaunch } from "./preview-launch";
 import {
   detectEgressBackend as detectRealEgressBackend,
@@ -556,6 +563,9 @@ export interface ServiceDeps {
   /** Ends a session's opt-in gh grants at archive (#4119). Absent ⇒ none. Wired to
    *  `GhGrantService` in index.ts. */
   ghGrants?: Pick<GhGrantService, "endForArchive">;
+  /** Per-repo agent secrets (#4122) handed to TASK spawns via a 0700 dir + launcher. Absent ⇒
+   *  none. Wired to the `AgentSecretStore` built in index.ts. */
+  agentSecrets?: Pick<AgentSecretStore, "entries">;
   /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
    *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
   prepareScratchpadBind?: (
@@ -3121,6 +3131,20 @@ export function sanitizeSteerText(text: string): string {
   return out.replace(/\r\n?/g, "\n").replace(STEER_CONTROL_RE, "");
 }
 
+/** A task spawn's per-repo agent secret dir (#4122) and the names it carries; `dir` undefined ⇒
+ *  no secrets for this spawn. */
+interface AgentSecretsPrep {
+  dir: string | undefined;
+  names: string[];
+}
+
+/** The argv handed to the wrap step: an unwrapped (trusted / no-backend) task spawn with a secret
+ *  dir runs behind the per-repo secret launcher (#4122); a wrapped one gets the launcher inside
+ *  the membrane instead (membraneInnerArgv), so membrane detection still sees the raw argv. */
+function taskSpawnInnerArgv(willWrap: boolean, dir: string | undefined, argv: string[]): string[] {
+  return !willWrap && dir ? secretEnvLauncher(dir, argv) : argv;
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -3611,6 +3635,21 @@ export class SessionService {
    *  with any extraArgs appended. No-op passthrough when no registry is wired. A hook's
    *  ctx.abortSpawn surfaces as PluginSpawnAborted → returned as a holdReason so the
    *  caller models it as an auto-refuse (create rolls back, resume returns null). */
+  /** {@link runSpawnHookPatch}, then (unless it held) {@link prepareAgentSecrets}. */
+  private async runSpawnHookAndSecrets(
+    innerArgv: string[],
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+    envParts: Parameters<SessionService["runSpawnHookPatch"]>[2],
+  ): Promise<
+    | { patchEnv: Record<string, string>; finalInnerArgv: string[]; secrets: AgentSecretsPrep }
+    | { holdReason: string; abortCause?: PluginSpawnAborted }
+  > {
+    const hook = await this.runSpawnHookPatch(innerArgv, ctx, envParts);
+    if ("holdReason" in hook) return hook;
+    const secrets = await this.prepareAgentSecrets(ctx);
+    return "holdReason" in secrets ? secrets : { ...hook, secrets };
+  }
+
   private async runSpawnHookPatch(
     innerArgv: string[],
     ctx: Parameters<SessionService["prepareSpawn"]>[1],
@@ -3882,7 +3921,8 @@ export class SessionService {
     // Plugin onSpawn hooks (issue #1124): fire AFTER core builds the inner argv/env, just
     // before the membrane wrap, on BOTH create and resume. abort → {ok:false} rides the
     // existing auto-refuse machinery (create rolls back, resume returns null). See helper.
-    const hook = await this.runSpawnHookPatch(innerArgv, ctx, {
+    // Then the per-repo agent secret dir (#4122), whose write failure holds the spawn the same way.
+    const hook = await this.runSpawnHookAndSecrets(innerArgv, ctx, {
       willWrap,
       passthroughEnv,
       rendererEnv,
@@ -3890,7 +3930,7 @@ export class SessionService {
     });
     if ("holdReason" in hook)
       return { ok: false, holdReason: hook.holdReason, abortCause: hook.abortCause };
-    const { patchEnv, finalInnerArgv } = hook;
+    const { patchEnv, finalInnerArgv, secrets } = hook;
 
     const membrane: MembraneInputs = willWrap
       ? {
@@ -3929,11 +3969,15 @@ export class SessionService {
           claudeJsonCopy: await this.prepareSessionClaudeState(ctx.sessionId, ctx.worktreePath),
           ...(await this.prepareSessionForgeAndTools(ctx.sessionId, ctx.repoPath, nodeBinReal)),
           scratchpadBind: await this.membraneScratchpadBind(ctx),
+          // #4122: this session's secret dir, bound RO and read by the launcher after `--`.
+          secretEnvDir: secrets.dir,
         }
       : ({} as MembraneInputs);
 
     const { wrapped, egressAllowlist, egressDnsLog } = this.wrapSpawnArgv({
-      innerArgv: finalInnerArgv,
+      // Unwrapped (trusted / no backend) spawns get the secret launcher directly; wrapped ones get
+      // it inside the membrane (membraneInnerArgv), so detection there still sees the raw argv.
+      innerArgv: taskSpawnInnerArgv(willWrap, secrets.dir, finalInnerArgv),
       profile,
       backend,
       egressBackend,
@@ -3973,6 +4017,7 @@ export class SessionService {
       signal: ctx.signal,
     });
     this.startGhHostsRefresh(ctx, membrane);
+    this.recordAgentSecretInjection(ctx, secrets.names);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
       this.deps.egressWatcher?.start(ctx.sessionId, {
@@ -4044,6 +4089,46 @@ export class SessionService {
       argv: ["bwrap", ...flags, "--bind", log, log, "--", scriptPath],
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     };
+  }
+
+  /** This task spawn's per-repo agent secret dir (#4122): written fresh (or a stale one removed)
+   *  from the repo's current secrets. The Operator Assistant never gets them. Values never leave
+   *  the 0600 files — a write failure holds the spawn with a value-free reason. */
+  private async prepareAgentSecrets(ctx: {
+    sessionId: string;
+    repoPath: string;
+    operatorAssistant?: boolean;
+  }): Promise<AgentSecretsPrep | { holdReason: string }> {
+    if (ctx.operatorAssistant) return { dir: undefined, names: [] };
+    const entries = this.deps.agentSecrets?.entries(ctx.repoPath) ?? {};
+    try {
+      const dir = await writeSessionSecretDir(this.agentSecretBaseDir(), ctx.sessionId, entries);
+      return dir ? { dir, names: Object.keys(entries) } : { dir: undefined, names: [] };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[agent-secrets] ${ctx.sessionId}: could not prepare secret dir: ${msg}`);
+      return { holdReason: `agent secrets could not be prepared: ${msg}` };
+    }
+  }
+
+  /** Names-only audit of the secrets a spawn just received (#4122); nothing when none. */
+  private recordAgentSecretInjection(
+    ctx: { sessionId: string; repoPath: string },
+    names: string[],
+  ): void {
+    if (names.length > 0)
+      this.deps.store.recordAgentSecretInjection(ctx.sessionId, ctx.repoPath, names);
+  }
+
+  private agentSecretBaseDir(): string {
+    return this.deps.agentSpawnDir ?? config.agentSpawnDir;
+  }
+
+  /** Archive: drop the session's agent secret dir (#4122). Never throws. */
+  private async removeAgentSecretDir(id: string): Promise<void> {
+    await removeSessionSecretDir(this.agentSecretBaseDir(), id).catch((err: unknown) =>
+      console.warn(`[agent-secrets] secret dir for ${id} not removed:`, err),
+    );
   }
 
   /** This spawn's private `.claude.json` copy (null → host file RO). Best-effort: a failed copy
@@ -4191,7 +4276,7 @@ export class SessionService {
       ...buildMembraneFlags(membraneForArgv(innerArgv, membrane)),
       ...egressMembraneOverrideFlags(tmp),
       "--",
-      ...innerArgv,
+      ...membraneInnerArgv(innerArgv, membrane),
     ];
     return {
       wrapped: wrapEgress(bwrapArgv, tmp),
@@ -9880,6 +9965,7 @@ export class SessionService {
     await removeIngressSpawnFiles(this.ingressSpawnDir(isOperatorAssistant(s)), s.id).catch(
       (err: unknown) => console.warn(`[ingress] spawn files for ${s.id} not removed:`, err),
     );
+    await this.removeAgentSecretDir(s.id);
     this.deps.store.archive(id, reason);
     publishUsagePause(s, null, this.deps.events);
     if (s.operatorAssistant) this.cleanupArchivedAssistant(s);

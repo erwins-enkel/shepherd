@@ -952,6 +952,8 @@ export interface AppDeps {
   >;
   /** Opt-in gh grants (#4119); absent → the grant/revoke routes answer 503. */
   ghGrants?: Pick<import("./gh-grant").GhGrantService, "grant" | "revoke">;
+  /** Per-repo agent secrets (#4122); absent → the repo-secrets routes answer 503. */
+  agentSecrets?: import("./agent-secrets").AgentSecretStore;
   /** Operator approvals for the assistant's `ask` actions (audit F08); absent ⇒ those refuse. */
   actionRequests?: Pick<
     import("./action-request").ActionRequestService,

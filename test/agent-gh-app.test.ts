@@ -405,6 +405,147 @@ describe("GithubAppTokenMinter", () => {
   });
 });
 
+describe("GithubAppTokenMinter — opt-in permissions (#4119)", () => {
+  const minter = (fetchFn: typeof fetch, clock: { now: number }) =>
+    new GithubAppTokenMinter({
+      appId: "12345",
+      loadKey: async () => privateKey,
+      fetch: fetchFn,
+      now: () => clock.now,
+    });
+  /** Mints `ghs_t<n>`, each valid 60 min from `clock.now`. */
+  const counting = (clock = { now: NOW }) => {
+    let n = 0;
+    return fakeGithub({
+      "GET /repos/acme/widget/installation": () => json(200, { id: 42 }),
+      "POST /app/installations/42/access_tokens": () =>
+        json(201, {
+          token: `ghs_t${++n}`,
+          expires_at: new Date(clock.now + 60 * MIN).toISOString(),
+        }),
+      "DELETE /installation/token": () => new Response(null, { status: 204 }),
+    });
+  };
+  const mints = (gh: ReturnType<typeof fakeGithub>) => gh.calls.filter((c) => c.method === "POST");
+
+  test("workflows: write rides the mint body only when requested", async () => {
+    const gh = counting();
+    const m = minter(gh.fetchFn, { now: NOW });
+    await m.token(repo);
+    await m.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    expect(mints(gh).map((c) => (c.body as { permissions: unknown }).permissions)).toEqual([
+      AGENT_GH_APP_PERMISSIONS,
+      { ...AGENT_GH_APP_PERMISSIONS, workflows: "write" },
+    ]);
+  });
+
+  test("widened tokens are cached per session, apart from the default token", async () => {
+    const gh = counting();
+    const m = minter(gh.fetchFn, { now: NOW });
+    const def = await m.token(repo);
+    const a = await m.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    const b = await m.token(repo, { extra: ["workflows"], sessionId: "s2" });
+    expect(new Set([def.token, a.token, b.token]).size).toBe(3);
+    // cache hits: the same session gets its own token back, a default caller the default one
+    expect(
+      (await m.token(repo, { extra: ["workflows", "workflows"], sessionId: "s1" })).token,
+    ).toBe(a.token);
+    expect((await m.token(repo)).token).toBe(def.token);
+    expect(mints(gh)).toHaveLength(3);
+  });
+
+  test("concurrent default + widened callers do not share a mint", async () => {
+    const gh = counting();
+    const m = minter(gh.fetchFn, { now: NOW });
+    const [d, w] = await Promise.all([
+      m.token(repo),
+      m.token(repo, { extra: ["workflows"], sessionId: "s1" }),
+    ]);
+    expect(d.token).not.toBe(w.token);
+  });
+
+  test("a widened mint without a session throws, no request", async () => {
+    const gh = counting();
+    await expect(
+      minter(gh.fetchFn, { now: NOW }).token(repo, { extra: ["workflows"] }),
+    ).rejects.toThrow("session");
+    expect(gh.calls).toHaveLength(0);
+  });
+
+  test("releaseSession revokes the session's widened tokens with themselves and evicts them", async () => {
+    const clock = { now: NOW };
+    const gh = counting(clock);
+    const m = minter(gh.fetchFn, clock);
+    const def = await m.token(repo);
+    const first = await m.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    clock.now = NOW + 41 * MIN; // re-mint: both widened tokens are still valid at GitHub
+    const second = await m.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    const other = await m.token(repo, { extra: ["workflows"], sessionId: "s2" });
+
+    expect(await m.releaseSession("s1")).toEqual({ ok: true, revoked: 2 });
+    const deletes = gh.calls.filter((c) => c.method === "DELETE");
+    expect(deletes.map((c) => c.url)).toEqual([
+      "https://api.github.com/installation/token",
+      "https://api.github.com/installation/token",
+    ]);
+    expect(deletes.map((c) => c.headers.Authorization)).toEqual([
+      `Bearer ${first.token}`,
+      `Bearer ${second.token}`,
+    ]);
+    // evicted: the next widened call for s1 mints afresh; s2 and the default token are untouched
+    const before = mints(gh).length;
+    expect((await m.token(repo, { extra: ["workflows"], sessionId: "s2" })).token).toBe(
+      other.token,
+    );
+    expect((await m.token(repo)).token).not.toBe(def.token); // its own expiry, not the release
+    const again = await m.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    expect(again.token).not.toBe(second.token);
+    expect(mints(gh).length).toBe(before + 2);
+    expect(await m.releaseSession("unknown")).toEqual({ ok: true, revoked: 0 });
+  });
+
+  test("releaseSession reports a failed revoke without throwing", async () => {
+    const gh = fakeGithub({
+      "GET /repos/acme/widget/installation": () => json(200, { id: 42 }),
+      "POST /app/installations/42/access_tokens": minted("ghs_w", NOW + 60 * MIN),
+      "DELETE /installation/token": () => json(401, { message: "Bad credentials" }),
+    });
+    const m = minter(gh.fetchFn, { now: NOW });
+    await m.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    const r = await m.releaseSession("s1");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.failure).toContain("HTTP 401");
+    expect(!r.ok && r.failure).not.toContain("ghs_w");
+
+    const down = (async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch;
+    const m2 = new GithubAppTokenMinter({
+      appId: "12345",
+      loadKey: async () => privateKey,
+      fetch: gh.fetchFn,
+      now: () => NOW,
+    });
+    await m2.token(repo, { extra: ["workflows"], sessionId: "s1" });
+    (m2 as unknown as { deps: { fetch: typeof fetch } }).deps.fetch = down;
+    const r2 = await m2.releaseSession("s1");
+    expect(r2.ok).toBe(false);
+  });
+
+  test("a 422 mint refusal carries its status on GithubAppConfigError", async () => {
+    const gh = fakeGithub({
+      "GET /repos/acme/widget/installation": () => json(200, { id: 42 }),
+      "POST /app/installations/42/access_tokens": () =>
+        json(422, { message: "The permissions requested are not granted to this installation." }),
+    });
+    const err = await minter(gh.fetchFn, { now: NOW })
+      .token(repo, { extra: ["workflows"], sessionId: "s1" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GithubAppConfigError);
+    expect((err as GithubAppConfigError).status).toBe(422);
+  });
+});
+
 describe("makeAgentGhAppToken", () => {
   const noRepoLookup = () => {
     throw new Error("repo must not be resolved");
@@ -469,5 +610,30 @@ describe("makeAgentGhAppToken", () => {
     };
     const tokenFor = makeAgentGhAppToken({ env, fetch: noFetch, githubRepo: () => repo });
     await expect(tokenFor("/r")).rejects.toThrow("chmod 600");
+  });
+
+  test("releaseSession revokes through the current and any replaced minter", async () => {
+    const env: NodeJS.ProcessEnv = {
+      [AGENT_GH_APP_ID_ENV]: "12345",
+      [AGENT_GH_APP_KEY_FILE_ENV]: writeFile("app.pem", pem, 0o600),
+    };
+    let n = 0;
+    const gh = fakeGithub({
+      "GET /repos/acme/widget/installation": () => json(200, { id: 42 }),
+      "POST /app/installations/42/access_tokens": () =>
+        json(201, { token: `ghs_t${++n}`, expires_at: new Date(NOW + 60 * MIN).toISOString() }),
+      "DELETE /installation/token": () => new Response(null, { status: 204 }),
+    });
+    const source = makeAgentGhAppToken({
+      env,
+      fetch: gh.fetchFn,
+      now: () => NOW,
+      githubRepo: () => repo,
+    });
+    expect(await source.releaseSession("s1")).toEqual({ ok: true, revoked: 0 });
+    await source("/r", { extra: ["workflows"], sessionId: "s1" });
+    env[AGENT_GH_APP_KEY_FILE_ENV] = writeFile("app2.pem", pem, 0o600); // config change: new minter
+    await source("/r", { extra: ["workflows"], sessionId: "s1" });
+    expect(await source.releaseSession("s1")).toEqual({ ok: true, revoked: 2 });
   });
 });

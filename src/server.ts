@@ -1,6 +1,12 @@
 import { handoffPage, providerHandoffStatus, ProviderHandoffError } from "./provider-handoff";
 import { RepoLeitrechnerService } from "./repo-leitrechner";
 import {
+  AgentSecretError,
+  type AgentSecretStore,
+  MAX_SECRET_VALUE_BYTES,
+  validateSecretName,
+} from "./agent-secrets";
+import {
   assistantRuntimeBlocks,
   resolveAssistantRuntime,
   parseAssistantRuntimePatch,
@@ -953,7 +959,7 @@ export interface AppDeps {
   /** Opt-in gh grants (#4119); absent → the grant/revoke routes answer 503. */
   ghGrants?: Pick<import("./gh-grant").GhGrantService, "grant" | "revoke">;
   /** Per-repo agent secrets (#4122); absent → the repo-secrets routes answer 503. */
-  agentSecrets?: import("./agent-secrets").AgentSecretStore;
+  agentSecrets?: AgentSecretStore;
   /** Operator approvals for the assistant's `ask` actions (audit F08); absent ⇒ those refuse. */
   actionRequests?: Pick<
     import("./action-request").ActionRequestService,
@@ -3859,6 +3865,92 @@ async function handleRepoConfig(ctx: Ctx): Promise<Response | null> {
   }
   if (req.method !== "PUT") return null;
   return putLocalRepoConfig(ctx, dir);
+}
+
+/** PUT body cap for `/api/repo-secrets`: the largest value JSON-escaped (≤6 bytes per byte as
+ *  `\uXXXX`) plus room for the name and framing. */
+const REPO_SECRET_MAX_BODY_BYTES = MAX_SECRET_VALUE_BYTES * 6 + 1024;
+
+/** `/api/repo-secrets?repo=` (#4122): the operator's per-repo task-agent secrets. GET lists names +
+ *  timestamps (never values), PUT `{ name, value }` sets one, DELETE `&name=` removes one.
+ *  Operator-only and machine-local: refused for the agent ingress and repo-scoped tokens. */
+async function handleRepoSecrets(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
+  if (!(parts[0] === "api" && parts[1] === "repo-secrets" && !parts[2])) return null;
+  if (!["GET", "PUT", "DELETE"].includes(req.method)) return null;
+  const target = repoSecretsTarget(ctx);
+  if (target instanceof Response) return target;
+  const { store, dir } = target;
+  try {
+    if (req.method === "GET") return listRepoSecrets(deps, store, dir);
+    if (req.method === "PUT") return await putRepoSecret(req, store, dir);
+    return await deleteRepoSecret(store, dir, url.searchParams.get("name") ?? "");
+  } catch (e) {
+    return agentSecretErrorResponse(e);
+  }
+}
+
+/** The operator-only guard + repo/store resolution shared by every `/api/repo-secrets` verb. */
+function repoSecretsTarget({
+  url,
+  deps,
+  token,
+  agentIngress,
+}: Ctx): { store: AgentSecretStore; dir: string } | Response {
+  if (agentIngress || (token && token.repoPaths !== null))
+    return json({ error: "insufficient_scope" }, 403);
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const store = deps.agentSecrets;
+  if (!store) return json({ error: "agent secrets unavailable" }, 503);
+  return { store, dir };
+}
+
+/** A store refusal as `{ error: code }`: validation 400, unavailable 503, store failure 500. */
+function agentSecretErrorResponse(e: unknown): Response {
+  if (!(e instanceof AgentSecretError)) throw e;
+  const status = e.code === "store-error" ? 500 : e.code === "unavailable" ? 503 : 400;
+  return json({ error: e.code }, status);
+}
+
+async function deleteRepoSecret(
+  store: AgentSecretStore,
+  dir: string,
+  name: string,
+): Promise<Response> {
+  const invalid = validateSecretName(name);
+  if (invalid) return json({ error: invalid }, 400);
+  return json({ deleted: await store.delete(dir, name) });
+}
+
+function listRepoSecrets(deps: AppDeps, store: AgentSecretStore, dir: string): Response {
+  const injected = deps.store.agentSecretLastInjected(dir);
+  const secrets = store.list(dir).map(({ name, updatedAt }) => ({
+    name,
+    updatedAt,
+    lastInjectedAt: Object.hasOwn(injected, name) ? injected[name]! : null,
+  }));
+  return json({ secrets });
+}
+
+async function putRepoSecret(
+  req: Request,
+  store: AgentSecretStore,
+  dir: string,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const text = await readCappedText(req, REPO_SECRET_MAX_BODY_BYTES);
+  if (text === null) return json({ error: "invalid-value" }, 413);
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  if (!isRecord(body) || typeof body.name !== "string" || typeof body.value !== "string")
+    return json({ error: "body must be { name: string, value: string }" }, 400);
+  return json(await store.set(dir, body.name, body.value));
 }
 
 async function parseRepoLeader(req: Request): Promise<{ leitrechner?: string | null } | Response> {
@@ -15809,6 +15901,7 @@ const ROUTE_HANDLERS = [
   handleEpicQueueReorder,
   handleRepoConfigProject,
   handleRepoConfig,
+  handleRepoSecrets,
   handleAgentExtensions,
   handleRepoRunDefaults,
   handleRepoBootstrap,

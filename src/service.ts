@@ -33,7 +33,7 @@ import {
 import { isEpicChild } from "./epic-branch";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { misroutedTargetFor, routedIssueDirective } from "./target-repo";
@@ -3136,6 +3136,9 @@ export function sanitizeSteerText(text: string): string {
 interface AgentSecretsPrep {
   dir: string | undefined;
   names: string[];
+  /** The canonical (realpath) repo key the secrets were looked up under — the same key the
+   *  `/api/repo-secrets` route stores them under (`safeRepoDir`), and the audit row's repoPath. */
+  repoKey: string;
 }
 
 /** The argv handed to the wrap step: an unwrapped (trusted / no-backend) task spawn with a secret
@@ -4017,7 +4020,7 @@ export class SessionService {
       signal: ctx.signal,
     });
     this.startGhHostsRefresh(ctx, membrane);
-    this.recordAgentSecretInjection(ctx, secrets.names);
+    this.recordAgentSecretInjection(ctx.sessionId, secrets.repoKey, secrets.names);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
       this.deps.egressWatcher?.start(ctx.sessionId, {
@@ -4099,11 +4102,16 @@ export class SessionService {
     repoPath: string;
     operatorAssistant?: boolean;
   }): Promise<AgentSecretsPrep | { holdReason: string }> {
-    if (ctx.operatorAssistant) return { dir: undefined, names: [] };
-    const entries = this.deps.agentSecrets?.entries(ctx.repoPath) ?? {};
+    if (ctx.operatorAssistant) return { dir: undefined, names: [], repoKey: ctx.repoPath };
+    // Session repoPaths are resolve()d, not realpath'd; the route keys secrets by safeRepoDir's
+    // realpath — canonicalize so a symlinked repo root still finds them.
+    const repoKey = await realpath(ctx.repoPath).catch(() => ctx.repoPath);
+    const entries = this.deps.agentSecrets?.entries(repoKey) ?? {};
     try {
       const dir = await writeSessionSecretDir(this.agentSecretBaseDir(), ctx.sessionId, entries);
-      return dir ? { dir, names: Object.keys(entries) } : { dir: undefined, names: [] };
+      return dir
+        ? { dir, names: Object.keys(entries), repoKey }
+        : { dir: undefined, names: [], repoKey };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[agent-secrets] ${ctx.sessionId}: could not prepare secret dir: ${msg}`);
@@ -4112,12 +4120,8 @@ export class SessionService {
   }
 
   /** Names-only audit of the secrets a spawn just received (#4122); nothing when none. */
-  private recordAgentSecretInjection(
-    ctx: { sessionId: string; repoPath: string },
-    names: string[],
-  ): void {
-    if (names.length > 0)
-      this.deps.store.recordAgentSecretInjection(ctx.sessionId, ctx.repoPath, names);
+  private recordAgentSecretInjection(sessionId: string, repoKey: string, names: string[]): void {
+    if (names.length > 0) this.deps.store.recordAgentSecretInjection(sessionId, repoKey, names);
   }
 
   private agentSecretBaseDir(): string {

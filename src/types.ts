@@ -1,5 +1,6 @@
 import type { HerdrRuntimeStatus } from "./herdr-runtime";
 import type { SandboxProfile } from "./sandbox";
+import type { GhGrant } from "./agent-gh-env";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
@@ -283,6 +284,8 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged. Written by P2. */
   manualStepsAckedAt: number | null;
+  /** Opt-in gh permissions the operator granted this session (#4119); [] when none. */
+  ghGrants?: GhGrant[];
   /** Comparison-experiment group id this session belongs to; null = not part of an experiment.
    *  All variants of one task + their comparison session share this id. */
   experimentId: string | null;

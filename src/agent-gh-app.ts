@@ -22,9 +22,12 @@ import {
   AGENT_GH_APP_ID_ENV,
   AGENT_GH_APP_KEY_FILE_ENV,
   agentGhAppConfigured,
+  GH_OPT_IN_PERMISSIONS,
+  type GhOptInPermission,
 } from "./agent-gh-env";
 
-export { AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV };
+export { AGENT_GH_APP_ID_ENV, AGENT_GH_APP_KEY_FILE_ENV, GH_OPT_IN_PERMISSIONS };
+export { isGhOptInPermission, type GhOptInPermission } from "./agent-gh-env";
 
 const GITHUB_API = "https://api.github.com";
 /** One deadline for all API calls of a single mint, so a GitHub outage delays a spawn ≤ this. */
@@ -44,20 +47,6 @@ export const AGENT_GH_APP_PERMISSIONS = {
   statuses: "read",
   actions: "read",
 } as const;
-
-/**
- * Permissions a session gets only on an explicit operator grant (#4119), on top of
- * {@link AGENT_GH_APP_PERMISSIONS}. `workflows: write` lets a push create or update
- * `.github/workflows/*` — new triggers, wider `permissions:`, new secret references — so it is
- * never in the default set.
- */
-export const GH_OPT_IN_PERMISSIONS = { workflows: "write" } as const;
-
-export type GhOptInPermission = keyof typeof GH_OPT_IN_PERMISSIONS;
-
-export function isGhOptInPermission(v: unknown): v is GhOptInPermission {
-  return typeof v === "string" && Object.hasOwn(GH_OPT_IN_PERMISSIONS, v);
-}
 
 /** A widened mint (#4119): the opt-in permissions to add, and the session the token belongs to. */
 export interface AgentGhAppTokenOptions {

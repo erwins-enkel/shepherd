@@ -88,15 +88,14 @@ export interface SessionArchiverDeps {
  * Nothing else does. `settleMergedSession` archives a merged PR's session, drain retire archives a
  * retired one, and the operator's own close archives the rest — so a session whose PR was closed,
  * never opened, or simply abandoned stays live forever, holding a DB row, a worktree and a herdr
- * tab (a PTY thread plus a 10 MB scrollback buffer apiece). The field report on #1156 measured
- * 31 such rows and a herdr daemon that had died of thread exhaustion.
+ * tab (a PTY thread plus a 10 MB scrollback buffer apiece); enough of them exhaust herdr's threads.
  *
  * **Status is not the signal; liveness is.** A session that settles in place stays `idle`: when
  * claude exits it leaves the pane alive as a bare shell and herdr keeps listing it as an idle
  * agent (#721). `done` means something stronger and rarer — the agent was absent from `agent list`,
- * i.e. the pane or tab is gone (a herdr restart, then boot `reconcile()`). Both are settled, and a
- * `done`-only sweep would have archived none of the population the issue was filed about. So
- * eligibility spans both, and the discriminator is the poller's folded `husk` verdict: positive
+ * i.e. the pane or tab is gone (a herdr restart, then boot `reconcile()`). Both are settled, so
+ * eligibility spans both (a `done`-only sweep misses most of the population), and the
+ * discriminator is the poller's folded `husk` verdict: positive
  * `/proc` evidence that no claude lives in the session's worktree. `stranded` is NOT eligible —
  * that is the auto-revive population (#1630), and the two sweeps must not fight over a session.
  *

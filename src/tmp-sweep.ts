@@ -580,23 +580,12 @@ const DEFAULT_TMP_INODE_PCT = 80;
 const DEFAULT_TMP_ENTRY_LIMIT = 1000;
 
 /**
- * Ordered display bands for the `tmp_inodes` diagnostics row.
- *
- * The warning band tracks `SHEPHERD_TMP_INODE_PCT` so the row warns at exactly the point the
- * sweeper starts acting — hardcoding 80 would warn about a state an operator who raised the knob
- * deliberately told the sweeper to ignore. But the knob CANNOT be forwarded raw, because it is a
- * sweep-GATE value and this is a DISPLAY band, and the two disagree at both extremes:
- *
- *  - `0` is a legitimate gate setting meaning "always sweep" (`envNum` deliberately honours it —
- *    see its doc). Forwarded raw it means "always WARN": `usePct >= 0` holds on every host, so a
- *    healthy machine shows a permanent warning that no fix can clear, degrading the health pip
- *    forever. There is no useful display band derivable from it, so fall back to the default.
- *  - A value above `TMP_INODE_ERROR_PCT` inverts the bands: the warning range `[warn, error)` is
- *    empty, and `error` fires at 95% — BELOW the threshold the operator set — so the row alarms
- *    about a state they explicitly told Shepherd to leave alone. Raise the error band to match
- *    instead, so it never fires below the operator's own line.
- *  - A value above 100 (or otherwise outside `(0, 100]`) is not a percentage at all; treat it as
- *    misconfiguration and fall back rather than silently disabling the row.
+ * Ordered display bands for the `tmp_inodes` diagnostics row. The warning band tracks
+ * `SHEPHERD_TMP_INODE_PCT` (so the row warns where the sweeper acts), but the sweep-GATE value is
+ * never forwarded raw as a DISPLAY band:
+ *  - `0` ("always sweep") or anything outside `(0, 100]` → default warn band (never "always warn").
+ *  - above `TMP_INODE_ERROR_PCT` → error band raised to match, never alarming below the knob.
+ * Operator-facing behaviour: `docs/operations.md#host-tuning--tmpfs-inodes`.
  *
  * Postcondition, relied on by `classifyTmpInodes`: `0 < warnPct <= errorPct`.
  */
@@ -635,29 +624,15 @@ function sweptRoots(): string[] {
 }
 
 /**
- * The roots the `tmp_inodes` Diagnose row measures. Deliberately NOT `sweptRoots()`.
- *
- * A swept root also includes the SESSION-SCRATCH roots — `claudeTmpRoot()` and its nested
- * `claude-$uid`, plus the legacy pair. Their contents are the dashified per-worktree dirs, which
- * match nothing in `REGENERABLE_CACHE` by design (a live long-running session leaves a stale
- * top-level mtime, so a coarse age check would delete a running agent's scratch) and are reclaimed
- * only by `removeWorktreeScratch` at archival. Counting them would put the row permanently at
- * `warning` on a healthy host — 2,902 such dirs were measured on one while diagnosing #1862 — with
- * a Fix button whose forced sweep cannot remove a single one of them. An alarm no action can clear
- * is exactly the trap `tmpInodeBands` already documents for the percentage knob.
- *
- * So the row watches the two roots whose pressure a sweep CAN act on:
- *  - the bare disk `agentTmpDir()` — where the regenerable tool caches accumulate, and whose
- *    unknown leftovers the orphan catch-all (`reapOrphan`, #2582) reclaims once stale, so every
- *    entry counted here is one a sweep can remove; and
+ * The roots the `tmp_inodes` Diagnose row measures. Deliberately NOT `sweptRoots()`: the
+ * session-scratch roots (`claudeTmpRoot()`, its nested `claude-$uid`, the legacy pair) hold
+ * per-worktree dirs only `removeWorktreeScratch` reclaims at archival, so counting them raises an
+ * alarm the row's Fix cannot clear. The row watches only roots a sweep CAN act on:
+ *  - the bare disk `agentTmpDir()` (regenerable caches + `reapOrphan` leftovers); and
  *  - `tmpdir()` — the tmpfs, still real for sandboxed spawns and tools that hardcode `/tmp`.
- *
- * Nothing is lost by dropping the nested roots: each sits on the same filesystem as a root that
- * remains, so the inode percentage is identical, and `tmpdir()` is always present (unlike
- * `<tmpdir>/claude-$uid` on a freshly booted host — the #1876 rationale, restored).
- *
- * Session-scratch accumulation is a real signal, but it needs a different remedy and different
- * copy than this row offers; it is tracked separately in #2304.
+ * Dropping the nested roots loses nothing: each shares a filesystem with a kept root (identical
+ * inode %), and `tmpdir()` always exists, unlike `<tmpdir>/claude-$uid` on a fresh boot (#1876).
+ * See `docs/operations.md#host-tuning--tmpfs-inodes`.
  */
 function diagnosedRoots(): string[] {
   const agentTmp = agentTmpDir();
@@ -966,11 +941,10 @@ function resolveSweepCtx(opts: SweepOpts | undefined, log: (msg: string) => void
  * reports `reason: "swept forced (gate bypassed)"` — there is no measured use% to quote.
  *
  * Otherwise the gate is evaluated PER ROOT (`tmpPressure`) and only the pressured roots are swept;
- * an unpressured root in the same pass is left untouched. Gating once on `root` alone was wrong on
- * any host with a disk-backed `TMPDIR` (#1862): in production `root` is
- * `<agentTmpDir()>/claude-$uid`, holding only session scratch, while the caches this sweep exists
- * to reclaim pile up in the BARE `agentTmpDir()` beside it — so the single reading reported a quiet
- * root and the sweep never ran. When it does sweep, it walks `root` and the nested
+ * an unpressured root in the same pass is left untouched. Never gate once on `root` alone: with a
+ * disk-backed `TMPDIR` (#1862) `root` is `<agentTmpDir()>/claude-$uid`, holding only session
+ * scratch, while the caches this sweep reclaims pile up in the BARE `agentTmpDir()` beside it.
+ * When it does sweep, it walks `root` and the nested
  * `root/claude-$uid`, removing `node-compile-cache`
  * wholesale (pure cache), age-gating known regenerable tool caches (see `REGENERABLE_CACHE`),
  * reclaiming long-untouched unknown entries of the bare `agentTmpDir()` (`reapOrphan`), while

@@ -631,9 +631,11 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   is the allowlist — no `Bash`, no `Edit`, no git, no network — so the ceiling is
   file writes inside one operator-chosen repo, with no exec, commit, push or
   exfiltration. The prompt's "write only your result file" instruction is
-  guidance to a cooperative model, not an enforced boundary. Tightening this
-  means giving the helper a read-only view (detached worktree / RO bind, as the
-  reviewer roles get), not a narrower allowlist.
+  guidance to a cooperative model, not an enforced boundary — a prompt injection
+  in a repo file it reads can ignore it. Tightening this means giving the helper
+  a read-only view (detached worktree / RO bind, as the reviewer roles get), not
+  a narrower allowlist: the allowlist is already as tight as a helper that must
+  write its own result file can be.
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
   (`src/service.ts` `researchSafeProfileOverride`, warns once),

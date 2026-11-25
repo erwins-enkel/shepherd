@@ -1,9 +1,9 @@
 // Turn-end backstop — recovers the "agent finished a turn" edge when herdr never reports `done`.
 //
 // herdr's `done` is a "finished, and nobody has looked yet" NOTIFICATION state, not a lifecycle
-// state: viewing the pane clears it back to `idle`, permanently (verified live — `herdr agent focus`
-// on a `done` pane flips it to `idle` and it stays there; `agent read` and the HUD's
-// `terminal session control` attach do NOT clear it). Shepherd keys "the agent finished a turn" on
+// state: viewing the pane clears it back to `idle`, permanently (`herdr agent focus` on a `done`
+// pane flips it to `idle`; `agent read` and the HUD's `terminal session control` attach do NOT
+// clear it). Shepherd keys "the agent finished a turn" on
 // `done` in exactly three places:
 //   - plan-gate.ts shouldConsiderOnSettle() — fires the FIRST plan review on `done`; on `idle` only
 //     when a prior gate already said `changes_requested`, which a first draft never has.

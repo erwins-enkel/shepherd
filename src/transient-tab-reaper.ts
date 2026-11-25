@@ -3,24 +3,21 @@ import type { HerdrDriver } from "./herdr";
 /**
  * Boot reconcile for label-prefixed transient agents (issue #1135, deduped in #1093).
  *
- * This is ONE of four distinct teardown mechanisms across the transient-agent fleet, and the only
- * one whose body was byte-identical across consumers — so it was deduped here. The OTHER consumers
- * reconcile via a different lifecycle, and forcing them onto this label-prefix scan would be wrong
- * where they already have it —
+ * This is ONE of four distinct teardown mechanisms across the transient-agent fleet. The OTHER
+ * consumers reconcile via a different lifecycle, and forcing them onto this label-prefix scan would
+ * be wrong where they already have it —
  *   - persisted `reviewer_spawns` rows → adoptOrphans/reapOrphans (plan-gate / review / doc-agent);
  *   - store `generating` state → reapGenerating (recap).
- * #1093 delivers the argv consolidation across all 10 plus this reaper dedup; a universal
- * "reap every kind" base remains out of scope.
+ * A universal "reap every kind" base is out of scope.
  *
- * **The exception: synchronous block-and-clean helpers — start→poll→stop in a `finally`, random
- * temp dirs (`name ` / `autopilot ` / `verify api key`).** #1093 left these unreaped on the
- * premise that the `finally` leaves no husk. That holds only on a CLEAN exit: a server restart
- * mid-poll skips the `finally`, orphaning an interactive `claude` that idles at the prompt forever
- * (the husk-only reaper spares it as a live non-shell proc). #1136 closes that gap by calling this
- * same reaper for those three labels at boot with an EMPTY owned set — they track no inflight and
- * none is running at the synchronous boot point, so every match is a prior-lifetime orphan. The
- * standalone PR critic (`pr-critic `) — memory-only `inFlight`, no row/state reconcile — likewise
- * gains an owned-set-gated boot reap here (#1136).
+ * **Synchronous block-and-clean helpers — start→poll→stop in a `finally`, random temp dirs
+ * (`name ` / `autopilot ` / `verify api key`) — are reaped here too (#1136).** The `finally`
+ * leaves no husk only on a CLEAN exit: a server restart mid-poll skips it, orphaning an
+ * interactive `claude` that idles at the prompt forever (the husk-only reaper spares it as a live
+ * non-shell proc). So those three labels call this reaper at boot with an EMPTY owned set — they
+ * track no inflight and none is running at the synchronous boot point, so every match is a
+ * prior-lifetime orphan. The standalone PR critic (`pr-critic `) — memory-only `inFlight`, no
+ * row/state reconcile — gets an owned-set-gated boot reap here.
  *
  * Why this mechanism exists: `inflight` is memory-only, so a server restart loses tracking of live
  * runs; the spawned interactive `claude` idles at the prompt forever after writing its output
@@ -32,12 +29,11 @@ import type { HerdrDriver } from "./herdr";
  *
  * **The scan reads TAB labels, not agent names (#2029).** herdr 0.7.5 emits no `name` on agent
  * records at all — its `--agent` label surfaces under `agent`, and only for externally-registered
- * spawns — so `a.name.startsWith(prefix)` matched nothing, forever, on every 0.7.5 host. The tab
- * label is the surviving surface (`tab create --label` is given the raw helper label, and the
- * generated schema marks it required).
+ * spawns — so matching on agent names finds nothing. The tab label is the surviving surface
+ * (`tab create --label` is given the raw helper label, and the generated schema marks it required).
  *
- * Two consequences of the re-keying, both intended:
- *  - the scan now also covers helper HUSKS (a tab whose agent already exited is absent from
+ * Two consequences of keying on tabs, both intended:
+ *  - the scan also covers helper HUSKS (a tab whose agent already exited is absent from
  *    `agent list` but still in `tab list`), so a restart clears prior-lifetime husks at once
  *    instead of waiting for the debounced hourly sweep;
  *  - `ownedTerminalIds` is mapped to tab ids through `list()`, and that lookup is skipped

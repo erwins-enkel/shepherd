@@ -15,30 +15,12 @@
  *
  * REPO ACCESS IS `--add-dir`, NOT THE PRESET. The `writer-ro` allowlist decides which tools may
  * run, not where they may reach; under `--permission-mode dontAsk` with cwd = a temp dir, an agent
- * can read nothing else. So the repo is passed explicitly via `addDirs`.
- *
- * ── The residual risk that buys, stated plainly ─────────────────────────────────────────────────
- *
- * `--add-dir` has no read-only form, so the directory it opens is also open to the preset's bare
- * `Write`, and the directory here is the operator's REAL checkout — not a disposable worktree like
- * the reviewer kinds get. Within that directory the agent can therefore:
- *
- *   - OVERWRITE an existing tracked file, destroying uncommitted work in it. `git status` shows the
- *     modification, but only after the fact, and only if the operator looks.
- *   - Write a path `git status` never surfaces at all — anything gitignored (`.env`, build output,
- *     `node_modules`, Shepherd's own `.shepherd-*` files).
- *
- * The tool-guard hook cannot catch either: `disableAllHooks: true` is part of the transient posture
- * (see buildTransientAgentArgv). What bounds the blast radius is narrower than "nothing bad can
- * happen": no `Bash`, no `Edit`, no git and no network on the allowlist, so the agent cannot exec,
- * commit, push or exfiltrate; the damage ceiling is file writes inside one repo the operator chose,
- * by an agent the operator started, on a prompt the operator wrote. The instruction to write only
- * `SHAPE_FILE` is guidance to a cooperative model, NOT an enforced boundary — a prompt injection in
- * a repo file it reads could ignore it.
- *
- * If that ceiling ever proves too high, the fix is a read-only view of the repo (a detached
- * worktree or an RO bind, as the reviewer roles get), not a tighter allowlist — the allowlist is
- * already as tight as a helper that must write its own result file can be.
+ * can read nothing else. So the repo is passed explicitly via `addDirs`. That opens the operator's
+ * REAL checkout to the preset's bare `Write` (no read-only form; hooks are off), so the agent can
+ * overwrite tracked files or write gitignored paths. The allowlist (no `Bash`/`Edit`/git/network)
+ * is the only bound; "write only `SHAPE_FILE`" is guidance, not a boundary. If that ceiling proves
+ * too high, the fix is a read-only repo view, not a tighter allowlist. Residual risk in full:
+ * `docs/sandbox-security.md#r4--prompt-injection-posture`.
  *
  * The result file itself stays in the temp cwd, which is what gets cleaned up.
  */

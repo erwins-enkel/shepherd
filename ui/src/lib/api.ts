@@ -29,6 +29,7 @@ import type {
   DeliveryMetrics,
   UsageRange,
   PromptBudgetRecord,
+  SteeringReportSnapshot,
   GithubRateLimit,
   GithubActionsBilling,
   GitState,
@@ -1682,6 +1683,22 @@ export async function getDeliveryMetrics(range: UsageRange): Promise<DeliveryMet
   const r = await fetch(`/api/usage/delivery?range=${range}`);
   if (!r.ok) throw await failed(r, "delivery");
   return r.json();
+}
+
+/** The latest stored steering report and whether a run is in flight (#4175). */
+export async function getSteeringReport(): Promise<SteeringReportSnapshot> {
+  const r = await fetch("/api/steering/report");
+  if (!r.ok) throw await failed(r, "steering report");
+  return r.json();
+}
+
+/** Start a steering-report run. A 409 means one is already in flight — the same outcome for the
+ *  caller (a run is going), so it resolves rather than throws. The result lands via the
+ *  `steering:report` WS event. */
+export async function runSteeringReport(): Promise<{ running: true }> {
+  const r = await fetch("/api/steering/report/run", { method: "POST" });
+  if (r.ok || r.status === 409) return { running: true };
+  throw await failed(r, "steering report run");
 }
 
 export async function getUsageTimeline(range: UsageRange): Promise<UsageTimeline> {

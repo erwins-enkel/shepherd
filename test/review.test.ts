@@ -6100,3 +6100,128 @@ test("late round whose baseline head is missing from the critic worktree: demoti
   expect(reviews["s1"]!.decision).toBe("changes_requested");
   expect(reviews["s1"]!.findings).toEqual(["src/foo.ts: arrow keys reach the dashboard shortcut"]);
 });
+
+// ── #4172: boot barrier — consider() vs reapOrphans ─────────────────────────────
+
+/** A boot with one restart-orphaned critic row for s1 (its claude already exited, its worktree
+ *  survives) and a herdr whose first `agent list` — the one reapOrphans' findSquatter makes — parks
+ *  until the test releases it. The released list reports whatever critics started meanwhile, the way
+ *  live herdr would. */
+function bootRaceWorld() {
+  const w = makeDeps({
+    worktreeExists: (p: string) => p === "/orphan-wt",
+    readUsage: async () => null,
+  });
+  const store = w.deps.store as any;
+  const orphan = {
+    reviewerSessionId: "rev-old",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null as number | null,
+    spawnedAt: 0,
+  };
+  store.listReviewerSpawns = () => [orphan];
+  store.completeReviewerSpawn = (_id: string, _u: unknown, at: number) => {
+    orphan.completedAt = at;
+  };
+  store.get = (id: string) => (id === "s1" ? session() : null);
+  const closedTabs: string[] = [];
+  let release!: () => void;
+  let parked!: () => void;
+  const listParked = new Promise<void>((r) => (parked = r));
+  const gate = new Promise<void>((r) => (release = r));
+  let lists = 0;
+  const herdr = w.deps.herdr as any;
+  herdr.listAsync = async () => {
+    if (lists++ === 0) {
+      parked();
+      await gate;
+    }
+    return w.started.map((s, i) => ({
+      name: s.name,
+      tabId: `tab-new-${i}`,
+      terminalId: "rt",
+      cwd: s.cwd,
+      agentStatus: "working",
+    }));
+  };
+  herdr.closeTab = async (tabId: string) => {
+    closedTabs.push(tabId);
+  };
+  return { ...w, orphan, closedTabs, listParked, release };
+}
+
+const flush = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+test("#4172 repro: a consider() fired mid-reapOrphans keeps its critic (not closed as the squatter)", async () => {
+  const w = bootRaceWorld();
+  const svc = new ReviewService({ ...w.deps, bootRecovery: true } as any);
+  const recovery = svc.recoverAtBoot();
+  await w.listParked; // reap is inside findSquatter's `agent list`
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped"); // a warm-tick session:git edge, deferred
+  expect(w.started).toHaveLength(0);
+  w.release();
+  expect(await recovery).toEqual(["s1"]);
+  await flush();
+  expect(w.started).toHaveLength(1); // exactly one critic for s1, replayed after recovery …
+  expect(w.closedTabs).toEqual([]); // … and boot recovery never closed it
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("#4172: deferred consider replays the LATEST git against the fresh store session; force is sticky", async () => {
+  const w = bootRaceWorld();
+  const svc = new ReviewService({ ...w.deps, bootRecovery: true } as any);
+  const calls: { git: GitState; force: boolean }[] = [];
+  const orig = svc.consider.bind(svc);
+  const recovery = svc.recoverAtBoot();
+  await w.listParked;
+  await svc.consider(session(), OPEN_GREEN, { force: true });
+  const moved = w.atHead("def");
+  await svc.consider(session(), moved); // non-forced, newer head
+  (svc as any).consider = (s: Session, git: GitState, o?: { force?: boolean }) => {
+    calls.push({ git, force: o?.force === true });
+    return orig(s, git, o);
+  };
+  w.release();
+  await recovery;
+  await flush();
+  expect(calls).toEqual([{ git: moved, force: true }]);
+  expect(w.created).toEqual(["def"]);
+});
+
+test("#4172: a recovery that throws still opens the barrier and replays; the error propagates", async () => {
+  const w = makeDeps({});
+  (w.deps.store as any).listReviewerSpawns = () => {
+    throw new Error("db gone");
+  };
+  (w.deps.store as any).get = () => session();
+  const svc = new ReviewService({ ...w.deps, bootRecovery: true } as any);
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped"); // before recovery even started
+  await expect(svc.recoverAtBoot()).rejects.toThrow("db gone");
+  await flush();
+  expect(w.started).toHaveLength(1); // replayed
+  expect(await svc.consider(session({ id: "s2" }), OPEN_GREEN)).not.toBe("skipped"); // gate open
+});
+
+test("#4172: forget() during recovery drops the deferred call", async () => {
+  const w = bootRaceWorld();
+  const svc = new ReviewService({ ...w.deps, bootRecovery: true } as any);
+  const recovery = svc.recoverAtBoot();
+  await w.listParked;
+  await svc.consider(session(), OPEN_GREEN);
+  svc.forget("s1");
+  w.release();
+  await recovery;
+  await flush();
+  expect(w.started).toHaveLength(0);
+});
+
+test("#4172: without bootRecovery, consider() is not deferred", async () => {
+  const w = makeDeps({});
+  const svc = new ReviewService(w.deps as any);
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("started");
+  expect(w.started).toHaveLength(1);
+});

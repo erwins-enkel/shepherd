@@ -382,6 +382,9 @@ interface ComposeVars {
 }
 
 export interface ReviewServiceDeps extends MembraneSeams {
+  /** #4172: the server runs {@link ReviewService.recoverAtBoot} later in boot. True ⇒ the service
+   *  starts with that recovery pending, so every `consider()` before it finishes is deferred. */
+  bootRecovery?: boolean;
   store: Pick<
     SessionStore,
     | "getRepoConfig"
@@ -571,6 +574,12 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   // retryErroredReviews() re-entrancy guard: a slow begin() must not let the next minute's sweep
   // overlap it.
   private sweeping = false;
+  // #4172: boot recovery (reapOrphans) is pending or running. A critic started in that window can be
+  // resolved by reapOrphans' name-first squatter lookup ("review TASK-<n>") and closed, so consider()
+  // defers instead: session id → latest deferred GitState + whether any deferred call was forced.
+  // recoverAtBoot() replays each once recovery ends.
+  private recovering: boolean;
+  private bootDeferred = new Map<string, { git: GitState; force: boolean }>();
   private now: () => number;
   private timeoutMs: number;
   // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
@@ -613,6 +622,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
 
   constructor(private deps: ReviewServiceDeps) {
     super();
+    this.recovering = deps.bootRecovery === true;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 10 * 60 * 1000;
     // capture into a const so the constant-thunk closure keeps the narrowed type.
@@ -648,6 +658,16 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *  as superseded) is now the agent coming to rest: a head is reviewed once the task agent has
    *  finished its turn — or, as the backstop for an agent that never rests, once CI clears. */
   async consider(
+    session: Session,
+    git: GitState,
+    opts?: { force?: boolean },
+  ): Promise<ReviewOutcome> {
+    if (this.deferDuringRecovery(session.id, git, opts?.force === true)) return "skipped"; // replayed after boot recovery
+    return this.considerNow(session, git, opts);
+  }
+
+  /** {@link consider} once boot recovery is over. */
+  private async considerNow(
     session: Session,
     git: GitState,
     opts?: { force?: boolean },
@@ -709,6 +729,17 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
     // only for the manual/force path.
     return this.inflight.has(session.id) ? "started" : "error";
+  }
+
+  /** #4172: while boot recovery is pending, record the call for {@link recoverAtBoot} to replay and
+   *  tell the caller to stop. The latest GitState wins; a forced call keeps the replay forced. */
+  private deferDuringRecovery(sessionId: string, git: GitState, force: boolean): boolean {
+    if (!this.recovering) return false;
+    this.bootDeferred.set(sessionId, {
+      git,
+      force: force || this.bootDeferred.get(sessionId)?.force === true,
+    });
+    return true;
   }
 
   /** Hard preconditions + the push debounce: an open PR with a head and number, a branch, the
@@ -2478,6 +2509,33 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     return byName ?? agents.find((a) => a.cwd === cwd);
   }
 
+  /** Boot recovery, called once at boot: {@link reapOrphans}. No critic starts until it ends (#4172):
+   *  `consider()` defers meanwhile, and each deferred session is re-considered afterwards against its
+   *  fresh store row, where the normal guards apply (a re-kick that already claimed the slot makes
+   *  the replay skip). The gate opens even if the reap throws, so a failed recovery can't disable the
+   *  critic; the error still propagates. Returns reapOrphans' re-kick ids. */
+  async recoverAtBoot(): Promise<string[]> {
+    this.recovering = true;
+    try {
+      return await this.reapOrphans();
+    } finally {
+      this.recovering = false;
+      this.replayBootDeferred();
+    }
+  }
+
+  private replayBootDeferred(): void {
+    const deferred = [...this.bootDeferred];
+    this.bootDeferred.clear();
+    for (const [id, { git, force }] of deferred) {
+      const s = this.deps.store.get(id);
+      if (!s) continue; // session gone
+      void this.consider(s, git, { force }).catch((err) =>
+        console.warn(`[review] deferred consider failed for ${id}:`, err),
+      );
+    }
+  }
+
   /** Boot reconcile: close dangling `reviewer_spawns` rows from the last run and kill
    *  any still-alive orphaned critic processes.
    *
@@ -2613,6 +2671,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // issue-body) checks this on resume and aborts, so an archived session can't get a critic
     // run after forget().
     this.starting.delete(sessionId);
+    this.bootDeferred.delete(sessionId); // a forgotten session must not be re-considered after boot
     const f = this.inflight.get(sessionId);
     if (f) {
       void this.deps.herdr.stop(f.terminalId).catch(() => {}); // best-effort: teardown; pane may already be gone

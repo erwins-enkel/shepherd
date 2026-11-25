@@ -2261,6 +2261,8 @@ if (config.docAgentEnabled) {
 }
 
 const reviewService = new ReviewService({
+  // #4172: no critic starts until recoverAtBoot() (deferredStarts below) has finished.
+  bootRecovery: true,
   capacity: capacityCheck,
   capacityInterrupted,
   store,
@@ -2552,7 +2554,10 @@ const sweepStaleReviewWorktrees = async () => {
 // recoverAtBoot runs adoptOrphans then gcStaleReviewWorktrees (AFTER `inflight` is repopulated, so
 // gc only reaps truly ownerless review worktrees, e.g. the older of two #631 same-session orphans),
 // and holds every plan-gate consider() until both are done, replaying them after (#4161).
-// reapOrphans() runs BEFORE sweepStaleReviewWorktrees: for a dead-process orphan whose claude
+// reviewService.recoverAtBoot() runs reapOrphans and holds every critic consider() until it is done,
+// replaying them after (#4172): a critic started mid-reap would be taken for the orphan's squatter
+// (same "review TASK-<n>" name) and closed. It runs even if plan-gate recovery throws, so that hold
+// always lifts. reapOrphans() runs BEFORE sweepStaleReviewWorktrees: for a dead-process orphan whose claude
 // already exited but finalize never ran the worktree survives — the disk sweep would delete it
 // first, erasing the orphan signal before reapOrphans can see it. Running reap first drops the
 // sticky error verdict and returns the task session ids to re-kick with a force-consider so the
@@ -2606,7 +2611,8 @@ deferredStarts.push(() => {
   if (!maintenance.active) void composeCleanup.sweepOrphans();
   void planGate
     .recoverAtBoot()
-    .then(() => reviewService.reapOrphans())
+    .catch((err) => console.warn("[boot] plan-gate orphan reconcile:", err))
+    .then(() => reviewService.recoverAtBoot())
     .then((ids) => {
       for (const id of ids) reKickReapedReview(id);
     })

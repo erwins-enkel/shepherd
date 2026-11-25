@@ -2553,6 +2553,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(HEAVY_SLOT_JOBS_DDL);
     // A table created before #3554 has no revision columns; a fresh one already has both.
     this.addMissingColumns("heavy_slot_jobs", { head: "TEXT", treeHash: "TEXT" });
+    // Per-session newest-first lookups (lastHeavySlotResults) without a table scan.
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS heavy_slot_jobs_session_finished
+         ON heavy_slot_jobs (sessionId, finishedAt DESC, id DESC)`,
+    );
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
@@ -2740,16 +2745,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** The latest job per session whose command has exited and whose source state was captured
-   *  (#3554). Still-lingering jobs count: the exit code is known. */
+   *  (#3554). Still-lingering jobs count: the exit code is known. One window pass, not a
+   *  per-row correlated subquery: that was O(N²) over the unindexed table and blocked the loop
+   *  for seconds on every GET /api/heavy-slot. */
   lastHeavySlotResults(): HeavyJob[] {
     return this.db
       .query(
-        `SELECT ${HEAVY_SLOT_JOB_COLUMNS} FROM heavy_slot_jobs j
-         WHERE finishedAt IS NOT NULL AND treeHash IS NOT NULL AND state IN ('lingering', 'done')
-           AND id = (SELECT id FROM heavy_slot_jobs
-                     WHERE sessionId = j.sessionId AND finishedAt IS NOT NULL
-                       AND treeHash IS NOT NULL AND state IN ('lingering', 'done')
-                     ORDER BY finishedAt DESC, id DESC LIMIT 1)`,
+        `SELECT ${HEAVY_SLOT_JOB_COLUMNS} FROM (
+           SELECT ${HEAVY_SLOT_JOB_COLUMNS}, ROW_NUMBER() OVER (
+             PARTITION BY sessionId ORDER BY finishedAt DESC, id DESC) AS rn
+           FROM heavy_slot_jobs
+           WHERE finishedAt IS NOT NULL AND treeHash IS NOT NULL AND state IN ('lingering', 'done'))
+         WHERE rn = 1`,
       )
       .all() as HeavyJob[];
   }

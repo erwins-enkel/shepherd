@@ -2016,6 +2016,99 @@ test("gcStaleReviewWorktrees reaps only non-inflight plan_gate worktrees", async
   expect(h.removed).not.toContain("/wt-review");
 });
 
+// ── #4161: boot-readiness barrier — no review starts until boot recovery ends ────────────
+
+/** Let recoverAtBoot()'s fire-and-forget replay run its consider() → begin() to completion. */
+const drainReplay = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+test("bootRecovery: consider() before recoverAtBoot() is deferred, then replayed once", async () => {
+  const h = harness({ bootRecovery: true, store: { get: () => planningSession() } });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(h.started).toHaveLength(0);
+
+  await h.svc.recoverAtBoot();
+  await drainReplay();
+  expect(h.started).toHaveLength(1); // two deferred calls, one replay
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("recoverAtBoot: a consider() during adoption leaves the adopted orphan the only reviewer", async () => {
+  const listing = Promise.withResolvers<never[]>();
+  const h = harness({
+    store: {
+      get: () => planningSession(),
+      listReviewerSpawns: () => [orphanSpawn()],
+    },
+    herdr: {
+      start: async () => ({ terminalId: "t-new" }),
+      async stop() {},
+      listAsync: () => listing.promise,
+    },
+  });
+  const recovering = h.svc.recoverAtBoot(); // adoptOrphans parks in resolveTerminal
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  listing.resolve([]);
+  await recovering;
+  await drainReplay();
+
+  expect(h.started).toHaveLength(0); // the replay found the adopted run in flight
+  expect(h.svc.inflightWorktrees()).toEqual(["/wt-detached"]); // the orphan's worktree
+  expect(h.removed).toEqual([]); // gc spared it
+});
+
+test("recoverAtBoot: a deferred forced consider() replays forced past the unchanged-plan dedupe", async () => {
+  const prior = {
+    sessionId: "s1",
+    decision: "changes_requested",
+    approved: false,
+    planHash: planHashOf("PLAN TEXT"),
+    round: 1,
+    findings: [],
+  };
+  const h = harness({
+    bootRecovery: true,
+    store: { get: () => planningSession(), getPlanGate: () => prior },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.consider(planningSession() as any); // a later unforced call keeps the replay forced
+  await h.svc.recoverAtBoot();
+  await drainReplay();
+  expect(h.started).toHaveLength(1);
+});
+
+test("recoverAtBoot: forget() during recovery drops the deferred consider()", async () => {
+  const h = harness({ bootRecovery: true, store: { get: () => planningSession() } });
+  await h.svc.consider(planningSession() as any);
+  h.svc.forget("s1");
+  await h.svc.recoverAtBoot();
+  await drainReplay();
+  expect(h.started).toHaveLength(0);
+});
+
+test("recoverAtBoot: a failing adoption still opens the gate and replays deferrals", async () => {
+  let failAdoption = true;
+  const h = harness({
+    bootRecovery: true,
+    store: {
+      get: () => planningSession(),
+      listReviewerSpawns: () => {
+        if (!failAdoption) return [];
+        failAdoption = false; // only adoptOrphans' read fails
+        throw new Error("db gone");
+      },
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await expect(h.svc.recoverAtBoot()).rejects.toThrow("db gone");
+  await drainReplay();
+  expect(h.started).toHaveLength(1); // replayed
+  h.svc.forget("s1");
+  expect(await h.svc.consider(planningSession() as any)).toBe("started"); // gate open
+});
+
 // ── reapReviewer (gate-durability split, issue #809) ─────────────────────────
 
 test("reapReviewer reaps terminal+worktree+inflight but does NOT drop the persisted gate", async () => {

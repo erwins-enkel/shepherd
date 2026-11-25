@@ -139,25 +139,22 @@ test("CE-1: an adopted orphan's approval is stamped on the plan the reviewer rea
 // `inflight`/`starting`, then awaits buildAdoptedInflight (herdr.listAsync). A consider() in that
 // window passes its own guard and spawns a second reviewer; whichever `inflight.set` lands last
 // wins and the other reviewer is never finalized.
-test.failing(
-  "CE-2: consider() does not spawn a second reviewer while an orphan is being adopted",
-  async () => {
-    const w = world();
-    await w.svc.consider(w.session); // reviewer #1 running, then the server restarts
-    expect(w.state.started).toHaveLength(1);
+test("CE-2: consider() does not spawn a second reviewer while an orphan is being adopted", async () => {
+  const w = world();
+  await w.svc.consider(w.session); // reviewer #1 running, then the server restarts
+  expect(w.state.started).toHaveLength(1);
 
-    const listing = Promise.withResolvers<never[]>();
-    const restarted = w.restart({
-      herdr: { ...w.deps.herdr, listAsync: () => listing.promise },
-    });
-    const adopting = restarted.adoptOrphans(); // parks in resolveTerminal
-    await restarted.consider(w.session); // a settle edge fires during the boot chain
-    listing.resolve([]);
-    await adopting;
+  const listing = Promise.withResolvers<never[]>();
+  const restarted = w.restart({
+    herdr: { ...w.deps.herdr, listAsync: () => listing.promise },
+  });
+  const adopting = restarted.recoverAtBoot(); // adoptOrphans parks in resolveTerminal
+  await restarted.consider(w.session); // a settle edge fires during the boot chain
+  listing.resolve([]);
+  await adopting;
 
-    expect(w.state.started).toHaveLength(1);
-  },
-);
+  expect(w.state.started).toHaveLength(1);
+});
 
 // CE-3 (#4162; INV-RegateSticks): a forced re-review of an approved-then-edited plan returns
 // changes_requested while the session is still PLANNING. applyChangesRequested withdraws the

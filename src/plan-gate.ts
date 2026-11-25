@@ -582,6 +582,9 @@ export interface RawPlanVerdict {
 }
 
 export interface PlanGateServiceDeps extends MembraneSeams {
+  /** #4161: the server runs {@link PlanGateService.recoverAtBoot} later in boot. True ⇒ the service
+   *  starts with that recovery pending, so every `consider()` before it finishes is deferred. */
+  bootRecovery?: boolean;
   /** Resolve launch provenance before automatic approval release. */
   hasConversation?: (s: Session) => boolean;
   store: Pick<
@@ -757,6 +760,12 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   // plan stays skipped (skipForPlanHash) so the cancelled review doesn't auto-restart; a changed plan
   // or a force re-runs it.
   private cancelledHashes = new Map<string, string>();
+  // #4161: boot recovery (adoptOrphans → gcStaleReviewWorktrees) is pending or running. A review
+  // started in that window races adoption (two reviewers, one never finalized) and gc (reaps the
+  // worktree of a reviewer begin() is still launching), so consider() defers instead: session id →
+  // whether any deferred call was forced. recoverAtBoot() replays each once recovery ends.
+  private recovering: boolean;
+  private bootDeferred = new Map<string, boolean>();
   private now: () => number;
   private timeoutMs: number;
   // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
@@ -791,6 +800,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
 
   constructor(private deps: PlanGateServiceDeps) {
     super();
+    this.recovering = deps.bootRecovery === true;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     // capture into a const so the constant-thunk closure keeps the narrowed type.
@@ -915,6 +925,15 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
    *  planning phase, an in-flight/starting review, an already-`approved` gate, and a missing plan
    *  each still short-circuit exactly as on the auto-path. */
   async consider(session: Session, opts?: { force?: boolean }): Promise<PlanReviewTrigger> {
+    if (this.deferDuringRecovery(session.id, opts?.force === true)) return "skipped"; // replayed after boot recovery
+    return this.considerNow(session, opts);
+  }
+
+  /** {@link consider} once boot recovery is over. */
+  private async considerNow(
+    session: Session,
+    opts?: { force?: boolean },
+  ): Promise<PlanReviewTrigger> {
     const force = opts?.force === true;
     if (session.planPhase == null) return "skipped"; // plan gate off for this session
     if (!force && isAutomationQuiet(session)) return "skipped"; // shelved: no auto plan review
@@ -950,6 +969,14 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     } finally {
       this.starting.delete(session.id);
     }
+  }
+
+  /** #4161: while boot recovery is pending, record the call for {@link recoverAtBoot} to replay and
+   *  tell the caller to stop. A forced call keeps the replay forced. */
+  private deferDuringRecovery(sessionId: string, force: boolean): boolean {
+    if (!this.recovering) return false;
+    this.bootDeferred.set(sessionId, force || this.bootDeferred.get(sessionId) === true);
+    return true;
   }
 
   /** The post-hash short-circuits, split out of {@link consider} to keep its branching within the
@@ -1584,6 +1611,35 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     });
   }
 
+  /** Boot recovery, called once at boot: adopt restart-orphaned reviews, then reap ownerless review
+   *  worktrees. No review starts until it ends (#4161): `consider()` defers meanwhile, and each
+   *  deferred session is re-considered afterwards against its fresh store row, where the normal
+   *  guards apply (an adopted run is in flight, an approved gate short-circuits). The gate opens even
+   *  if adoption throws, so a failed recovery can't disable plan review; gc is skipped then, as
+   *  before, and the error still propagates. */
+  async recoverAtBoot(): Promise<void> {
+    this.recovering = true;
+    try {
+      await this.adoptOrphans();
+      this.gcStaleReviewWorktrees();
+    } finally {
+      this.recovering = false;
+      this.replayBootDeferred();
+    }
+  }
+
+  private replayBootDeferred(): void {
+    const deferred = [...this.bootDeferred];
+    this.bootDeferred.clear();
+    for (const [id, force] of deferred) {
+      const s = this.deps.store.get(id);
+      if (!s) continue; // session gone
+      void this.consider(s, { force }).catch((err) =>
+        console.warn(`[plan-gate] deferred consider failed for ${id}:`, err),
+      );
+    }
+  }
+
   /** Rebuild an in-flight entry for a restart-orphaned plan review from its persisted spawn row.
    *  Split out of adoptOrphans to keep that loop's cognitive complexity within the health bar.
    *  null when the plan text the reviewer read can't be recovered (see reviewedPlanFor). */
@@ -1681,9 +1737,9 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
    *   (a) it MUST run once at boot AFTER adoptOrphans() has repopulated `inflight`, so every
    *       genuinely-live orphan is already adopted (its worktree is in the inflight set below) and
    *       only the truly ownerless duplicates remain to reap;
-   *   (b) begin() persists ownership before launch, so a restart can adopt the row before this GC
-   *       runs. During a live launch this boot-only method cannot run concurrently; after restart,
-   *       (a) ensures adoption has already rebuilt `inflight`. */
+   *   (b) no begin() is mid-launch while it runs: recoverAtBoot() defers every consider() until
+   *       this has finished (#4161), so a launching reviewer's persisted row (not yet in
+   *       `inflight`) can't be mistaken for an ownerless one. */
   gcStaleReviewWorktrees(): void {
     const live = new Set([...this.inflight.values()].map((f) => f.worktreePath));
     for (const sp of this.deps.store.listReviewerSpawns()) {
@@ -2306,6 +2362,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
 
   forget(sessionId: string): void {
     this.cancelledHashes.delete(sessionId);
+    this.bootDeferred.delete(sessionId); // a forgotten session must not be re-considered after boot
     this.forgetCompletedCodexTurn(sessionId);
     this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);

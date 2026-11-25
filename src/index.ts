@@ -2359,6 +2359,8 @@ deferredStarts.push(() => {
 // execution; interactive ones wait for the operator's explicit Go). Mirrors
 // reviewService's deps, cap thunk, and model source.
 const planGate = new PlanGateService({
+  // #4161: no plan review starts until recoverAtBoot() (deferredStarts below) has finished.
+  bootRecovery: true,
   capacity: capacityCheck,
   capacityInterrupted,
   store,
@@ -2547,8 +2549,9 @@ const sweepStaleReviewWorktrees = async () => {
 // without this a restart mid-review orphans the reviewer forever — its verdict goes unread, the
 // gate never advances, and the planning agent sits idle awaiting a re-review that never comes.
 // The next tick() then finalizes each re-adopted run from the verdict it already wrote.
-// gcStaleReviewWorktrees runs AFTER adoptOrphans has repopulated `inflight` so it only reaps
-// truly ownerless review worktrees (e.g. the older of two #631 same-session orphans).
+// recoverAtBoot runs adoptOrphans then gcStaleReviewWorktrees (AFTER `inflight` is repopulated, so
+// gc only reaps truly ownerless review worktrees, e.g. the older of two #631 same-session orphans),
+// and holds every plan-gate consider() until both are done, replaying them after (#4161).
 // reapOrphans() runs BEFORE sweepStaleReviewWorktrees: for a dead-process orphan whose claude
 // already exited but finalize never ran the worktree survives — the disk sweep would delete it
 // first, erasing the orphan signal before reapOrphans can see it. Running reap first drops the
@@ -2602,8 +2605,7 @@ deferredStarts.push(() => {
   // Independent of the review reconciliation below and its process-liveness gates.
   if (!maintenance.active) void composeCleanup.sweepOrphans();
   void planGate
-    .adoptOrphans()
-    .then(() => planGate.gcStaleReviewWorktrees())
+    .recoverAtBoot()
     .then(() => reviewService.reapOrphans())
     .then((ids) => {
       for (const id of ids) reKickReapedReview(id);

@@ -4,9 +4,9 @@ import type { DiagnosticCheck } from "#lib/types.js";
  * Which "the fix ran but the check is still not OK" message a diagnostics row should show.
  *
  * Extracted from `SettingsDiagnosePanel` (#1862) purely to have a seam: the selection used to be an
- * inline if/else chain inside the panel's fix handler, and there is no `SettingsDiagnosePanel` test
- * of any kind — so neither this branch nor the pre-existing `host_capacity` one was covered. A pure
- * key-returning function is testable without rendering; the panel just resolves the key.
+ * inline if/else chain inside the panel's fix handler, which no test reached — so neither this
+ * branch nor the pre-existing `host_capacity` one was covered. A pure key-returning function is
+ * testable without rendering; the panel just resolves the key.
  *
  * The generic `_code` copy ("Claude Code may need a restart") is folder-trust-specific, so any code
  * fix whose failure mode differs must claim its own key here — otherwise the operator is sent after

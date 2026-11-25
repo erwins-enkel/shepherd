@@ -1,6 +1,7 @@
 import type { GitForge, OpenPrSnapshot, PrStatus, PullRequest } from "./forge/types";
 import { currentGhCaller } from "./forge/gh-caller";
 import { graphRateLimit } from "./forge/rate-limit";
+import { claudeShipInFlight, sameClaudeShip } from "./forge/claude-ship";
 import { Semaphore } from "./semaphore";
 import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
 
@@ -36,6 +37,7 @@ function isTransientPrStatus(st: PrStatus): boolean {
     st.state === "open" &&
     (st.checks === "pending" ||
       (st.runningChecks?.length ?? 0) > 0 ||
+      claudeShipInFlight(st.claudeShip) ||
       st.mergeable == null ||
       st.mergeStateStatus === "unknown" ||
       st.mergeStateStatus === "unstable")
@@ -199,7 +201,8 @@ export class OpenPrSnapshotService {
         cached.headSha !== st.headSha ||
         cached.checks !== st.checks ||
         cached.mergeable !== st.mergeable ||
-        cached.mergeStateStatus !== st.mergeStateStatus)
+        cached.mergeStateStatus !== st.mergeStateStatus ||
+        !sameClaudeShip(cached.claudeShip, st.claudeShip))
     )
       this.staleAt.set(forge.slug!, this.now());
   }

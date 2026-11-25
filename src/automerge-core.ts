@@ -3,6 +3,7 @@ import type { ReviewDecision } from "./types";
 import type { ManualStep } from "./manual-steps";
 import { signedOff, type SignoffAuthority } from "./signoff";
 import { checksCleared } from "./checks-gate";
+import { approvalsHolding } from "./forge/claude-ship";
 import { isDefiniteConflict } from "./pr-conflict";
 
 /** How long a conflict-path rebase steer suppresses a re-steer for the SAME head. A conflicting
@@ -50,6 +51,9 @@ export interface MergeSessionView {
   /** A CI repo's PR has reported no checks on its current head for {@link CHECKS_ABSENT_MS} while
    *  GitHub calls it `clean` (#3221): held as `checks_absent` rather than `checks_pending`. Absent = false. */
   checksAbsent?: boolean;
+  /** The Claude Approvals check on the head (#4145), kept out of `checks`. Pending/failure holds
+   *  the merge as `approval_pending`. Absent = no such check. */
+  claudeApprovals?: ChecksState;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
   /** GitHub branch-protection merge state; absent on forges that do not supply it. */
@@ -171,7 +175,8 @@ function readyExceptManualSteps(
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
  *    `stacked`, `migrations`, `signoff`, `checks_absent` (a CI repo's PR has had no checks for
  *    10 minutes while mergeable — CI evidently skips it, #3221), `protection_blocked` (branch protection holds a green PR — typically a
- *    required human approval, which Shepherd never gives), `no_ci` (a GitHub repo with zero
+ *    required human approval, which Shepherd never gives), `approval_pending` (the Claude
+ *    Approvals check waits on a human, #4145), `no_ci` (a GitHub repo with zero
  *    workflows and no `mergeWithoutCi` opt-in, #3104). */
 export type MergeWaitCode =
   | "merge_backoff"
@@ -180,6 +185,7 @@ export type MergeWaitCode =
   | "checks_failed"
   | "not_mergeable"
   | "protection_blocked"
+  | "approval_pending"
   | "behind"
   | "rebase_cap"
   | "signoff"
@@ -225,12 +231,13 @@ function readyGateFailure(
 /** The forge half of the gate: green CI, host-mergeable, not branch-protection blocked. */
 function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
   const cleared = checksCleared(s.checks, s.noCi);
-  if (cleared && s.mergeable === true && s.mergeStateStatus !== "blocked") return null;
+  const approval = approvalsHolding(s.claudeApprovals) ? "approval_pending" : null;
+  if (cleared && s.mergeable === true && s.mergeStateStatus !== "blocked") return approval;
   if (isDefiniteConflict(s)) return "conflict";
   if (!cleared && s.checks === "none" && s.checksAbsent) return "checks_absent";
   if (!cleared) return s.checks === "failure" ? "checks_failed" : "checks_pending";
   // Green CI yet blocked: branch protection wants something only a human gives (an approval).
-  if (s.mergeStateStatus === "blocked") return "protection_blocked";
+  if (s.mergeStateStatus === "blocked") return approval ?? "protection_blocked";
   return "not_mergeable";
 }
 

@@ -11,6 +11,7 @@
   import PrBadge from "../PrBadge.svelte";
   import CriticBadge from "../CriticBadge.svelte";
   import ReviewFeedbackBadge from "../ReviewFeedbackBadge.svelte";
+  import ClaudeShipBadge from "../ClaudeShipBadge.svelte";
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import GoalChip from "../GoalChip.svelte";
@@ -242,6 +243,8 @@
     <CriticBadge sessionId={session.id} tip interactive={badgesInteractive} prUrl={git?.url} />
     <!-- #4126: PR review feedback waiting for the agent; additive, never the status badge. -->
     <ReviewFeedbackBadge sessionId={session.id} {git} interactive={badgesInteractive} />
+    <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI. -->
+    <ClaudeShipBadge {git} />
     <BuildQueueBadge
       sessionId={session.id}
       planPhase={session.planPhase}

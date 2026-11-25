@@ -109,6 +109,8 @@ test("session git cache validates every optional GitState field before hydration
       ["handoffInferred", "yes"],
       ["reviewBlock", { reviewer: "scoop", state: "approved", latestAt: 1 }],
       ["issueUrl", "data:text/html,bad"],
+      ["claudeShip", { stewardWatching: "yes" }],
+      ["claudeShip", { stewardWatching: false, approvals: "waiting" }],
     ];
     const db = new Database(path);
     for (const [index, [field, invalidValue]] of invalidFields.entries()) {
@@ -170,6 +172,7 @@ test("session git cache preserves valid optional fields and strips unknown field
       handoffInferred: true,
       reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 3 },
       issueUrl: "http://gitea.local/acme/repo/issues/9",
+      claudeShip: { stewardWatching: true, approvals: "failure" },
     };
     db.run(`INSERT INTO session_git_cache (sessionId, gitJson, updatedAt) VALUES (?, ?, ?)`, [
       session.id,

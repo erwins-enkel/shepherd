@@ -11,6 +11,12 @@ import {
   runningCheckNames,
 } from "./checks";
 import { classifyPr } from "./pr-kind";
+import {
+  approvalsHolding,
+  claudeShipCheckKind,
+  claudeShipSignal,
+  splitClaudeShipRollup,
+} from "./claude-ship";
 import { makeUserCache } from "./user-cache";
 import { labelColorsFrom } from "./labels";
 import {
@@ -1101,6 +1107,7 @@ export interface GhPr {
   reviewRequests?: { login?: string }[];
   headRepositoryOwner?: { login?: string };
   updatedAt?: string;
+  labels?: Array<{ name?: string }>;
 }
 
 interface RestPull {
@@ -1144,8 +1151,25 @@ interface RestIssue {
 }
 
 interface RestCheckRun {
+  name?: string | null;
   status?: string | null;
   conclusion?: string | null;
+  app?: { slug?: string | null } | null;
+}
+
+/** One REST check run's contribution to the CI state, or null to leave it out. The REST
+ *  fallback carries no `claudeShip` field (like `jobs`), so a Claude check never reads as CI
+ *  red (#4145); an Approvals check still holding counts as pending so the train keeps waiting. */
+function restRunState(run: RestCheckRun): ChecksState | null {
+  const state = mapCheckState(run.status, run.conclusion);
+  const kind = claudeShipCheckKind(run.name, run.app?.slug !== "github-actions");
+  if (!kind) return state;
+  return kind === "approvals" && approvalsHolding(state) ? "pending" : null;
+}
+
+/** The CI states of one REST check-runs page ({@link restRunState} per run). */
+function restRunStates(runs: RestCheckRun[]): ChecksState[] {
+  return runs.map(restRunState).filter((s): s is ChecksState => s !== null);
 }
 
 interface RestReview {
@@ -1972,6 +1996,7 @@ export class GithubForge implements GitForge {
     const ts = Date.parse(p.createdAt ?? "");
     const author = p.author?.login ?? "";
     const labels = (p.labels ?? []).map((l) => l.name).filter((n): n is string => !!n);
+    const { ci } = splitClaudeShipRollup(p.statusCheckRollup ?? []);
     return {
       number: p.number,
       title: p.title,
@@ -1982,8 +2007,8 @@ export class GithubForge implements GitForge {
       isDraft: p.isDraft ?? false,
       mergeable: mapMergeable(p.mergeable),
       mergeStateStatus: mapMergeStateStatus(p.mergeStateStatus),
-      checks: rollupChecks(p.statusCheckRollup ?? []),
-      jobs: jobsFromRollup(p.statusCheckRollup ?? []),
+      checks: rollupChecks(ci),
+      jobs: jobsFromRollup(ci),
       latestReview: latestHumanReview(p.reviews),
       nonDefaultBase:
         defaultBranch && p.baseRefName && p.baseRefName !== defaultBranch
@@ -2491,8 +2516,12 @@ export class GithubForge implements GitForge {
   private mapGhPr(pr: GhPr, deployConfigured: boolean): PrStatus {
     const state = pr.state.toLowerCase() as PrStatus["state"];
     const createdAt = Date.parse(pr.createdAt ?? "");
-    const running = runningCheckNames(pr.statusCheckRollup ?? []);
-    const jobs = jobsFromRollup(pr.statusCheckRollup ?? []);
+    // #4145: Claude Ship checks are review gates, not CI — split them off before rolling up.
+    const { ci, checks: claude } = splitClaudeShipRollup(pr.statusCheckRollup ?? []);
+    const running = runningCheckNames(ci);
+    const jobs = jobsFromRollup(ci);
+    const labels = (pr.labels ?? []).map((l) => l.name).filter((n): n is string => !!n);
+    const claudeShip = claudeShipSignal(labels, claude);
     return {
       state: state === "open" || state === "merged" || state === "closed" ? state : "none",
       number: pr.number,
@@ -2504,7 +2533,7 @@ export class GithubForge implements GitForge {
       mergeable: mapMergeable(pr.mergeable),
       mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
       isDraft: pr.isDraft ?? false,
-      checks: rollupChecks(pr.statusCheckRollup ?? []),
+      checks: rollupChecks(ci),
       runningChecks: running.length ? running : undefined,
       jobs: jobs.length ? jobs : undefined,
       headSha: pr.headRefOid,
@@ -2517,6 +2546,7 @@ export class GithubForge implements GitForge {
         .filter((l): l is string => !!l),
       deployConfigured,
       mergeMethod: this.mergeMethod,
+      ...(claudeShip ? { claudeShip } : {}),
     };
   }
 
@@ -2537,7 +2567,7 @@ export class GithubForge implements GitForge {
       const runs = parsed.check_runs ?? [];
       if (typeof parsed.total_count === "number") total = parsed.total_count;
       fetched += runs.length;
-      for (const run of runs) states.push(mapCheckState(run.status, run.conclusion));
+      states.push(...restRunStates(runs));
       if (runs.length < REST_PAGE_SIZE) break;
       if (total != null && fetched >= total) break;
     }
@@ -2849,7 +2879,7 @@ export class GithubForge implements GitForge {
         "--state",
         "all",
         "--json",
-        "number,url,title,state,author,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner,updatedAt",
+        "number,url,title,state,author,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner,updatedAt,labels",
         "--limit",
         this.forkOwner ? "30" : "1",
       ]);

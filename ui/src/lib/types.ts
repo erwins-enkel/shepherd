@@ -944,6 +944,18 @@ export interface PrStatus {
   baseRefName?: string;
   /** The method Shepherd would land this PR with (the forge's configured method). Display-only. */
   mergeMethod?: MergeMethod;
+  /** Claude Ship signs on this PR (#4145); its checks are not part of `checks`/`jobs`.
+   *  GitHub only; absent when no sign is present. */
+  claudeShip?: ClaudeShipSignal;
+}
+
+/** What Claude Ship is doing on one PR (mirrors server forge/types ClaudeShipSignal). A check
+ *  field is absent when that Claude App check run is not on the head. */
+export interface ClaudeShipSignal {
+  /** The `claude-pr-steward-watching` label is on the PR: PR Steward may push to it. */
+  stewardWatching: boolean;
+  codeReview?: ChecksState;
+  approvals?: ChecksState;
 }
 
 /** Which kind of PR this is — drives the PRs tab type tag (mirrors server `PrKind`). */
@@ -1534,6 +1546,7 @@ export type MergeWaitCode =
   | "checks_failed"
   | "not_mergeable"
   | "protection_blocked"
+  | "approval_pending"
   | "behind"
   | "rebase_cap"
   | "signoff"

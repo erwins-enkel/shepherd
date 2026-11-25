@@ -208,6 +208,53 @@ describe("GithubForge.prStatusMany", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("Claude Ship label + App check map like prStatus (#4145)", async () => {
+    const approvals = {
+      __typename: "CheckRun",
+      name: "Claude Approvals",
+      status: "COMPLETED",
+      conclusion: "FAILURE",
+      startedAt: "2026-10-20T10:03:00Z",
+      completedAt: "2026-10-20T10:04:00Z",
+      detailsUrl: "https://x/3",
+    };
+    const label = { name: "claude-pr-steward-watching" };
+    const row = {
+      ...GH_ROW,
+      statusCheckRollup: [...GH_ROW.statusCheckRollup, { ...approvals, workflowName: "" }],
+      labels: [label],
+    };
+    const commit = GRAPHQL_NODE.commits.nodes[0]!.commit;
+    const node = {
+      ...GRAPHQL_NODE,
+      commits: {
+        nodes: [
+          {
+            commit: {
+              statusCheckRollup: {
+                contexts: {
+                  nodes: [
+                    ...commit.statusCheckRollup.contexts.nodes,
+                    { ...approvals, checkSuite: { workflowRun: null } },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+      labels: { nodes: [label] },
+    };
+    const single = new GithubForge("o/r", {}, async () => JSON.stringify([row]));
+    const batched = new GithubForge("o/r", {}, batchRunner({ "o/r": { topic: node } }, []));
+    const many = await batched.prStatusMany(["topic"]);
+    expect(many.get("topic")).toEqual(await single.prStatus("topic"));
+    expect(many.get("topic")).toMatchObject({
+      checks: "pending",
+      claudeShip: { stewardWatching: true, approvals: "failure" },
+    });
+  });
+
   test("coalesces forges in one macrotask; chunks at 20 heads", async () => {
     const calls: string[][] = [];
     const run = batchRunner({ "o/a": {}, "o/b": {} }, calls);

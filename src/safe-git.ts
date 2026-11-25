@@ -1,22 +1,13 @@
 /**
  * The ONE way the server runs git against a managed repo or worktree (audit F01/F02/F05/F07).
  *
- * Agents (and fork-PR authors) control repo content: worktree files, the shared `.git`
- * config/hooks, and — inside a worktree — the `.git` gitfile itself. Plain host git over that
- * state runs their code as the operator, outside the sandbox: relative `core.hooksPath`
- * (husky's `.husky/_`) resolves into the worktree, `core.fsmonitor` runs on every status/diff,
- * `ext::` remotes run on fetch, `diff.external`/textconv run on diff, and a repo-relative merge
- * driver runs the branch's own script. This module:
- *
- * - prepends `-c` overrides that disable hooks, fsmonitor and the `ext::` transport
- *   (command-line config beats repo, worktree and included config);
- * - adds `--no-ext-diff --no-textconv` to `diff`/`log`/`show`;
- * - optionally pins `GIT_DIR`/`GIT_WORK_TREE` for a worktree from the TRUSTED repo path, never
- *   from the worktree's agent-writable `.git` gitfile ({@link resolveWorktreePin});
- * - names Shepherd's own copy of the i18n union merge driver ({@link trustedUnionDriverConfig}).
- *
- * The neutralized set is deliberately narrow (keys the operator's own global setup never needs
- * from repo config); widening it is tracked separately.
+ * Agents and fork-PR authors control repo content (worktree files, shared `.git` config/hooks,
+ * the worktree's `.git` gitfile); plain host git over it runs their code as the operator. This
+ * module neutralizes hooks, fsmonitor, `ext::`, external diff/textconv, optionally pins
+ * `GIT_DIR`/`GIT_WORK_TREE` from the TRUSTED repo path (never the gitfile,
+ * {@link resolveWorktreePin}) and names Shepherd's own union merge driver
+ * ({@link trustedUnionDriverConfig}). The neutralized set is deliberately narrow. Vectors and
+ * scope: `docs/sandbox-security.md#host-side-git`.
  *
  * test/safe-git-guard.test.ts fails on any raw `execFile("git", …)` outside its allowlist.
  */

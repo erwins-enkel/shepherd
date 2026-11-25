@@ -19,9 +19,9 @@ import { checksCleared } from "./checks-gate";
  *
  * Deliberately STATELESS over the current GitState (no prev-state comparison):
  * dedup lives in the persisted `issue_log` stamps, so each transition comments
- * exactly once per PR across restarts, CI flaps, and the one-time backfill burst
- * when roles are first configured (the operator chose to backfill already-waiting
- * PRs). A reviewer→merger handoff flip after approval does NOT re-comment — one
+ * exactly once per PR across restarts, CI flaps, and the intentional one-time
+ * backfill of already-waiting PRs when roles are first configured. A
+ * reviewer→merger handoff flip after approval does NOT re-comment — one
  * "waiting" note per PR, keyed `waiting:<pr>` / `merged:<pr>`; a NEW PR (new
  * number) logs again. Best-effort like closeIssue: a failed comment is not
  * stamped, so the next session:git event retries it.

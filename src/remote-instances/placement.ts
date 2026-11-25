@@ -1,30 +1,14 @@
 /**
- * Automatic machine choice (issue #2772): where a new task runs when the submitter names no
- * machine, and whether a machine it does name fits. This module is the pure half — one decision
- * function over a view of every machine (this one included), the rules every caller shares and the
- * record a placed task keeps. `server.ts` builds the views and acts on the decision; the create
- * route and the preview route (`POST /api/placement`) run the very same function, so what the form
- * shows before submit is what the create does with the same readiness.
- *
- * The rules, and why:
- * - A machine fits a task when its platform is released, it has the project checked out — or the
- *   project has a forge slug, so the dispatch can clone it there first — and every requirement is
- *   `ok` in its capability report. A connected machine's report must be fresh (not stale); a machine
- *   out of reach is judged on what it last reported, so it can still be the one a task is meant for.
- * - Machines with a checkout come first: one without it is chosen only when no machine with it fits
- *   — out of reach included. Among the machines of that tier the rules below apply unchanged.
- * - Under high host load, a connected fitting machine with verified spare capacity can take the
- *   new task instead. Unknown load and offline targets keep the preference.
- * - Fitting machines are ranked by platform (the order below, Linux first: it has the full sandbox
- *   and runs all the time), then by instance ID. Nothing in the ranking depends on which Shepherd
- *   decides, so a task lands on the same machine wherever it is submitted — as long as every
- *   Shepherd uses the same order and load observations.
- * - The top machine out of reach is never replaced by the next one: the task waits for it (#2775)
- *   and the connected machines that fit too are offered as a manual choice — no silent fallback.
- * - A machine named by the submitter must fit the same way, or it is refused with the reason.
- *
- * The same rules judge a waiting task's machine when it comes back (`readinessOf`) and the machines
- * it could be redirected to (`fittingNow`), so what the herd offers is what a redirect accepts.
+ * Automatic machine choice (#2772): where a new task runs when the submitter names no machine, and
+ * whether a named one fits. The pure half — one decision function over a view of every machine
+ * (this one included); `server.ts` builds the views and acts on the decision. Rules (fit, checkout
+ * tier, load, ranking, no silent fallback): `docs/machines.md#automatic-choice`. Keep:
+ * - the create route and the preview route (`POST /api/placement`) run this SAME function, so what
+ *   the form shows before submit is what the create does with the same readiness;
+ * - nothing in the ranking depends on which Shepherd decides, so a task lands on the same machine
+ *   wherever it is submitted (given the same platform order and load observations);
+ * - `readinessOf` (a waiting task's machine is back) and `fittingNow` (redirect targets) apply the
+ *   same rules, so what the herd offers is what a redirect accepts.
  */
 import {
   type Capability,

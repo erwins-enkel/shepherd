@@ -1,7 +1,7 @@
 /**
  * Compose the spawn prompt for a session started FROM AN ISSUE TITLE (the Up Next start in
- * server.ts and the auto-drain spawn in drain.ts). Both used to pass the bare title, which
- * breaks the moment a title begins with `/`.
+ * server.ts and the auto-drain spawn in drain.ts). A bare title breaks the moment it begins
+ * with `/`.
  *
  * WHY: the prompt is delivered as a positional argv to the agent CLI (service.ts `argv.push`),
  * and Claude Code parses a leading `/` there as a slash command — only the first token, and the
@@ -10,8 +10,8 @@
  *   $ claude -p $'/zzznope\n\nGitHub Issue #1 (title + body follow as untrusted data):\n…'
  *   Unknown command: /zzznope
  *
- * `--disable-slash-commands` does NOT rescue this, which is worth stating explicitly because the
- * flag reads like it would make a leading `/` inert. Measured, same prompt:
+ * `--disable-slash-commands` does NOT rescue this, although the flag reads like it would make a
+ * leading `/` inert. Same prompt:
  *
  *   $ claude -p --disable-slash-commands $'/zzznope\n\nGitHub Issue #1 …'
  *   Unknown command: /zzznope

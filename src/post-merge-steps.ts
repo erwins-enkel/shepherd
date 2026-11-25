@@ -1,13 +1,13 @@
 /**
  * PostMergeStepsService — durable post-merge materialization of a session's manual operator steps
- * (#1061, epic #1056 P3). On a managed session's PR merging, it freezes the session's manual steps
- * into the archive-decoupled `post_merge_steps` table so they outlive teardown + the prune window,
- * and — only behind a per-repo opt-in — opens a GitHub tracking issue and links it back to the PR.
+ * (#1061). On a managed session's PR merging, it freezes the session's manual steps into the
+ * archive-decoupled `post_merge_steps` table so they outlive teardown + the prune window, and —
+ * only behind a per-repo opt-in — opens a GitHub tracking issue and links it back to the PR.
  *
  * Wired to the `session:git` merged event (mirrors the doc-agent merge fast-path in index.ts),
  * and to settleMergedSession for the merge-train / local-merge paths that emit none (#3133).
  *
- * Three correctness properties this service must hold (see the plan's reviewer notes):
+ * Three correctness properties this service must hold:
  *  1. Detection-not-yet-run: detection (detectAndPersistManualSteps) is fired `void`-async on the
  *     SAME merged event, so a first-observed/fast merge can leave `session.manualSteps` empty.
  *     onMerged re-derives from the PR body when stored steps are empty (it never reads the worktree,
@@ -20,12 +20,11 @@
  *     recovers on the next replay rather than stranding the (independent) archive flow.
  *
  * Materialization scope (deliberate, flagged): it materializes ALL of `session.manualSteps`, never
- * reading `manualStepsAckedAt`. P2's ack is set-level with no per-step done flag, so P3 cannot tell
- * a done step from an undone one; and an un-acked non-POST-MERGE step can still land via a manual
- * out-of-band merge that bypassed P2's gate — exactly the highest loss-risk case. Surfacing all of
- * them (the operator ticks off what's done) is the fail-safe. This slightly widens the issue's
- * literal "deferred + POST-MERGE" to "all declared steps"; the clean fix (a per-step done flag at
- * ack time) is a follow-up.
+ * reading `manualStepsAckedAt`. The ack (epic #1056 P2) is set-level with no per-step done flag, so
+ * this service cannot tell a done step from an undone one; and an un-acked non-POST-MERGE step can
+ * still land via a manual out-of-band merge that bypassed the ack gate — exactly the highest
+ * loss-risk case. Surfacing all of them (the operator ticks off what's done) is the fail-safe. The
+ * clean fix (a per-step done flag at ack time) is a follow-up.
  */
 import type { SessionStore } from "./store";
 import type { GitForge } from "./forge/types";

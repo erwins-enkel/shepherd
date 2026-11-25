@@ -570,7 +570,11 @@ workspace-write` bounds what a Codex role may WRITE; it says nothing about what
 project_doc_fallback_filenames=["CLAUDE.md"]` (`src/codex-role-argv.ts`), which
   drops `$CODEX_HOME/config.toml` — MCP servers, connector apps, hooks, exec
   policy and the model/effort defaults — while re-asserting the one inheritance
-  a Claude role also has, the repo's `CLAUDE.md`.
+  a Claude role also has, the repo's `CLAUDE.md`. Auth still resolves via
+  `CODEX_HOME`, and `-m` / `-c` overrides (model, effort) still apply on top.
+  The `CLAUDE.md` fallback buys back no attack surface: it is a filename mapping
+  carrying no MCP servers, hooks, connectors or exec policy, and `AGENTS.md`
+  loads either way.
 
   **The posture is uniform across all four transient kinds; the reason is
   per-kind.** For `reviewer` and `doc` (untrusted git worktree) dropping
@@ -583,22 +587,27 @@ project_doc_fallback_filenames=["CLAUDE.md"]` (`src/codex-role-argv.ts`), which
   deny every `mcp__*` call at the call site, so a loaded server is inert —
   Codex has **no** tool allowlist, so dropping the config is the only thing
   keeping them away from the operator's servers and connectors. `--ignore-rules`
-  additionally drops **project** execpolicy `.rules`, which an untrusted PR head
-  could otherwise commit to widen what the reviewer runs unapproved.
+  drops user and — the load-bearing half — **project** execpolicy `.rules`, which
+  an untrusted PR head could otherwise commit to widen what the reviewer runs unapproved.
 
   `--skip-git-repo-check` is a precondition skip, not a control: Codex refuses to
   start outside a git repo or a `[projects.*]` trust entry, and those entries
   live in the config we just stopped loading. Without it every tmpdir role dies
-  at spawn. **Three residuals are accepted:** `$CODEX_HOME/AGENTS.md` still
+  at spawn. It is emitted for every kind so it never rests on an assumption
+  about a caller's cwd; the recorded turn context is identical with and without
+  it. **Three residuals are accepted:** `$CODEX_HOME/AGENTS.md` still
   loads (no flag drops it — symmetric with a Claude role still reading
   `~/.claude/CLAUDE.md`); there is **no `--allowedTools` analog**, so a Codex
   role can still run arbitrary shell inside its sandbox and cannot be narrowed to
   the reviewer's read-only tool set (`--sandbox read-only` would also block the
   verdict-file write the result contract needs) — this is the largest remaining
-  Claude↔Codex asymmetry; and an operator on a custom `model_provider` loses that
-  wiring, unguarded because a guard would mean re-reading the ignored config.
-  `--ephemeral` is deliberately **not** used: it would suppress the rollout files
-  role activity and token totals are read from (`src/codex-activity.ts`).
+  Claude↔Codex asymmetry; and an operator on a custom `model_provider` (or
+  `--oss`) loses that wiring, unguarded because a guard would mean re-reading the
+  ignored config. `--ephemeral` is deliberately **not** used: it would suppress
+  the rollout files role activity and token totals are read from
+  (`src/codex-activity.ts`). Neither is `--dangerously-bypass-hook-trust`: it
+  grants enabled hooks without persisted trust — the opposite of isolation;
+  `--ignore-user-config` already removes user hooks.
 
 - **Transient helpers reach outside their scratch dir only via `--add-dir`.**
   The `--allowedTools` allowlist decides WHICH tools may run, not WHERE they may
@@ -622,9 +631,11 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   is the allowlist — no `Bash`, no `Edit`, no git, no network — so the ceiling is
   file writes inside one operator-chosen repo, with no exec, commit, push or
   exfiltration. The prompt's "write only your result file" instruction is
-  guidance to a cooperative model, not an enforced boundary. Tightening this
-  means giving the helper a read-only view (detached worktree / RO bind, as the
-  reviewer roles get), not a narrower allowlist.
+  guidance to a cooperative model, not an enforced boundary — a prompt injection
+  in a repo file it reads can ignore it. Tightening this means giving the helper
+  a read-only view (detached worktree / RO bind, as the reviewer roles get), not
+  a narrower allowlist: the allowlist is already as tight as a helper that must
+  write its own result file can be.
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
   (`src/service.ts` `researchSafeProfileOverride`, warns once),
@@ -768,7 +779,11 @@ Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.
 The Shepherd server itself runs unconfined, and it runs git over state that
 agents and PR authors control: worktree files, the shared `.git` config and
 hooks, the worktree's own `.git` gitfile, and integration-branch content. Plain
-git over that state would execute it as the operator. This is audit
+git over that state would execute it as the operator, outside the sandbox: a
+relative `core.hooksPath` (husky's `.husky/_`) resolves into the worktree,
+`core.fsmonitor` runs on every status/diff, `ext::` remotes run on fetch,
+`diff.external`/textconv run on diff, and a repo-relative merge driver runs the
+branch's own script. This is audit
 F01/F02/F05/F07. Every server-side git call therefore goes through
 `src/safe-git.ts`, and `test/safe-git-guard.test.ts` fails on any raw git
 launch outside a short allowlist (plugin checkouts, a version probe, the

@@ -1942,8 +1942,7 @@ export class DrainService {
    *  The race: a child is spawned on its predecessor's head while that PR is open, the predecessor
    *  then retires (squash into the epic branch) BEFORE the child opens its own PR, and the child's
    *  PR is opened against a branch that has already merged. Composition will not seed a stack on it
-   *  and the retire gate refuses it forever — the only exit left was an out-of-band merge into the
-   *  dead branch, which is how aetherial's M0 epic lost #63/#64/#67/#69.
+   *  and the retire gate refuses it forever.
    *
    *  Store-first: only a live child on a STACKED base whose predecessor (the session owning that
    *  branch) is an integrated child of the same epic costs a forge call at all. Keyed on branch
@@ -1955,7 +1954,7 @@ export class DrainService {
    *  CI were judged against that tip (the dead base), and the epic already holds the same content
    *  squashed, so landing it on the epic adds exactly the reviewed diff. A child cut from an EARLIER
    *  predecessor head is held: a 3-way squash would resurrect anything the predecessor's later
-   *  rework removed, unreviewed. It stays blocked, as before, until its branch absorbs that tip —
+   *  rework removed, unreviewed. It stays blocked until its branch absorbs that tip —
    *  or is rebased onto the epic branch: a head that contains the PINNED tip squashes to exactly its
    *  own (CI'd, reviewed) content. That second test is what makes the logged remedy work at all: the
    *  epic holds the predecessor only as a squash commit, so a rebased head never contains the dead
@@ -6162,20 +6161,19 @@ export class DrainService {
 
   /**
    * #1401 reconcile sweep: backfill `epic_integrated` rows for children whose merged PR was
-   * settled without recording (out-of-band merges that predate the event-time fix, or whose
-   * event was missed). Event-time recording is one-shot and already consumed for such children,
-   * so a stalled epic can only converge through this pass. Runs from tick() ungated by the
-   * drain toggle, but is internally cheap: nothing for repos without an active epic, and one
-   * sweep per epic per {@link EPIC_RECONCILE_TTL_MS} otherwise.
+   * settled without recording (out-of-band merges, or a missed event). Event-time recording is
+   * one-shot and already consumed for such children, so a stalled epic can only converge through
+   * this pass. Runs from tick() ungated by the drain toggle, but is internally cheap: nothing for
+   * repos without an active epic, and one sweep per epic per {@link EPIC_RECONCILE_TTL_MS}
+   * otherwise.
    *
-   * Mapping is session-records-only (ratified in the plan): every stored session row for the
-   * child (ANY status incl. archived, ANY auto flag) contributes its branch; each DISTINCT
-   * branch is probed via branch-keyed `prStatus` until one records. All rows — not first-match —
-   * because `store.list()` is createdAt-ordered, so a dead predecessor session (spawned first,
-   * never opened a PR) sorts before the manual respawn whose PR actually merged (#128's
-   * TASK-1248 vs TASK-1249 shape). Branches whose LIVE session currently shows an open PR are
-   * skipped — their merge will be recorded event-time; probing them every sweep would just burn
-   * forge reads on healthy in-flight children.
+   * Mapping is session-records-only: every stored session row for the child (ANY status incl.
+   * archived, ANY auto flag) contributes its branch; each DISTINCT branch is probed via
+   * branch-keyed `prStatus` until one records. All rows — not first-match — because
+   * `store.list()` is createdAt-ordered, so a dead predecessor session (spawned first, never opened
+   * a PR) sorts before the manual respawn whose PR actually merged. Branches whose LIVE session
+   * currently shows an open PR are skipped — their merge will be recorded event-time; probing them
+   * every sweep would just burn forge reads on healthy in-flight children.
    *
    * Worst case: one `prStatus` per distinct not-open-PR branch per un-integrated child per TTL.
    * After a backfill the same tick's pump reads the new row → handleEpicSideEffects completes

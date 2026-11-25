@@ -245,20 +245,20 @@ function collect(
  * binary. Nothing under `~/.claude` or a repo can ever surface `/design`; it reaches the picker
  * here or not at all.
  *
- * Discovering them at runtime was measured and rejected: `claude` only emits the full set (its
+ * Runtime discovery is rejected: `claude` only emits the full set (its
  * `init` message's `slash_commands`) during a real `-p --output-format stream-json` run — an empty
  * stdin exits before it — so reading it costs an API call, and `handleCommands` in `server.ts` is a
  * sync handler on the single Bun event loop that also pumps the live web terminal.
  *
- * THE COST OF THAT CHOICE, and the only guard against it: the list goes stale in both directions.
- * It shipped `/review` and `/pr-comments` for releases after Claude Code dropped them, handing the
- * operator a task that opens with a command nothing resolves. Re-check against reality with
+ * THE COST OF THAT CHOICE, and the only guard against it: the list goes stale in both directions,
+ * and a dropped entry hands the operator a task that opens with a command nothing resolves.
+ * Re-check against reality with
  *
  *     claude -p --output-format stream-json --verbose hi | head -8
  *
  * and diff `init.slash_commands` against `listCommands()`. Note also that some bundled skills are
  * account-gated (`verify`, `debug`, `batch`, `deep-research`, … appear only for some accounts), so
- * only broadly-available ones belong here — a gated name would be the `/review` failure again.
+ * only broadly-available ones belong here — a gated name fails the same way for other accounts.
  *
  * An entry that drives a built-in tool the spawn trim denies (`UNUSED_BUILTIN_TOOLS`, #3778) needs a
  * row in `COMMAND_BUILTIN_TOOLS` (src/service.ts), or it is dead in every trimmed session.

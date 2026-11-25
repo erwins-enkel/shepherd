@@ -584,14 +584,12 @@ function managerRoots(home: string): string[] {
  * Sub-paths of a manager root that the manager REWRITES on every invocation, and which therefore
  * cannot sit under the read-only bind above.
  *
- * `mise` is the live case (same host change behind #2052). A mise-managed `claude` is reached
- * through a launcher on PATH that re-runs `mise use`, and mise rebuilds `shims/` as part of that —
- * under the RO bind the rebuild hits EROFS and mise exits non-zero, so the agent process NEVER
- * STARTS. Nothing observes
- * that directly: the role's verdict file simply never appears, the caller waits out its whole
- * timeout (10 min for the plan gate), records a `no-verdict` error and re-spawns into the same
- * wall. Every membrane-wrapped role — plan gate, PR critic, doc agent, standalone critic — fails
- * this way at once.
+ * `mise` is the live case (#2052). A mise-managed `claude` is reached through a launcher on PATH
+ * that re-runs `mise use`, and mise rebuilds `shims/` as part of that — under the RO bind the
+ * rebuild hits EROFS and mise exits non-zero, so the agent process NEVER STARTS. Nothing observes
+ * that directly: the role's verdict file never appears, the caller waits out its whole timeout,
+ * records a `no-verdict` error and re-spawns into the same wall — for every membrane-wrapped role
+ * (plan gate, PR critic, doc agent, standalone critic) at once.
  *
  * A tmpfs is the narrow fix: the rebuild succeeds against throwaway storage, the write never
  * reaches the host, and `installs/` stays read-only — so a sandboxed role still cannot plant a

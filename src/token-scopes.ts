@@ -39,25 +39,14 @@ export function isTokenScope(raw: unknown): raw is TokenScope {
 }
 
 /**
- * `read`: status surfaces a dashboard or launcher consumes. Nothing here mutates anything.
- *
- * `POST /api/ping` belongs in this set despite the verb — `handlePing` is a pure no-op reachability
- * probe, a POST only so it rides `checkOrigin` and can reproduce the CSRF 403 a real capture POST
- * would hit. It reads nothing and writes nothing.
- *
- * `GET /events` is the status/metadata event bus, not a terminal: agent bytes ride `/pty/:id`,
- * which no scope below `full` reaches.
- *
- * The two `/inflight` routes (#2421) are the bootstrap snapshot of a fact `GET /events` ALREADY
- * pushes to this scope — `session:reviewing` and `session:plangate-reviewing`, reviewer env
- * included (src/index.ts). Without them a client that loads mid-review cannot reach the
- * `reviewerRunning` stage of the herd's own lifecycle partition, so an idle session with a green PR
- * whose critic is still working reads as the operator's turn early. Note what they do NOT admit:
- * `GET /api/reviews` and `GET /api/plan-gates` return the verdict bodies — findings, summaries,
- * plan questions, round counts — and stay `full`-only. Matching is exact, so listing the
- * `/inflight` child grants nothing at the parent. The bar a further entry has to clear is the one
- * these pass: a status fact about a session the token can already enumerate through
- * `GET /api/sessions`, with no verdict, no finding, no diff and no new identifier.
+ * `read`: status surfaces a dashboard or launcher consumes. Nothing here mutates anything
+ * (`POST /api/ping` is a no-op probe; `GET /events` is the status bus, not `/pty/:id`). The
+ * `/inflight` routes (#2421) are the bootstrap snapshot of facts `GET /events` already pushes to
+ * this scope; their verdict parents `GET /api/reviews` / `GET /api/plan-gates` stay `full`-only.
+ * Matching is exact, so listing a child grants nothing at the parent. The bar a further entry must
+ * clear: a status fact about a session the token can already enumerate through `GET
+ * /api/sessions`, with no verdict, no finding, no diff and no new identifier. Per-route rationale:
+ * `docs/external-task-api.md#recommended-setup-for-a-remote-agent`.
  */
 const READ_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/sessions",

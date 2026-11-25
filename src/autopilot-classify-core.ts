@@ -54,14 +54,10 @@ export function preClassify(tail: string[]): AutopilotVerdict | null {
  *    a non-English tail is never itself a reason to guess a confident kind. Injected next to the
  *    terminal-tail fence (it governs how to READ the tail).
  *
- *    Issue #2169 rewrote this line after `de-ambiguous-unknown` lost its `unknown` majority. Its
- *    first form closed with "never upgrade an uncertain read to a confident `gate` or `question`
- *    just to avoid abstaining" — an abstract instruction about confidence that named `gate` twice
- *    inside a negation, and measured no better than injecting nothing at all (22/27 vs 24/27
- *    `unknown` on the eroding fixture). It is now a POSITIVE, checkable test the model can apply
- *    to the tail in front of it: `gate` and `question` both presuppose the agent RAISED something,
- *    so a tail that only narrates progress cannot be either. Measured 45/45 on that fixture with
- *    no bucket trading — see docs/eval-stop-classifier.md.
+ *    Phrase it as a POSITIVE, checkable test the model applies to the tail (#2169): `gate` and
+ *    `question` both presuppose the agent RAISED something, so a tail that only narrates progress
+ *    cannot be either. An abstract "never upgrade an uncertain read to a confident kind" negation
+ *    measured no better than no line at all — eval numbers in docs/eval-stop-classifier.md.
  *
  *    The final clause ("if such a tail also does not clearly report finished or delivered work") is
  *    LOAD-BEARING, not hedging: without it the rule reads as "no question asked -> unknown", which

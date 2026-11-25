@@ -14,17 +14,15 @@
  * real `~/.claude` EXCEPT `.credentials.json`, and (b) COPIES in `$HOME/.claude.json`
  * (see {@link CONFIG_FILE}). Callers set `CLAUDE_CONFIG_DIR` to this mirror for every
  * api-key spawn. The symlinks keep skills/commands/CLAUDE.md/plugins/settings live and
- * cheap; the credential file is absent so the spawn is "not logged in" and authenticates
- * via `--settings apiKeyHelper` instead — with no "Use custom API key?" prompt.
+ * cheap.
  *
  * Why `.claude.json` is copied, not symlinked: Claude Code writes to it (onboarding/
  * project state), and symlinking would mutate — and race the live shepherd on — the
  * operator's real config. A snapshot copy is isolated and refreshed each provision.
  *
- * Verified with a live api-key spawn: a config dir holding a copied `.claude.json`
- * (with its `oauthAccount` field) but NO `.credentials.json` reports "Not logged in",
- * and an `apiKeyHelper` then authenticates with no approval prompt — so `oauthAccount`
- * metadata is not itself a login and no HOME shim is needed.
+ * The copied `.claude.json` keeps its `oauthAccount` field: that metadata is not itself a
+ * login (verified live — without `.credentials.json` the spawn reports "Not logged in" and
+ * `apiKeyHelper` authenticates with no prompt), so no HOME shim is needed.
  */
 
 import { dirname, join } from "node:path";

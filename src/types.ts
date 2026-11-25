@@ -601,12 +601,9 @@ export interface RelaunchOverrides {
  *      version, so a future Opus or Fable release can't silently change a task's
  *      model. The short form `opus-5` is NOT a valid CLI value (it errors) — only
  *      the full name is.
- *  The Opus 5 pair was probed against the pinned CLI: `claude-opus-5[1m]` sends wire
- *  model `claude-opus-5` with a beta set byte-identical to `opus[1m]`'s, i.e. it
- *  really does carry `context-1m-2025-08-07`. The Opus 5.5 pair could NOT be probed
- *  the same way — the CLI on hand 400s on the model before sending any header — so
- *  `claude-opus-5-5[1m]` carries the 1M beta by the same construction, not by
- *  measurement; re-probe it once a CLI at the floor below is installed. The Sonnet 5.5
+ *  `claude-opus-5[1m]` is probed to carry `context-1m-2025-08-07` (same beta set as
+ *  `opus[1m]`). `claude-opus-5-5[1m]` carries it by the same construction, NOT by
+ *  measurement — re-probe it once a CLI at the floor below is installed. The Sonnet 5.5
  *  `[1m]` variant is likewise unprobed: the CLI catalog lists `claude-sonnet-5-5[1m]` but,
  *  unlike Opus 5.x, does not flag Sonnet 5.5 as `supports_1m_suffix`.
  *

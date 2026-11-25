@@ -3,9 +3,8 @@
  *
  *  `sessions.prompt` is frozen at INSERT (the store has no UPDATE path for that column), and every
  *  other intent source a reviewer sees is either frozen too, agent-authored-and-fenced, or consumed
- *  once. So an operator who decides mid-session to widen scope — "actually, go ahead and build it"
- *  — could not reach the critic at all, which then blocked the PR against a task the operator had
- *  already superseded.
+ *  once. Without this channel, an operator who widens scope mid-session — "actually, go ahead and
+ *  build it" — cannot reach the critic, which then blocks the PR against a superseded task.
  *
  *  WHY THIS IS DANGEROUS, AND WHAT MAKES IT SAFE. Anything that can widen a task can be used to
  *  excuse a finding, so this channel is a scope-laundering vector by construction. Three properties

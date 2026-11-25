@@ -32,13 +32,11 @@ export type ReapableHerdr = Pick<
  *  ({@link VERIFY_KEY_LABEL}). User sessions use prompt-derived `[a-z0-9-]` slugs — no spaces,
  *  no underscores — so none of these labels is reachable by a slug.
  *
- *  Labels are named by CONSTANT wherever one exists, never spelled out as a string here: a
- *  renamed label would otherwise leave this comment describing a dead value — the same
- *  producer↔consumer desync the constants themselves exist to prevent (#1147). The remaining
- *  quoted literals above/below are the labels still inlined at their spawn sites; if one of
- *  those gains a constant, reference it here too.
+ *  Labels are named by CONSTANT wherever one exists, never spelled out as a string here, so a
+ *  rename cannot leave this comment describing a dead value (#1147). The quoted literals are
+ *  labels still inlined at their spawn sites; if one gains a constant, reference it here too.
  *
- *  Helpers covered (named by constant where one exists — see the note above):
+ *  Helpers covered:
  *  - {@link PROBE_NAME}        — usage probe
  *  - {@link NAMER_LABEL}`<desig>`  — background LLM namer (namer.ts)
  *  - {@link AUTOPILOT_LABEL}`<id>` — autopilot stop-classifier (autopilot-llm.ts)
@@ -187,24 +185,21 @@ export interface ReapResult {
  * shepherd restart (which clears in-memory review tracking). Returns a {@link ReapResult}.
  *
  * **Scope comes from `tab.list`, evidence from `pane.list` (#2029).** herdr 0.7.5 emits a pane
- * `label` for almost no pane and for NO helper pane — measured live: 0 of 325 helper panes — and
- * emits no `agent.name` at all. Filtering the pane list by label therefore selected the empty set
- * on exactly the panes that need reaping, and this whole function ran to completion doing nothing,
- * every hour, silently. The TAB label survives (required in the generated schema, present on
- * 508/508 live tabs), so the helper set is derived from `tabsAsync()` and panes are joined to it
- * by `tab_id` purely as process-liveness evidence.
+ * `label` for almost no pane and for NO helper pane, and no `agent.name` at all, so filtering
+ * panes by label selects the empty set and silently reaps nothing. The TAB label survives
+ * (required in the generated schema), so the helper set is derived from `tabsAsync()` and panes
+ * are joined to it by `tab_id` purely as process-liveness evidence.
  *
  * **Husk signal = process liveness (ground truth), not list-absence.** Under
  * herdr 0.7 an exited helper agent leaves its pane alive as an idle `zsh`, and that pane
- * STILL appears in `agent list` (#721) — so the old "absent from `agent list` ⇒ orphan"
- * signal never fires. Instead we ask herdr for each helper pane's foreground processes.
+ * STILL appears in `agent list` (#721), so "absent from `agent list` ⇒ orphan" never fires.
+ * Instead we ask herdr for each helper pane's foreground processes.
  *
  * **Classification is per TAB, not per pane (#1852).** Reaping closes whole tabs, and a
  * helper tab can hold MORE than one pane: a headless codex-exec role deliberately retains
  * its root shell pane (`isHeadlessCodexExec`), and a failed best-effort root-pane close
- * leaves a shell pane beside the agent pane. Judging panes independently let a sibling
- * shell pane mark such a tab reap-eligible while its live pane merely counted as spared —
- * two sweeps later the tab was closed WITH the live helper inside. So helper panes are
+ * leaves a shell pane beside the agent pane. Judged per pane, a sibling shell pane would mark
+ * such a tab reap-eligible and close it WITH the live helper inside. So helper panes are
  * grouped by tabId and the TAB is classified with fail-safe precedence:
  *
  * - **any pane live** (a non-shell proc: `claude` / `node` / …) → spare the whole tab
@@ -235,9 +230,8 @@ export interface ReapResult {
  * **`sessions` widens the SCOPE and nothing else (#1156).** Archiving a session is supposed to
  * close its tab, but `herdr.stop` resolves that tab from the in-memory spawn ledger or from
  * `agent list` — both empty for a settled session after a restart — and then documents its own
- * teardown as a no-op deferring to "the orphan sweep". No sweep covered session tabs, because this
- * one scopes to helper labels by design; the field report on #1156 counted 94 such husks. Archived
- * session tabs join the helper set at exactly one point: scope selection. Everything after it —
+ * teardown as a no-op deferring to "the orphan sweep". Archived session tabs therefore join the
+ * helper set here, at exactly one point: scope selection. Everything after it —
  * per-tab classification, the spare-on-any-live-pane and fail-closed-on-no-evidence precedence,
  * and the two-sweep debounce — treats them identically, so a session tab is closed on the same
  * evidence a helper tab is.
@@ -402,11 +396,10 @@ export interface OrphanTabSweeperDeps {
 }
 
 /**
- * Serialized, self-confirming orchestrator around {@link reapOrphanTabs} (#1852). The old
- * wiring fired boot sweeps at 5s/45s as independent `void` calls: on a large inventory the
- * 5s pass (which awaits per-pane process-info sequentially) could still be running at 45s,
- * both passes then started from the SAME debounce set, and neither was guaranteed to be
- * the confirming pass — while the in-memory debounce also reset on every restart.
+ * Serialized, self-confirming orchestrator around {@link reapOrphanTabs} (#1852). Independent
+ * `void` sweeps can overlap on a large inventory (a pass awaits per-pane process-info
+ * sequentially), start from the SAME debounce set, and leave no pass guaranteed to confirm —
+ * and the in-memory debounce resets on every restart.
  *
  * Contract:
  * - **Serialized + coalesced:** at most one pass in flight and at most one queued. A
@@ -420,7 +413,7 @@ export interface OrphanTabSweeperDeps {
  *   single stable window after any restart converges, and a skipped boot sweep merely
  *   defers to the next trigger instead of losing an hour. Steady state schedules nothing:
  *   a pass whose sightings are all repeats (or that reaps them) sights nothing new.
- * - `maintenanceActive` skips triggers outright (matching the old wiring) and drains a
+ * - `maintenanceActive` skips triggers outright and drains a
  *   queued follow-up without running it — the next scheduled trigger re-enters.
  */
 export function createOrphanTabSweeper(deps: OrphanTabSweeperDeps): { trigger: () => void } {
@@ -470,59 +463,6 @@ export function createOrphanTabSweeper(deps: OrphanTabSweeperDeps): { trigger: (
 
 // ── Stranded review-worktree disk sweep (#721) ───────────────────────────────
 
-/**
- * Reviewer/critic disposable checkouts (`{basename}-review-{tag}`, created by
- * `worktree.ts:createDetached`) whose teardown was missed — a crash, a shepherd
- * restart that cleared in-memory review tracking, or a foreign-era basename whose
- * repo is no longer configured — accumulate as dead dirs under `.shepherd-worktrees`.
- * This is a disk-driven sweep that reaps them; it COMPLEMENTS plan-gate's
- * {@link gcStaleReviewWorktrees} (which is store-driven and only knows plan_gate
- * spawns it still tracks) — it does not replace it. Runs off the boot + hourly
- * maintenance pass, not on the typing hot path. `reapStaleReviewWorktrees` itself
- * stays synchronous; its caller (`sweepStaleReviewWorktrees` in index.ts) awaits a
- * probe-snapshot refresh first, so the caller is async even though this is not.
- *
- * **Tag-shape match, basename-agnostic (guard d).** Selection keys off the reviewer
- * TAG SHAPE — a name ending in `-review-(<8hex> | <uuid>-<8hex>)` — NOT the basename.
- * This is deliberate: a worktree minted under a now-defunct basename (`tank-review-…`,
- * `flowagent-review-…`, `pulse-review-…`) whose repo is no longer configured would be
- * invisible to any basename- or repo-scoped filter, yet is exactly the kind of orphan
- * that strands forever. Matching the tag suffix alone catches those. The flip side
- * (guards below) is that a USER prompt slugging to `review-*` yields `{basename}-review-*`
- * too — so a hex-shaped suffix could in principle alias real user work; (d)'s strict
- * hex/uuid shape plus the session-path spare (e) keep that from being reaped.
- *
- * **Full spare/reap coverage matrix** (an unowned candidate is reaped only if it survives
- * every spare below):
- *  - **pre-`inflight` begin() window** — a reviewer worktree may exist before in-memory ownership.
- *    Plan-gate persists its `reviewer_spawns` row before launch, so the recent-row grace covers
- *    that starting window; other reviewer services can still have no row yet. The independent
- *    **directory-age guard** therefore remains required: a candidate younger than `graceMs` (or
- *    that can't be stat'd → fail-closed) is spared. Checked BEFORE the `scanAlive` probe so a
- *    not-yet-running spawn is held by age alone.
- *  - **owned in memory (`protectedPaths`)** — paths a reviewer service currently holds.
- *    Spared REGARDLESS of age or `/proc` liveness. This is the #631 regression guard: a
- *    re-adopted plan-gate orphan has a DEAD reviewer `claude` AND an OLD uncompleted
- *    `reviewer_spawns` row, yet `tick()` still needs its worktree — age/proc heuristics
- *    alone would wrongly reap it. The caller unions the three reviewer services'
- *    `inflightWorktrees()` into this set.
- *  - **live store session (`sessionWorktreePaths`, guard e)** — any path backing a live
- *    user session is spared even if its name happens to match the tag shape.
- *  - **live `claude` under the dir (`scanAlive`)** — one cheap `/proc` pass; a candidate
- *    hosting a live `claude` is spared (`sparedLive`).
- *  - **recent uncompleted spawn (the `graceMs` grace)** — a `reviewer_spawns` row with
- *    `completedAt == null` whose `spawnedAt` is within `graceMs`. It covers plan-gate's durable
- *    pre-launch ownership window and also spares a recently-spawned reviewer whose path is not
- *    (yet/any longer) in `inflight`, e.g. across a restart before re-adoption, or a review/critic
- *    spawn that isn't re-adopted.
- *  - **old + ownerless** — survives every spare above → reaped.
- *
- * Too-young/unstattable and live-session spares are counted under `sparedOwned`.
- *
- * Fully dependency-injected (no direct fs/proc/store calls) so it is unit-testable
- * without a real filesystem, `/proc`, or store. The real wiring into `index.ts` is a
- * separate task.
- */
 export interface ReapWorktreesDeps {
   /** Distinct `.shepherd-worktrees` dirs to sweep. */
   parents: string[];
@@ -617,6 +557,58 @@ function isTooYoung(path: string, deps: ReapWorktreesDeps): boolean {
   return mtime === null || deps.now() - mtime < deps.graceMs;
 }
 
+/**
+ * Reviewer/critic disposable checkouts (`{basename}-review-{tag}`, created by
+ * `worktree.ts:createDetached`) whose teardown was missed — a crash, a shepherd
+ * restart that cleared in-memory review tracking, or a foreign-era basename whose
+ * repo is no longer configured — accumulate as dead dirs under `.shepherd-worktrees`.
+ * This is a disk-driven sweep that reaps them; it COMPLEMENTS plan-gate's
+ * {@link gcStaleReviewWorktrees} (which is store-driven and only knows plan_gate
+ * spawns it still tracks) — it does not replace it. Runs off the boot + hourly
+ * maintenance pass, not on the typing hot path. `reapStaleReviewWorktrees` itself
+ * stays synchronous; its caller (`sweepStaleReviewWorktrees` in index.ts) awaits a
+ * probe-snapshot refresh first, so the caller is async even though this is not.
+ *
+ * **Tag-shape match, basename-agnostic (guard d).** Selection keys off the reviewer
+ * TAG SHAPE — a name ending in `-review-(<8hex> | <uuid>-<8hex>)` — NOT the basename.
+ * This is deliberate: a worktree minted under a now-defunct basename (`tank-review-…`,
+ * `flowagent-review-…`, `pulse-review-…`) whose repo is no longer configured would be
+ * invisible to any basename- or repo-scoped filter, yet is exactly the kind of orphan
+ * that strands forever. Matching the tag suffix alone catches those. The flip side
+ * (guards below) is that a USER prompt slugging to `review-*` yields `{basename}-review-*`
+ * too — so a hex-shaped suffix could in principle alias real user work; (d)'s strict
+ * hex/uuid shape plus the session-path spare (e) keep that from being reaped.
+ *
+ * **Full spare/reap coverage matrix** (an unowned candidate is reaped only if it survives
+ * every spare below):
+ *  - **pre-`inflight` begin() window** — a reviewer worktree may exist before in-memory ownership.
+ *    Plan-gate persists its `reviewer_spawns` row before launch, so the recent-row grace covers
+ *    that starting window; other reviewer services can still have no row yet. The independent
+ *    **directory-age guard** therefore remains required: a candidate younger than `graceMs` (or
+ *    that can't be stat'd → fail-closed) is spared. Checked BEFORE the `scanAlive` probe so a
+ *    not-yet-running spawn is held by age alone.
+ *  - **owned in memory (`protectedPaths`)** — paths a reviewer service currently holds.
+ *    Spared REGARDLESS of age or `/proc` liveness. This is the #631 regression guard: a
+ *    re-adopted plan-gate orphan has a DEAD reviewer `claude` AND an OLD uncompleted
+ *    `reviewer_spawns` row, yet `tick()` still needs its worktree — age/proc heuristics
+ *    alone would wrongly reap it. The caller unions the three reviewer services'
+ *    `inflightWorktrees()` into this set.
+ *  - **live store session (`sessionWorktreePaths`, guard e)** — any path backing a live
+ *    user session is spared even if its name happens to match the tag shape.
+ *  - **live `claude` under the dir (`scanAlive`)** — one cheap `/proc` pass; a candidate
+ *    hosting a live `claude` is spared (`sparedLive`).
+ *  - **recent uncompleted spawn (the `graceMs` grace)** — a `reviewer_spawns` row with
+ *    `completedAt == null` whose `spawnedAt` is within `graceMs`. It covers plan-gate's durable
+ *    pre-launch ownership window and also spares a recently-spawned reviewer whose path is not
+ *    (yet/any longer) in `inflight`, e.g. across a restart before re-adoption, or a review/critic
+ *    spawn that isn't re-adopted.
+ *  - **old + ownerless** — survives every spare above → reaped.
+ *
+ * Too-young/unstattable and live-session spares are counted under `sparedOwned`.
+ *
+ * Fully dependency-injected (no direct fs/proc/store calls) so it is unit-testable
+ * without a real filesystem, `/proc`, or store.
+ */
 export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktreesResult {
   // 1. Candidate paths: tag-shape matches under every parent, de-duped.
   const candidates = gatherReviewCandidates(deps.parents, deps.listDir);

@@ -274,10 +274,9 @@ export function isUnder(path: string, root: string): boolean {
 
 // ── scratchpad provenance fallback ──────────────────────────────────────────
 //
-// Containment used to be cwd-only: a process counted as a session's if its cwd sat
-// under that session's worktree. Agents prototyping in the Claude scratchpad
-// (`$TMPDIR/claude-$uid/…`, i.e. under `agentTmpDir()`) start their dev servers THERE,
-// so a cwd test alone renders them invisible — no preview, no stop, no leftover offer.
+// Agents prototyping in the Claude scratchpad (`$TMPDIR/claude-$uid/…`, i.e. under
+// `agentTmpDir()`) start their dev servers THERE, so a cwd-under-worktree test alone
+// renders them invisible — no preview, no stop, no leftover offer.
 //
 // The fallback attributes such a process by PROVENANCE instead: `SESSION_MARKER_ENV` is
 // stamped on every agent spawn and inherited by everything it spawns, so it survives the
@@ -360,7 +359,7 @@ function hintDirsFor(cwd: string, scratchRoot: string): string[] {
 // and comm from `scanProcs`, a "(deleted)" suffix, a port from `portsForPid`, a ppid. Between those
 // reads and the `killPid` the process can exit and the kernel can hand its pid to something
 // unrelated, which the signal would then hit. `starttime` (ticks since boot) is the kernel's own
-// answer to "is this still the same process", and it is what `reapMarkedOrphans` has always used.
+// answer to "is this still the same process", and `reapMarkedOrphans` uses it too.
 //
 // The idiom is OPEN A BRACKET, VERIFY LATE. `openSignalBracket` captures `starttime` and then
 // RE-READS the cwd/comm that qualified the candidate; `isSameProcess` re-reads `starttime` at the
@@ -376,7 +375,7 @@ function hintDirsFor(cwd: string, scratchRoot: string): string[] {
 //
 // RESIDUAL, inherent to the fingerprint: `starttime` has USER_HZ (10ms) granularity, so a pid
 // recycled into a process that started within the same tick is indistinguishable. Closing that
-// needs pidfd, which is out of scope here — and `reapMarkedOrphans` has always carried it too.
+// needs pidfd, which is out of scope here — `reapMarkedOrphans` carries the same residual.
 
 /** The identity `scanProcs` reported for a candidate — what every site's filter actually judged. */
 type ScannedProc = { pid: number; cwd: string; comm: string };
@@ -1244,59 +1243,6 @@ export interface ReapMarkedOptions {
   probes?: ReaperProbes;
 }
 
-/**
- * SIGKILL processes an agent left burning a core after its session was archived (issue #1144).
- *
- * WHAT MAKES THIS SAFE is the conjunction of two gates, and ONLY those two:
- *
- *  - PROVENANCE — the process carries {@link SESSION_MARKER_ENV} in its environ, so an *agent*
- *    spawned it. Attribution is exact, not a guess from its cwd: the marker is inherited by every
- *    descendant and survives `cd`, backgrounding, PID-1 reparenting and worktree deletion. An
- *    operator's own `nohup cargo bench &`, their editor's `rust-analyzer`, a stray `ffmpeg` — none
- *    of them carry it, so none of them can EVER be a candidate. Unmarked ⇒ spared. Unreadable ⇒ spared.
- *  - TERMINALITY — the session that owns the marker is PRESENT in the store and `archived`, so its
- *    agent is definitively finished. This is what spares an agent's in-flight `cargo build &`: a
- *    one-shot Bash tool call reparents its background job to PID 1 the moment the call's shell exits,
- *    while the agent is still working. PPID-1 means signal-unmanageable, NOT abandoned.
- *    "absent" ⇒ SPARED: SHEPHERD_DB/SHEPHERD_PORT make a second Shepherd on one host a supported
- *    setup, and reaping on absent would let instance A SIGKILL instance B's LIVE session's work.
- *
- * The CPU + age pair is NOT a safety floor — it is a PERFORMANCE PREFILTER. Reading environ goes
- * through access_remote_vm and takes the target's mmap lock; without a cheap gate in front, an
- * hourly host-wide sweep would take that lock hundreds of times on the event loop, any one of which
- * can block on a stalled process. So the gates run cheapest-first and environ is read LAST, for the
- * handful of hot, old, non-agent, non-git, non-listening survivors. Semantics are unaffected (every
- * gate is conjunctive); only the cost is. It does mean the threshold silently costs coverage (a
- * late-onset spin, or a leak at 60% of a core, is missed) — an accepted trade, see #1144.
- *
- * PPID is deliberately NOT a gate. It is redundant here (an archived session's agent is dead, so a
- * survivor IS an orphan), it would cost coverage (a marked child of a still-live marked wrapper has
- * PPID != 1), and requiring it would make this a no-op in a container where Shepherd is PID 1 and
- * every process reads as PPID-1. It is recorded on the candidate for the log only.
- *
- * LOAD-BEARING TIMING CONSTRAINT — an orphan must be SWEPT BEFORE ITS SESSION ROW IS PRUNED.
- *
- * `archived` is the only status that authorises a kill, and `absent` spares. So a marked orphan is
- * reapable only during the window between its session being archived and its row being deleted.
- * `pruneArchivedSessions` (store.ts) hard-deletes archived rows — the very rows this sweep depends
- * on — so once it runs, that session's surviving orphans are unreapable FOREVER. (An earlier
- * version of this note claimed the invariant was "never hard-delete a row without archiving it
- * first", and cited the prune as satisfying it. That was backwards: the prune deletes only archived
- * rows, so it satisfies that phrasing exactly while causing the failure the note meant to exclude.)
- *
- * What actually guarantees the ordering is CADENCE, not a rule about deletion:
- *   - the sweep runs at teardown (SessionService.archive, synchronously after store.archive), then
- *     hourly;
- *   - the prune runs at most DAILY (runDailySweep) and only past a retention window
- *     (SESSION_RETENTION_DAYS = 30, SESSION_RETENTION_KEEP = 250).
- * So an orphan gets a teardown sweep plus ~24 hourly sweeps before its row is even eligible to be
- * pruned. The margin is enormous, but it is a MARGIN, not a proof — anything that shortens
- * retention toward the sweep interval, or lengthens the sweep interval toward retention, erodes it.
- * Keep the sweep strictly more frequent than the prune.
- *
- * Fails closed throughout: any missing probe, an unreadable environ/stat, or a throwing
- * `sessionStatus` reaps nothing.
- */
 /** Everything the per-pid gate chain needs, resolved once per sweep. */
 interface SweepContext extends Required<
   Pick<ReapMarkedOptions, "sessionStatus" | "minCpu" | "minAgeS">
@@ -1374,6 +1320,58 @@ function scanPid(pid: number, ctx: SweepContext): Scanned | null {
   };
 }
 
+/**
+ * SIGKILL processes an agent left burning a core after its session was archived (issue #1144).
+ *
+ * WHAT MAKES THIS SAFE is the conjunction of two gates, and ONLY those two:
+ *
+ *  - PROVENANCE — the process carries {@link SESSION_MARKER_ENV} in its environ, so an *agent*
+ *    spawned it. Attribution is exact, not a guess from its cwd: the marker is inherited by every
+ *    descendant and survives `cd`, backgrounding, PID-1 reparenting and worktree deletion. An
+ *    operator's own `nohup cargo bench &`, their editor's `rust-analyzer`, a stray `ffmpeg` — none
+ *    of them carry it, so none of them can EVER be a candidate. Unmarked ⇒ spared. Unreadable ⇒ spared.
+ *  - TERMINALITY — the session that owns the marker is PRESENT in the store and `archived`, so its
+ *    agent is definitively finished. This is what spares an agent's in-flight `cargo build &`: a
+ *    one-shot Bash tool call reparents its background job to PID 1 the moment the call's shell exits,
+ *    while the agent is still working. PPID-1 means signal-unmanageable, NOT abandoned.
+ *    "absent" ⇒ SPARED: SHEPHERD_DB/SHEPHERD_PORT make a second Shepherd on one host a supported
+ *    setup, and reaping on absent would let instance A SIGKILL instance B's LIVE session's work.
+ *
+ * The CPU + age pair is NOT a safety floor — it is a PERFORMANCE PREFILTER. Reading environ goes
+ * through access_remote_vm and takes the target's mmap lock; without a cheap gate in front, an
+ * hourly host-wide sweep would take that lock hundreds of times on the event loop, any one of which
+ * can block on a stalled process. So the gates run cheapest-first and environ is read LAST, for the
+ * handful of hot, old, non-agent, non-git, non-listening survivors. Semantics are unaffected (every
+ * gate is conjunctive); only the cost is. It does mean the threshold silently costs coverage (a
+ * late-onset spin, or a leak at 60% of a core, is missed) — an accepted trade, see #1144.
+ *
+ * PPID is deliberately NOT a gate. It is redundant here (an archived session's agent is dead, so a
+ * survivor IS an orphan), it would cost coverage (a marked child of a still-live marked wrapper has
+ * PPID != 1), and requiring it would make this a no-op in a container where Shepherd is PID 1 and
+ * every process reads as PPID-1. It is recorded on the candidate for the log only.
+ *
+ * LOAD-BEARING TIMING CONSTRAINT — an orphan must be SWEPT BEFORE ITS SESSION ROW IS PRUNED.
+ *
+ * `archived` is the only status that authorises a kill, and `absent` spares. So a marked orphan is
+ * reapable only during the window between its session being archived and its row being deleted.
+ * `pruneArchivedSessions` (store.ts) hard-deletes archived rows — the very rows this sweep depends
+ * on — so once it runs, that session's surviving orphans are unreapable FOREVER. "Never
+ * hard-delete a row without archiving it first" is NOT the invariant: the prune deletes only
+ * archived rows, so it satisfies that phrasing while causing exactly this failure.
+ *
+ * What actually guarantees the ordering is CADENCE, not a rule about deletion:
+ *   - the sweep runs at teardown (SessionService.archive, synchronously after store.archive), then
+ *     hourly;
+ *   - the prune runs at most DAILY (runDailySweep) and only past a retention window
+ *     (SESSION_RETENTION_DAYS = 30, SESSION_RETENTION_KEEP = 250).
+ * So an orphan gets a teardown sweep plus ~24 hourly sweeps before its row is even eligible to be
+ * pruned. The margin is enormous, but it is a MARGIN, not a proof — anything that shortens
+ * retention toward the sweep interval, or lengthens the sweep interval toward retention, erodes it.
+ * Keep the sweep strictly more frequent than the prune.
+ *
+ * Fails closed throughout: any missing probe, an unreadable environ/stat, or a throwing
+ * `sessionStatus` reaps nothing.
+ */
 export function reapMarkedOrphans(opts: ReapMarkedOptions): {
   reaped: number;
   /** Everything that cleared every gate — in `observe` mode, what WOULD have been killed. */

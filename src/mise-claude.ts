@@ -21,11 +21,11 @@ import { execFileAsync } from "./instrument";
  * **Ownership is decided by VERSION EQUALITY, not by path shape.** `codex-update.ts` decides
  * mise-ownership structurally — the on-PATH path sits under the mise data dir, or realpaths to the
  * same file as `mise which codex`. That test does not survive the third host shape: a launcher
- * SCRIPT on `PATH` that re-runs `mise use` and `exec`s `mise x claude` (the shape the shepherd host
- * this was written on actually uses). Such a launcher is a plain regular file outside the mise tree,
- * so a structural test calls it "not mise-managed" and both consumers go silent on the very host the
- * issue was filed from. Comparing what `claude --version` reports against the mise-managed binary's
- * own `--version` reads correctly for all three shapes — shim, `~/.local/bin` symlink, launcher.
+ * SCRIPT on `PATH` that re-runs `mise use` and `exec`s `mise x claude`. Such a launcher is a plain
+ * regular file outside the mise tree, so a structural test calls it "not mise-managed" and both
+ * consumers go silent on that host. Comparing what `claude --version` reports against the
+ * mise-managed binary's own `--version` reads correctly for all three shapes — shim,
+ * `~/.local/bin` symlink, launcher.
  *
  * **WHICH claude, though?** herdr — a SIBLING systemd user unit — is what ultimately execs the
  * agent, and its `PATH` is not ours: `deploy/shepherd.service` is `~/.bun/bin` first,
@@ -34,7 +34,7 @@ import { execFileAsync } from "./instrument";
  * against the wrong binary is exactly the failure this module exists to prevent — the pin could
  * freeze the native copy that really runs, and the row could call the live install safe to delete.
  *
- * The fix does not require knowing herdr's PATH. We enumerate EVERY `claude` on our own PATH and
+ * This does not require knowing herdr's PATH. We enumerate EVERY `claude` on our own PATH and
  * demand they all realpath to ONE file. The two units' PATHs are permutations of the same directory
  * set, so a single distinct target is order-independent: whatever order herdr searches in, it lands
  * on the same file we did. Two or more distinct targets means we genuinely cannot tell which one
@@ -45,8 +45,7 @@ import { execFileAsync } from "./instrument";
  * `mise which claude` is the managed-or-not test, exactly as in `remediations.ts`: exit 0 + a path
  * when mise can hand us that binary right now, non-zero otherwise. `mise ls claude` exits 0 either
  * way and cannot be used. Anything that throws (no mise on the service PATH, an unreadable
- * `--version`) resolves to "not managed" / no verdict, so a non-mise host is byte-identical to
- * before: no row, no pin.
+ * `--version`) resolves to "not managed" / no verdict, so a non-mise host gets no row, no pin.
  */
 export interface MiseClaudeState {
   /** `mise which claude` resolved — mise can hand us a claude right now. */

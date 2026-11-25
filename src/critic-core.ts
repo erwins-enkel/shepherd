@@ -246,13 +246,12 @@ export async function defaultHasCommit(
 
 /** The plan block(s) of {@link reviewPrompt}, or [] when no plan text was supplied.
  *
- *  PROVENANCE IS THE POINT. The critic used to be handed the LIVE `.shepherd-plan.md` under a label
- *  claiming it had been "adversarially reviewed and approved BEFORE it wrote code" — but nothing
+ *  PROVENANCE IS THE POINT. Never label the LIVE `.shepherd-plan.md` as approved: nothing
  *  re-reviews a plan once its gate is approved (`PlanGateService.consider` short-circuits on
- *  `approved`, and `force` does not bypass it), so an agent could rewrite its plan after the fact
- *  and have the reviewer told the rewrite was pre-approved. The caller now resolves the two texts
- *  separately (`ReviewService.resolvePlanContext`) and this emits what each one actually is:
- *   - approved, unedited (the normal case) → ONE block, byte-identical to before;
+ *  `approved`, and `force` does not bypass it), so an agent can rewrite its plan after the fact.
+ *  The caller resolves the two texts separately (`ReviewService.resolvePlanContext`) and this
+ *  emits what each one actually is:
+ *   - approved, unedited (the normal case) → ONE block (the byte-identical default path);
  *   - approved but since edited → the APPROVED snapshot, then the CURRENT file, labelled as never
  *     reviewed. Both are shown because the later text is still legitimate context for intent; only
  *     the snapshot carries authorization;
@@ -532,47 +531,6 @@ export function prReviewPrompt(
  *  caller appends to its own preamble. Keeping reviewPrompt's default output byte-identical: the
  *  contract lines below are moved verbatim out of its old `lines.push(...)`, with only the judge
  *  clause lifted to a parameter. */
-/**
- * The EPIC CONTEXT block (issue #1757), emitted ONLY when the reviewed branch's base is an epic
- * integration branch. Empty array otherwise — so every non-epic prompt stays byte-identical.
- *
- * WHY IT EXISTS: an epic child is never rebased onto the moving integration branch, so the tree the
- * critic has checked out is the child's FORK-POINT tree — it is missing every sibling that merged
- * since. The reviewed diff is fine (three-dot against a freshly-fetched base excludes merged sibling
- * work), but the VERIFY rule above tells the critic to GREP THE TREE to confirm identifiers exist —
- * and that tree is not ground truth here. Left alone, it greps, finds nothing, and reports an
- * already-merged sibling's export as missing.
- *
- * It therefore SUPERSEDES two absolute rules in the tail above (this is why the block sits adjacent
- * to them rather than in the preamble):
- *  1. VERIFY's "grep the tree to confirm it exists" — a worktree miss on a base-delta path is NOT
- *     evidence of absence. Merely *informing* the critic that its tree is incomplete is not enough:
- *     the standing rule is absolute, and the model is free to resolve the conflict the wrong way.
- *  2. VERIFY's citation requirement (`path:line`, else "you did not verify it") — a base blob read
- *     has no worktree line, so a COMPLIANT critic that correctly read the base would find its
- *     conclusion uncitable and route it back to CANNOT-VERIFY, silently suppressing a real finding.
- *     So base evidence gets its own citation form, declared sufficient.
- *
- * And it constrains itself against a THIRD mechanism: the deterministic scope backstop
- * (`attributeFinding`/`isPathShaped`/`scopeFindings` below) splits a finding on the first ": " and
- * treats any token containing "/" as a path. A finding PREFIXED with the base-citation form
- * (`epic/1-x@sha:src/base-only.ts: …`) would therefore parse as an out-of-diff path and be DROPPED —
- * deleting the very base-grounded findings this block exists to enable. Hence: the citation form is
- * `body`-ONLY; findings keep an in-diff path, attributed to the in-diff file that depends on the
- * base evidence (the same shape as the ATTRIBUTION rule above).
- *
- * SOUNDNESS: a `git log -S` pickaxe searches HISTORY, so it is a LOCATOR, never a verdict — a hit
- * may name the commit that DELETED the identifier, and "no hit" is false on a shallow/grafted clone
- * (which the critic cannot even test for: `git rev-parse` is not on its allowlist). Confirmation in
- * BOTH directions is a blob READ (`git show <sha>:<path>`), which is shallow-safe because the base
- * fetch populated the object store.
- *
- * ALLOWLIST: every command named here is permitted by the `reviewer` preset
- * (`transient-agent-argv.ts` — Bash(git diff|log|show|status)). `git grep`/`git ls-tree` are DENIED
- * under `--permission-mode dontAsk` (they would fail silently), so the block names them as denied
- * rather than letting the critic burn a round discovering that. A test asserts this conformance
- * against the live preset.
- */
 /** The enumeration half of the epic block: the precomputed delta when we have it, else the commands
  *  that reproduce it. Both listings are FENCED — the commit subjects (and path names) originate on
  *  the integration branch, i.e. they are agent-authored strings derived from untrusted issue text,
@@ -622,6 +580,47 @@ function epicDeltaLines(epic: EpicContext, sha: string): string[] {
   return lines;
 }
 
+/**
+ * The EPIC CONTEXT block (issue #1757), emitted ONLY when the reviewed branch's base is an epic
+ * integration branch. Empty array otherwise — so every non-epic prompt stays byte-identical.
+ *
+ * WHY IT EXISTS: an epic child is never rebased onto the moving integration branch, so the tree the
+ * critic has checked out is the child's FORK-POINT tree — it is missing every sibling that merged
+ * since. The reviewed diff is fine (three-dot against a freshly-fetched base excludes merged sibling
+ * work), but the VERIFY rule above tells the critic to GREP THE TREE to confirm identifiers exist —
+ * and that tree is not ground truth here. Left alone, it greps, finds nothing, and reports an
+ * already-merged sibling's export as missing.
+ *
+ * It therefore SUPERSEDES two absolute rules in the tail above (this is why the block sits adjacent
+ * to them rather than in the preamble):
+ *  1. VERIFY's "grep the tree to confirm it exists" — a worktree miss on a base-delta path is NOT
+ *     evidence of absence. Merely *informing* the critic that its tree is incomplete is not enough:
+ *     the standing rule is absolute, and the model is free to resolve the conflict the wrong way.
+ *  2. VERIFY's citation requirement (`path:line`, else "you did not verify it") — a base blob read
+ *     has no worktree line, so a COMPLIANT critic that correctly read the base would find its
+ *     conclusion uncitable and route it back to CANNOT-VERIFY, silently suppressing a real finding.
+ *     So base evidence gets its own citation form, declared sufficient.
+ *
+ * And it constrains itself against a THIRD mechanism: the deterministic scope backstop
+ * (`attributeFinding`/`isPathShaped`/`scopeFindings` below) splits a finding on the first ": " and
+ * treats any token containing "/" as a path. A finding PREFIXED with the base-citation form
+ * (`epic/1-x@sha:src/base-only.ts: …`) would therefore parse as an out-of-diff path and be DROPPED —
+ * deleting the very base-grounded findings this block exists to enable. Hence: the citation form is
+ * `body`-ONLY; findings keep an in-diff path, attributed to the in-diff file that depends on the
+ * base evidence (the same shape as the ATTRIBUTION rule above).
+ *
+ * SOUNDNESS: a `git log -S` pickaxe searches HISTORY, so it is a LOCATOR, never a verdict — a hit
+ * may name the commit that DELETED the identifier, and "no hit" is false on a shallow/grafted clone
+ * (which the critic cannot even test for: `git rev-parse` is not on its allowlist). Confirmation in
+ * BOTH directions is a blob READ (`git show <sha>:<path>`), which is shallow-safe because the base
+ * fetch populated the object store.
+ *
+ * ALLOWLIST: every command named here is permitted by the `reviewer` preset
+ * (`transient-agent-argv.ts` — Bash(git diff|log|show|status)). `git grep`/`git ls-tree` are DENIED
+ * under `--permission-mode dontAsk` (they would fail silently), so the block names them as denied
+ * rather than letting the critic burn a round discovering that. A test asserts this conformance
+ * against the live preset.
+ */
 function epicBlock(epic: EpicContext): string[] {
   // Three states, and they must not be conflated (see EpicBaseDelta):
   //   - KNOWN-CURRENT: git ran and the base has NO net content difference from this branch's fork

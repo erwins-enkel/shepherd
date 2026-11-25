@@ -21,8 +21,8 @@ export interface MergedPrFacts {
 
 /**
  * #1401: record `epic_integrated` for a merged epic-child PR on the settle paths that are NOT
- * the drain's retire path (poller reap of an out-of-band merge, merge train, local merge). Until
- * this existed, `retireEpicChild` was the only writer, so any other merge left the epic stalled
+ * the drain's retire path (poller reap of an out-of-band merge, merge train, local merge).
+ * Without it, `retireEpicChild` is the only writer and any other merge leaves the epic stalled
  * `running` forever (no completion, no landing PR).
  *
  * Call this BEFORE {@link settleMergedSession}: the just-written row is what its
@@ -30,7 +30,7 @@ export interface MergedPrFacts {
  * issue out of band.
  *
  * Deliberately NOT gated on `s.auto` — a manual (`auto=0`) respawn whose PR merges into the
- * integration branch is exactly the escape hatch that stalled pulse epic #128.
+ * integration branch is exactly such an escape hatch and must record too.
  *
  * Base resolution (the PR is the source of truth, not the session's stored base):
  *   1. `pr.baseRefName` from the caller's payload;

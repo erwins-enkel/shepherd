@@ -17,8 +17,8 @@ export const RESIZE_PREFIX = "\x00resize:";
  * emits, and with mouse tracking on (Claude Code runs that way) that includes a
  * report for every mouse move / click / drag / wheel, plus focus reports and the
  * terminal's replies to the app's own queries. Treating those as "the operator
- * typed" is wrong — it is the same defect that made the review banner claim
- * "You're typing" on mere pointer movement (issue #1022).
+ * typed" is wrong — it makes the review banner claim "You're typing" on mere
+ * pointer movement (#1022).
  *
  * Each alternative is anchored to its introducer and spelled out through its
  * terminator — no `.*` — so a reply cannot swallow real bytes batched after it in

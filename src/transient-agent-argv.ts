@@ -8,8 +8,8 @@ import { effortForSpawn } from "./default-effort";
 import type { AgentProvider } from "./types";
 
 /**
- * One home for the transient-`claude` argv shape that 10 spawn sites used to re-assemble
- * byte-for-byte (issue #1093). A transient agent is a short-lived, non-interactive-to-the-operator
+ * One home for the transient-`claude` argv shape every spawn site shares (#1093). A transient
+ * agent is a short-lived, non-interactive-to-the-operator
  * `claude` spawned in a herdr pane to do one unattended job (review, name, classify,
  * recap, …) and then be torn down. They all share the SAME hard-won invocation posture; only the
  * tool allowlist and MCP isolation vary, and that variation is captured in {@link PRESETS}.
@@ -55,7 +55,7 @@ import type { AgentProvider } from "./types";
  * Claude Code shows a BLOCKING TUI dialog ("Try the new fullscreen renderer? · 1. Yes, try it
  * 2. Not now"). A transient agent has no operator, so nobody ever answers it and the pane sits at
  * the dialog until its caller's deadline — surfacing as an unexplained `error` verdict, NOT as a
- * spawn failure (issue: six PR reviews wedged for the full 1800s across two repos).
+ * spawn failure.
  *
  * It never self-heals, for two independent reasons:
  *   (1) the dialog's `fullscreenUpsellSeenCount` suppression counter is written ONLY when the

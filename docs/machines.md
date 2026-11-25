@@ -218,12 +218,19 @@ The reason is shown before you start and on the session afterwards: "Needs macOS
 - **Wherever you submit.** Every Shepherd with connected machines chooses by the same rules. A web
   task without requirements submitted on the MacBook runs on Linux; an Xcode task submitted on Linux
   runs on the MacBook. This needs both Shepherds connected to each other and using the same platform
-  order. Each Shepherd keeps its own order under **Settings → Machines → Automatic choice**, and
-  the setting says so.
+  order (and, under high load, the same fresh load readings). Each Shepherd keeps its own order
+  under **Settings → Machines → Automatic choice**, and the setting says so.
+- **High load.** When the preferred machine is connected and busy (one-minute load per core at 1.0
+  or above, measured in the last 15 seconds), the first fitting connected machine in the same order
+  and the same group (with or without a checkout) with load at or below 0.75 takes the task.
+  Unknown or stale load never counts as spare, an offline machine keeps its preference, and a
+  machine you pick stays binding. See
+  [External Task API](external-task-api.md#automatic-choice).
 - **Nothing fits.** If no connected machine has a requirement, nothing starts and Shepherd names what
   is missing, for example "No connected machine has Xcode".
-- **The right machine is offline.** If the machine a task is meant for is asleep or out of reach,
-  the task waits for it ([Waiting tasks](#waiting-tasks)). New Task says so before you start, for
+- **The right machine is offline.** A machine out of reach is judged on its last capability check,
+  so it can still be the one a task is meant for. If so, the task waits for it
+  ([Waiting tasks](#waiting-tasks)). New Task says so before you start, for
   example "Waits for MacBook — Needs Xcode", and names the machines that would fit now. It never
   falls back to another machine on its own. Pick one under **Run on** to start it there instead.
 - **Read from the task.** Under **Automatic**, New Task reads whether a task needs Xcode, the iOS

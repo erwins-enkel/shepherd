@@ -80,7 +80,10 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      lifetime. **Read** covers `GET /api/repos`, `/api/branches`, `/api/sessions`, `/api/holds`, `/api/git`,
      `/api/me`, `POST /api/ping`, the `/events` stream, and the two in-flight
      review probes `GET /api/reviews/inflight` and
-     `GET /api/plan-gates/inflight` — each returns one row per run currently in
+     `GET /api/plan-gates/inflight`. Nothing in it mutates: `POST /api/ping` is a
+     no-op reachability probe that is a POST only so it reproduces the CSRF 403 a
+     real capture POST would hit, and `/events` is the status bus, not a terminal
+     (agent bytes ride `/pty/:id`). The two probes each return one row per run currently in
      flight: the session id plus that run's reviewer env (`provider`, `model`,
      `effort`). A dashboard that loads mid-review therefore doesn't read an idle
      session with a green PR as the operator's turn

@@ -808,14 +808,12 @@ function overlayPermissions(
  *
  * Pins `env.ENABLE_CLAUDEAI_MCP_SERVERS` to disable the claude.ai account-connector MCP
  * servers (Gmail / Google Calendar / Google Drive / Notion / Microsoft 365 / Claude Docs) for every
- * spawned coding agent (issue #509). Least-privilege hygiene, NOT a token win — the #499 spike
- * measured the saving at only −132 tok/turn (connectors load as deferred, name-only tools) — but
- * an autonomous coding agent has no business reaching the operator's personal Gmail/Notion unless
- * the operator says so. `claudeAiConnectors` is that say-so: a repo's `claudeAiConnectorsEnabled`
- * opt-in pins `"true"` instead (explicitly, so it also lifts a `"false"` in the user's own settings
- * env). Default `"false"`, so every caller that passes nothing keeps the old overlay byte for byte;
- * the overlay `env` merges key-by-key over the user's settings so the rest of their env is
- * untouched. (Reviewer/critic/plan-gate spawns don't use this overlay — they run `--safe-mode`,
+ * spawned coding agent (issue #509). Least-privilege hygiene, NOT a token win: an autonomous coding
+ * agent has no business reaching the operator's personal Gmail/Notion unless the operator says so.
+ * `claudeAiConnectors` is that say-so: a repo's `claudeAiConnectorsEnabled` opt-in pins `"true"`
+ * instead (explicitly, so it also lifts a `"false"` in the user's own settings env). Default
+ * `"false"`. The overlay `env` merges key-by-key over the user's settings so the rest of their env
+ * is untouched. (Reviewer/critic/plan-gate spawns don't use this overlay — they run `--safe-mode`,
  * which disables file/plugin MCP *loading* + other customizations, plus
  * `enableAllProjectMcpServers` in their own `--settings` to clear Claude's interactive
  * project-.mcp.json approval gate; see buildTransientAgentArgv.)
@@ -826,8 +824,7 @@ function overlayPermissions(
  * `disablePlugins` adds `enabledPlugins: {<id>: false, ...}`, which overrides the global `true`
  * per-spawn and kills plugin SessionStart hooks, plugin skills, and plugin MCP for this process
  * only. The drain trim lists every operator plugin; an allowlist spawn lists the ones outside the
- * repo's allowlist. Absent/empty → key omitted entirely, so untrimmed spawns keep today's exact
- * overlay.
+ * repo's allowlist. Absent/empty → key omitted entirely.
  *
  * `disableSkills` (issue #2001) adds `skillOverrides: {<name>: "off"}` for each listed personal
  * skill, hidden from the model while the session repo's own stay available. Absent/empty → key
@@ -839,29 +836,26 @@ function overlayPermissions(
  * spawns keep the built-ins. Absent → key omitted.
  *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PreToolUse(AskUserQuestion|ExitPlanMode,
- * #3165/#2779)/
- * PostToolUse/PostToolUseFailure/Notification/SessionStart/Stop/SessionEnd/SubagentStart/
+ * #3165)/PostToolUse/PostToolUseFailure/Notification/SessionStart/Stop/SessionEnd/SubagentStart/
  * SubagentStop HTTP hooks pointing at this session's ingest route (see buildHooksFragment).
- * Flag off → key omitted entirely, so the overlay JSON stays byte-for-byte identical to today.
+ * Flag off → key omitted entirely.
  *
  * The `PreToolUse` tool guard (issue #2002, `config.toolGuard`) is merged into the same `hooks`
  * object from buildToolGuardFragment. It is independent of `hooksIngest` — a local `command` hook,
  * not an HTTP one — so it rides even when ingest is off. Both register `PreToolUse` (guard:
- * matcher `Bash`; ingest: `AskUserQuestion|ExitPlanMode`), so that one key's matcher arrays are concatenated;
- * every other event belongs to one side only.
+ * matcher `Bash`; ingest: `AskUserQuestion|ExitPlanMode`), so that one key's matcher arrays are
+ * concatenated; every other event belongs to one side only.
  *
- * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds Claude's
- * `permissions` block. Absent → key omitted, so every task spawn's overlay stays byte-identical.
+ * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds
+ * Claude's `permissions` block. Absent → key omitted.
  *
  * `config.trimBuiltinTools` (issue #3778, default on) adds {@link UNUSED_BUILTIN_TOOLS} to
  * `permissions.deny` on every overlay — task spawn, resume and the Operator Assistant (appended to
- * its own deny list) — except the ones `builtinToolsNeeded` names. Off → the key stays exactly as
- * described above.
+ * its own deny list) — except the ones `builtinToolsNeeded` names. Off → no deny entries added.
  *
- * `assistantView` (the Operator Assistant only, #3161 — see buildAssistantViewHookFragment) adds its
- * `UserPromptSubmit` hook to the same `hooks` object. Independent of `hooksIngest`: it is how the
- * operator's view reaches the model, not telemetry. Absent → no such key, so task spawns keep their
- * exact overlay.
+ * `assistantView` (the Operator Assistant only, #3161 — see buildAssistantViewHookFragment) adds
+ * its `UserPromptSubmit` hook to the same `hooks` object. Independent of `hooksIngest`: it is how
+ * the operator's view reaches the model, not telemetry. Absent → no such key.
  */
 export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
@@ -921,27 +915,26 @@ export function spawnSettingsOverlay(
 /**
  * Build the `hooks` overlay fragment (issue #704): one synchronous `http` hook per event
  * (PostToolUse, PostToolUseFailure, Notification, SessionStart, Stop, SessionEnd, plus the
- * Phase-3 #710 SubagentStart/SubagentStop sub-agent fan-out lifecycle), matcher `"*"`, short
- * fail-open timeout, pointed at `POST <baseUrl>/api/sessions/<sessionId>/hooks`.
+ * SubagentStart/SubagentStop sub-agent fan-out lifecycle), matcher `"*"`, short fail-open timeout,
+ * pointed at `POST <baseUrl>/api/sessions/<sessionId>/hooks`.
  *
- * Auth (Finding 2): the `--settings` JSON is a file the agent itself can read (a 0600 path since
- * #3337, RO-bound into its membrane) — so we NEVER bake the literal token. When a token is configured we emit a
+ * Auth: the `--settings` JSON is a file the agent itself can read (a 0600 path, RO-bound into its
+ * membrane) — so we NEVER bake the literal token. When a token is configured we emit a
  * `$SHEPHERD_TOKEN` placeholder + `allowedEnvVars`; Claude Code resolves it from the hook
  * process env (only listed vars are interpolated). With no token (open loopback) we omit the
  * `headers` + `allowedEnvVars` keys entirely, matching the queue route's no-auth path.
  *
  * Token + `autonomous` (issue #711, DELIBERATE): under the autonomous membrane `--clearenv`
  * strips `SHEPHERD_TOKEN`, so `$SHEPHERD_TOKEN` interpolates empty → the ingress listener 401s
- * → hooks fail-open to polling (today's behaviour). We keep the placeholder rather than baking
- * the literal token here ON PURPOSE: the hook header is readable from the autonomous agent's own
- * `--settings` file, so baking it would hand a hijacked agent
- * the control-plane token — defeating the containment the autonomous profile exists to provide.
- * This placeholder is now the ONLY place a Shepherd spawn carries the control-plane token at all
- * (issue #2003): the build-queue and epic-authoring directives used to bake the literal token into
- * their `curl` lines, and no longer do — they target the same auth-exempt ingress listener, which
- * never checked the header. Token-LESS deployments (the default) are unaffected and reach hooks
- * under autonomous normally. To make token + autonomous hooks reach, re-inject the token into the
- * sandbox env or accept the literal-in-argv exposure — intentionally NOT done here.
+ * → hooks fail-open to polling. We keep the placeholder rather than baking the literal token here
+ * ON PURPOSE: the hook header is readable from the autonomous agent's own `--settings` file, so
+ * baking it would hand a hijacked agent the control-plane token — defeating the containment the
+ * autonomous profile exists to provide. This placeholder is the ONLY place a Shepherd spawn
+ * carries the control-plane token at all (issue #2003): the build-queue and epic-authoring
+ * directives carry none in their `curl` lines — they target the same auth-exempt ingress listener,
+ * which never checks the header. Token-LESS deployments (the default) are unaffected and reach
+ * hooks under autonomous normally. To make token + autonomous hooks reach, re-inject the token into
+ * the sandbox env or accept the literal-in-argv exposure — intentionally NOT done here.
  */
 export function buildHooksFragment(input: HookTarget): Record<string, unknown> {
   const httpHook = {
@@ -1068,27 +1061,22 @@ export function codexAllowlistArgs(allow: TrimAllowlists, ext: CodexExtensions):
  *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`), on the spawn and
  *    on every resume: buildClaudeResumeArgv re-passes the FULL directive set, recomposed for the
  *    session's current phase, in a single `--append-system-prompt` (issue #2608).
- *    WHAT A RESUMED SESSION SEES, measured on Claude Code 2.1.283 (interactive PTY, codeword
- *    test). The CLI records the system prompt at a conversation's first request
- *    (`--system-prompt-snapshot on`, the default) and replays that record on every later request
- *    and resume, ignoring a newly passed value. So right after a resume the session still holds
- *    its SPAWN-time set, plan-gate directive included. A compaction discards the record and
- *    re-renders from the RUNNING process's argv — from then on the resume's value is the whole
- *    appended prompt, replacing the spawn-time one. That is why the resume must carry everything:
- *    passing only a block or two (as it did before #2608) left a resumed-then-compacted session
- *    without the untrusted-content boundary and autopilot directive.
+ *    WHAT A RESUMED SESSION SEES (verified on Claude Code 2.1.283): the CLI records the system
+ *    prompt at a conversation's first request (`--system-prompt-snapshot on`, the default) and
+ *    replays that record on every later request and resume, ignoring a newly passed value. So
+ *    right after a resume the session still holds its SPAWN-time set, plan-gate directive
+ *    included. A compaction discards the record and re-renders from the RUNNING process's argv —
+ *    from then on the resume's value is the whole appended prompt, replacing the spawn-time one.
+ *    That is why the resume must carry everything: a partial set leaves a resumed-then-compacted
+ *    session without the untrusted-content boundary and autopilot directive.
  *    `--system-prompt-snapshot off` would apply the resume's value at once; it is deliberately
  *    not passed, since a changed prompt rewrites the conversation's whole prompt cache.
  *
- * It deliberately no longer passes `--disable-slash-commands` (issue #2001). That flag is
- * "Disable all skills": it deleted progressive disclosure — the mechanism — for exactly the
- * sessions that run unattended. Re-measured on Claude Code 2.1.220 against a drain-shaped spawn
- * (scripts/measure-spawn-prefix.sh), the resident prefix costs 34,175 tok with the flag,
- * 40,187 without it, and 35,234 under the shape above — so keeping the session's own skills
- * available costs +1,059 tok/turn in the prefix instead of +6,012, because the flag's saving was
- * almost entirely built-in and personal skills that no drain session would have invoked anyway.
- * Net ≈ +1,107 tok/turn once the ≈ 48 est. tokens CONTEXT_TRIM_NOTICE grew by are counted; see
- * docs/research/drain-context-trim-2026-08-03.md for both sides of the ledger.
+ * It deliberately does not pass `--disable-slash-commands` (issue #2001). That flag is
+ * "Disable all skills": it deletes progressive disclosure — the mechanism — for exactly the
+ * sessions that run unattended. Its prefix saving is almost entirely built-in and personal skills,
+ * which the shape above already drops, so keeping the session's own skills costs little; see
+ * docs/research/drain-context-trim-2026-08-03.md for the measurements.
  *
  * Deliberately NOT `--settings disableAllHooks` — that would kill the operator's global
  * SessionStart hook Shepherd's status pipeline depends on. `SHEPHERD_TRIM_AUTO_CONTEXT=false`
@@ -1098,8 +1086,8 @@ export function codexAllowlistArgs(allow: TrimAllowlists, ext: CodexExtensions):
  * {@link TrimAllowlists}): a set plugin allowlist disables every operator plugin outside it, a set
  * skill allowlist every personal skill outside it — through the same project-skill guard as the
  * drain trim. Bundled skills stay, and there is no trim notice: the operator chose what this repo
- * keeps. Neither set → no overlay keys at all, so the spawn is unchanged. Codex spawns take the same
- * lists, auto included, through {@link codexAllowlistArgs}.
+ * keeps. Neither set → no overlay keys at all, so the spawn is unchanged. Codex spawns take the
+ * same lists, auto included, through {@link codexAllowlistArgs}.
  */
 async function trimDecision(
   auto: boolean,
@@ -1497,10 +1485,10 @@ export const EPIC_SHAPE_CONTRACT =
 /**
  * The one-session-one-PR invariant (issue #839). Shepherd tracks ONE branch per session and
  * resolves its PR on demand — there is no per-session list of PRs. When one session opens a second
- * PR on a different branch (e.g. the #830/#835 "Part A / Part B" split out of #825), that PR is
- * invisible to the session entirely: never reviewed, never merge-tracked, never recapped, never
- * landed. The critic, pr-poller, review, merge-train, epic, and recap wiring are all
- * session → single-tracked-PR by design.
+ * PR on a different branch (e.g. a "Part A / Part B" split), that PR is invisible to the session
+ * entirely: never reviewed, never merge-tracked, never recapped, never landed. The critic,
+ * pr-poller, review, merge-train, epic, and recap wiring are all session → single-tracked-PR by
+ * design.
  *
  * Wording is deliberately CONDITIONAL ("when you open a pull request…"), not an absolute "this
  * session opens exactly one PR." It rides the same `!opts.research` path as non-research
@@ -1511,10 +1499,9 @@ export const EPIC_SHAPE_CONTRACT =
  * Escape hatch (a) is worded honestly: epic drain is operator/drain-driven (server
  * `/api/epic/approve-next` → drain.approveEpicNext + drain.tick), so an agent CANNOT self-trigger
  * Shepherd to drain an epic — it sets the epic up and STOPS. Hatch (b) (one PR + follow-up issue)
- * is the always-safe default. Hatch (a) embeds EPIC_SHAPE_CONTRACT (issue #1391): the earlier
- * thin wording ("add one sub-issue … and an `epic-dag` fence if you map dependencies") read as
- * generic GitHub and framed the one reliable marker as optional, so third-party-repo agents
- * shipped label/prose "epics" Shepherd never recognized.
+ * is the always-safe default. Hatch (a) embeds the full EPIC_SHAPE_CONTRACT (issue #1391): thin
+ * wording reads as generic GitHub and frames the one reliable marker as optional, so
+ * third-party-repo agents ship label/prose "epics" Shepherd never recognizes.
  *
  * Advisory only — there is no enforcement. The data layer cannot see a second PR on another branch,
  * so recurrence stays possible; the deferred detection guardrail (split-marker scan) is the
@@ -1812,28 +1799,26 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
  * reading the task, a human (or autopilot) approves it, then the agent executes it step-by-step IN
  * THIS SAME SESSION so it retains full context throughout.
  *
- * Provider-split (issue #2003), and this is the whole point of the slice:
+ * Provider-split (issue #2003):
  *
  *  - **Claude** drives the queue through TOOLS (`mcp__shepherd__queue_write` /
  *    `queue_step`, served by src/agent-control.ts and wired at spawn by `sessionSpawnFileArgs`). The
- *    tool signatures carry the mechanics the prose used to spell out — the status vocabulary is an
- *    enum, step ids are a required parameter, and the "call it when you start / when you finish"
- *    rule is one line of tool description read at the call site. So this block keeps ONLY what a
- *    signature cannot state: that the session HAS a queue, and the curation gate. 3,443 chars of
- *    `curl` tutorial deleted.
+ *    tool signatures carry the mechanics — the status vocabulary is an enum, step ids are a
+ *    required parameter, and the "call it when you start / when you finish" rule is one line of
+ *    tool description read at the call site. So this block keeps ONLY what a signature cannot
+ *    state: that the session HAS a queue, and the curation gate.
  *  - **Codex** keeps the HTTP prose. Its MCP wiring (`config.toml` `[mcp_servers.*]`, streamable
  *    HTTP behind an experimental client flag) is unverified on the `-c` override path Shepherd
  *    would have to use, and Codex receives directives inline rather than via a flag. Stated gap,
- *    not an oversight — a Codex session drives the queue exactly as it did before.
+ *    not an oversight.
  *
  * NO TOKEN, on either path (issue #2003). `baseUrl` is the restricted agent-ingress listener,
  * which is EXEMPT from the human cookie/password gate (issue #1079) — the per-session id in the
- * path is the capability. The `Authorization: Bearer <token>` this directive used to carry was
- * therefore authenticating against a listener that never checked it, while persisting Shepherd's
- * control-plane secret into the agent's on-disk transcript. It is gone. (In the pathological case
- * where the ingress port is unknown and the gated main port is baked instead, a token-set
- * deployment's queue calls 401 — the same fail-open-to-polling degradation `buildHooksFragment`
- * already accepts, and it is why `agentIngressPort` is pinned.)
+ * path is the capability. A bearer token here would authenticate against a listener that never
+ * checks it while persisting Shepherd's control-plane secret into the agent's on-disk transcript.
+ * (In the pathological case where the ingress port is unknown and the gated main port is baked
+ * instead, a token-set deployment's queue calls 401 — the same fail-open-to-polling degradation
+ * `buildHooksFragment` already accepts, and it is why `agentIngressPort` is pinned.)
  *
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * AUTOPILOT_DIRECTIVE, BRANCH_RENAME_NOTICE, and the other spawn-constant notices.
@@ -2580,11 +2565,10 @@ export interface ComposeSystemPromptOptions {
 /**
  * The assembled spawn prompt as its NAMED PARTS (issue #1999), in emission order.
  *
- * This is the composer proper; {@link composeSystemPrompt} is `joinPromptBlocks` over it and stays
- * byte-identical to what it always returned. The parts exist so the spawn path can record a
- * per-block byte/token breakdown (see `measurePromptBlocks`) — every deletion slice in the Claude-5
- * context-engineering epic is scored against that number, and without it a regression is invisible.
- * Each block's `name` is the XML tag wrapping it, and names are unique within one assembly.
+ * This is the composer proper; {@link composeSystemPrompt} is `joinPromptBlocks` over it. The
+ * parts exist so the spawn path can record a per-block byte/token breakdown (see
+ * `measurePromptBlocks`) — without it a prompt-size regression is invisible. Each block's `name`
+ * is the XML tag wrapping it, and names are unique within one assembly.
  *
  * The joined result is passed via a single `--append-system-prompt` (the flag is last-wins, not
  * repeatable, so all blocks must share one value).
@@ -6514,6 +6498,19 @@ export class SessionService {
     return copied;
   }
 
+  /** Agent-verb fence: a clean-terminal session has no agent to resume/relaunch/steer/restore —
+   *  refuse with the typed 409 error instead of undefined behavior. See TerminalSessionError. */
+  private assertNotTerminal(s: Session, verb: string): void {
+    if (s.terminal) throw new TerminalSessionError(verb);
+  }
+
+  /** Per-task verb fence for the Operator Assistant: a relaunch, replace, variant or restore would
+   *  fork a second live assistant, or a task session spawned with a task's argv in its place. See
+   *  OperatorAssistantSessionError. */
+  private assertNotOperatorAssistant(s: Session, verb: string): void {
+    if (isOperatorAssistant(s)) throw new OperatorAssistantSessionError(verb);
+  }
+
   /**
    * Spawn a fresh replacement for an existing task, carrying its prompt and all
    * per-task settings — including the spawn-baked ones that can't be changed after
@@ -6536,25 +6533,12 @@ export class SessionService {
    *
    * On the quick-relaunch branch, the original's uploaded files are COPIED (not
    * moved) into staging and passed to `create`, which lands them in the new
-   * worktree — so a spawn failure here
-   * leaves the original's uploads intact on disk (the originals are reclaimed only
-   * when the original's worktree is torn down by the route, after a successful
-   * spawn). On any error AFTER `create`, the just-created session is best-effort
-   * torn down and the error rethrown, so no orphaned new session leaks.
+   * worktree — so a spawn failure here leaves the original's uploads intact on disk
+   * (the originals are reclaimed only when the original's worktree is torn down by
+   * the route, after a successful spawn). On any error AFTER `create`, the
+   * just-created session is best-effort torn down and the error rethrown, so no
+   * orphaned new session leaks.
    */
-  /** Agent-verb fence: a clean-terminal session has no agent to resume/relaunch/steer/restore —
-   *  refuse with the typed 409 error instead of undefined behavior. See TerminalSessionError. */
-  private assertNotTerminal(s: Session, verb: string): void {
-    if (s.terminal) throw new TerminalSessionError(verb);
-  }
-
-  /** Per-task verb fence for the Operator Assistant: a relaunch, replace, variant or restore would
-   *  fork a second live assistant, or a task session spawned with a task's argv in its place. See
-   *  OperatorAssistantSessionError. */
-  private assertNotOperatorAssistant(s: Session, verb: string): void {
-    if (isOperatorAssistant(s)) throw new OperatorAssistantSessionError(verb);
-  }
-
   async relaunch(
     originalId: string,
     issueRef?: IssueRef,
@@ -7555,17 +7539,16 @@ export class SessionService {
    *
    * The UNION of two surfaces, because no single one covers every herdr: ≤0.7.4 puts the name on
    * the agent record, while 0.7.5+ sends no `agent.name` at all and the name survives only as the
-   * TAB label (#2033). Reading agent names alone made this de-duper a no-op on every 0.7.5 host —
-   * which is what let two live sessions share a name and turned the repaired `agent_name_taken`
-   * eviction into a hazard for the live sibling.
+   * TAB label (#2033). Agent names alone make this de-duper a no-op on every 0.7.5 host, letting two
+   * live sessions share a name — and an `agent_name_taken` eviction then hits the live sibling.
    *
    * Compared in SANITIZED space because that is the space herdr 0.7.5+ actually binds: the register
    * call passes `sanitizeHerdrAgentName(name)`, so `fix login` and `fix-login` are ONE name to
-   * herdr even though they are two distinct raw labels. De-duping raw let both go live, and the
-   * second one's spawn then collided and evicted the first — the very hazard this function exists
+   * herdr even though they are two distinct raw labels. De-duping raw lets both go live, and the
+   * second one's spawn then collides and evicts the first — the very hazard this function exists
    * to prevent. Sanitized comparison is a superset of the raw one (equal raw implies equal
-   * sanitized), so it never de-dupes less than before; at worst it suffixes a punctuation twin that
-   * ≤0.7.4 would have tolerated, which is cheap and safe.
+   * sanitized); at worst it suffixes a punctuation twin that ≤0.7.4 would have tolerated, which is
+   * cheap and safe.
    *
    * Best-effort by contract: a failed `tab list` degrades the naming to the agent-name half, it
    * never fails session creation. Tab labels also cover Shepherd's helper tabs, which only makes
@@ -7612,8 +7595,8 @@ export class SessionService {
    * prefers a herd-qualified name (`${base}-${herd}`) before falling back to numeric suffixes.
    * This makes concurrent sessions on different repos self-distinguishing at a glance
    * (`fix-login-myapp` vs `fix-login-otherapp`) and keeps numeric suffixes as a last resort
-   * for sessions inside the same herd. If no usable herd is given, the original numeric
-   * linear scan (`${base}-2`, `-3`, …) is used unchanged.
+   * for sessions inside the same herd. If no usable herd is given, a numeric linear scan
+   * (`${base}-2`, `-3`, …) is used.
    *
    * The composed `base-herd` string is capped at 60 characters (trimming any trailing dash)
    * to keep branch/worktree paths sane, matching the 60-char convention used by slugifyManual.
@@ -8229,21 +8212,19 @@ export class SessionService {
    * herdr does NOT bracket-wrap injected text, and back-to-back `send`s coalesce into a
    * single PTY read — so a multi-line blob with a trailing "\r" reaches Claude Code as
    * one chunk, trips its paste heuristic, and the CR is swallowed as just another
-   * newline: message typed-but-unsent. (Single-line steers escaped this because no
-   * embedded "\n" trips the heuristic — which is why short steers worked and reviews
-   * didn't.) Wrapping the text in the bracketed-paste markers (ESC[200~ … ESC[201~)
-   * gives an explicit paste-end, so the following CR is unambiguously Enter regardless
-   * of read boundaries — deterministic, no timing guesswork. Strip any stray paste
-   * markers from the payload first: a leaked end-marker would close the paste early
-   * (turning the rest into live keystrokes), and a leaked start-marker is benign but
-   * dropped for symmetry. Returns false when the session is unknown OR its pane is dead
-   * (claude exited / terminal reaped) — a live store row can still back a dead pane,
-   * which would make herdr.send throw. The up-front liveness check keeps reply an honest,
-   * non-throwing boolean for human steers, and hands the auto-address loop a clean
-   * "not delivered" instead of relying on it to catch the throw downstream. (Since #1567 the
-   * send is async, so the narrow post-check race — pane dies between check and send — surfaces
-   * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
-   * with try/catch now guard it with try/await.)
+   * newline: message typed-but-unsent. Wrapping the text in the bracketed-paste markers
+   * (ESC[200~ … ESC[201~) gives an explicit paste-end, so the following CR is
+   * unambiguously Enter regardless of read boundaries — deterministic, no timing
+   * guesswork. Strip any stray paste markers from the payload first: a leaked end-marker
+   * would close the paste early (turning the rest into live keystrokes), and a leaked
+   * start-marker is benign but dropped for symmetry. Returns false when the session is
+   * unknown OR its pane is dead (claude exited / terminal reaped) — a live store row can
+   * still back a dead pane, which would make herdr.send throw. The up-front liveness
+   * check keeps reply an honest, non-throwing boolean for human steers, and hands the
+   * auto-address loop a clean "not delivered" instead of relying on it to catch the throw
+   * downstream. The send is async (#1567), so the narrow post-check race — pane dies
+   * between check and send — surfaces as a REJECTED promise; callers guard it with
+   * try/await.
    */
   reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
     if (this.isProviderHandoffHeld(id) && !this.providerHandoffAccess(id, opts.providerHandoff))
@@ -8386,8 +8367,7 @@ export class SessionService {
    * appended ONCE per session so the epic-shape contract reaches the agent mid-session too. This is
    * the provider-agnostic complement to the spawn-time #1391 notice, which only fires on the spawn
    * prompt. Guidance that must reach both providers in any repo belongs in an injected steer block,
-   * not a Claude-only, model-invoked skill — which is why the skill restating it is gone (#2003).
-   * See #1405.
+   * not a Claude-only, model-invoked skill.
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
    * so the recorded steer history never carries Shepherd's own notice. The session is marked only
@@ -8402,8 +8382,7 @@ export class SessionService {
    * `signalPayload` (default = `text`) lets a caller whose `text` is a Shepherd-composed wrapper
    * record the operator's RAW words in the `reply` signal instead — the same reason the epic notice
    * rides the PTY only: the recorded steer history must never carry Shepherd's own boilerplate.
-   * Used by the task-amendment channel (#2225); every other caller omits it and behaves exactly as
-   * before.
+   * Used by the task-amendment channel (#2225); every other caller omits it.
    */
   operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
     return this.#steer(id, false, () =>

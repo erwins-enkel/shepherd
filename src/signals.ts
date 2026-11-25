@@ -37,8 +37,7 @@ const EPISODE_DEBOUNCE_MS = 60_000;
  * stays one episode however long it runs, and a new row needs a real `debounceMs` lull in the
  * event stream. A `block: null` clear deliberately does NOT reset it — the poller drops `lastSig`
  * in both `trySuppressSpinner` and `clearBlock`, so an episode keyed on clear events would still
- * write a fresh row on every spinner-suppression or leave-blocked flap, which is the amplifier
- * this is here to neutralise.
+ * write a fresh row on every spinner-suppression or leave-blocked flap.
  */
 export function attachSignalCapture(
   events: Pick<EventHub, "subscribe">,

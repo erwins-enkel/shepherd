@@ -112,8 +112,10 @@ import {
   buildBacklogPayload,
   launchTask,
   reconcileRepoConfig,
+  transcriptPathFor,
   type AppDeps,
 } from "./server";
+import { sessionMessages } from "./agent-messages";
 import { ScheduleService, SCHEDULE_TICK_MS } from "./schedules";
 import { SchedulePauseService, isUsagePaused } from "./schedule-pause";
 import { resolveDefaultBranch } from "./pull";
@@ -202,7 +204,7 @@ import { BlockBackstop } from "./block-backstop";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
-import { STEERING_LABEL } from "./steering";
+import { STEERING_LABEL, SteeringReportService } from "./steering";
 import {
   deriveRequirementsViaAgent,
   deriveRequirementsViaJudge,
@@ -923,6 +925,23 @@ const recapService: RecapService = new RecapService({
     }
     return null;
   },
+});
+
+// Steering report (#4175): on-demand prompt/steer retro over the last 7 days of archived sessions.
+// Reuses the recap role environment. Transcripts are read through the same per-provider path
+// ladder as the message routes; appDeps is declared below, and this closure only runs per run.
+const steeringReports = new SteeringReportService({
+  store,
+  herdr,
+  env: () => roleEnv(config.recapCli, config.recapModel, config.recapEffort),
+  operatorLanguage: () => config.operatorLanguage,
+  readMessages: (s) =>
+    sessionMessages(s, transcriptPathFor(s, appDeps), {
+      limit: 100,
+      includeUser: true,
+      includeTools: false,
+    }),
+  emit: (event) => events.emit("steering:report", event),
 });
 
 // Lazy holder for the restricted agent-ingress listener's ephemeral port. The listener is started
@@ -4807,6 +4826,7 @@ const appDeps: AppDeps = {
   },
   recapCache: { snapshot: () => recapService.snapshot() },
   recap: { regenerate: (s) => recapService.regenerate(s) },
+  steering: steeringReports,
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),

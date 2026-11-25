@@ -2688,6 +2688,337 @@ components:
           type: string
         reason:
           $ref: "#/components/schemas/OperatorAssistantUnavailableReason"
+    SteeringReportStatus:
+      type: string
+    SteeringReportTrigger:
+      type: string
+    SteeringOrigin:
+      type: string
+    SteeringPromptStyle:
+      type: string
+    SteeringSteerIntent:
+      type: string
+    SteeringSkipped:
+      type: object
+      additionalProperties: true
+      required:
+        - unarchived
+        - terminal
+        - relaunch
+        - noop
+        - outOfWindow
+      properties:
+        unarchived:
+          type: integer
+        terminal:
+          type: integer
+        relaunch:
+          type: integer
+        noop:
+          type: integer
+        outOfWindow:
+          type: integer
+    SteeringSample:
+      type: object
+      additionalProperties: true
+      required:
+        - windowStart
+        - windowEnd
+        - considered
+        - capped
+        - skipped
+      properties:
+        windowStart:
+          type: integer
+        windowEnd:
+          type: integer
+        considered:
+          type: integer
+        capped:
+          type: boolean
+          description: More sessions qualified than the cap; only the newest were read.
+        skipped:
+          $ref: "#/components/schemas/SteeringSkipped"
+    SteeringReportSession:
+      type: object
+      additionalProperties: true
+      description: One read session as the report keeps it. No prompt or steer text.
+      required:
+        - desig
+        - repo
+        - origin
+        - outcome
+        - durationMin
+        - operatorSteerCount
+        - shepherdSteers
+      properties:
+        desig:
+          type: string
+        repo:
+          type: string
+          description: Basename of the session's repo path.
+        origin:
+          $ref: "#/components/schemas/SteeringOrigin"
+        outcome:
+          type: string
+          nullable: true
+        durationMin:
+          type: number
+          nullable: true
+        operatorSteerCount:
+          type: integer
+        shepherdSteers:
+          type: object
+          description: Shepherd's automatic steers by kind (review, ci_fix, merged, …) -> count.
+          additionalProperties:
+            type: integer
+    SteeringPromptLabel:
+      type: object
+      additionalProperties: true
+      required:
+        - desig
+        - type
+        - style
+      properties:
+        desig:
+          type: string
+        type:
+          type: string
+          description: Short kebab-case prompt type (feature
+          bugfix: null
+          …).: null
+        style:
+          $ref: "#/components/schemas/SteeringPromptStyle"
+    SteeringSteerLabel:
+      type: object
+      additionalProperties: true
+      required:
+        - desig
+        - index
+        - intent
+      properties:
+        desig:
+          type: string
+        index:
+          type: integer
+        intent:
+          $ref: "#/components/schemas/SteeringSteerIntent"
+    SteeringFinding:
+      type: object
+      additionalProperties: true
+      required:
+        - text
+        - desigs
+      properties:
+        text:
+          type: string
+        desigs:
+          type: array
+          items:
+            type: string
+    SteeringExample:
+      type: object
+      additionalProperties: true
+      required:
+        - desig
+        - quote
+        - evidence
+        - rewrite
+      properties:
+        desig:
+          type: string
+        quote:
+          type: string
+        evidence:
+          type: string
+        rewrite:
+          type: string
+    SteeringLabels:
+      type: object
+      additionalProperties: true
+      required:
+        - prompts
+        - steers
+        - findings
+        - examples
+      properties:
+        prompts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringPromptLabel"
+        steers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringSteerLabel"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringFinding"
+        examples:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringExample"
+    SteeringRow:
+      type: object
+      additionalProperties: true
+      required:
+        - key
+        - n
+        - thin
+        - mergedShare
+        - medianOperatorSteers
+        - medianReview
+        - medianCi
+        - medianPlanReview
+        - medianDurationMin
+      properties:
+        key:
+          type: string
+        n:
+          type: integer
+        thin:
+          type: boolean
+          description: Fewer than 3 sessions in the row.
+        mergedShare:
+          type: number
+          description: "0..1: outcome merged or a merged steer."
+        medianOperatorSteers:
+          type: number
+        medianReview:
+          type: number
+        medianCi:
+          type: number
+          description: ci_fix + ci_red steers.
+        medianPlanReview:
+          type: number
+        medianDurationMin:
+          type: number
+          nullable: true
+    SteeringIntentRow:
+      type: object
+      additionalProperties: true
+      required:
+        - intent
+        - start
+        - mid
+        - end
+      properties:
+        intent:
+          $ref: "#/components/schemas/SteeringSteerIntent"
+        start:
+          type: integer
+        mid:
+          type: integer
+        end:
+          type: integer
+    SteeringTables:
+      type: object
+      additionalProperties: true
+      required:
+        - byType
+        - byStyle
+        - intents
+      properties:
+        byType:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringRow"
+        byStyle:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringRow"
+        intents:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringIntentRow"
+    SteeringReport:
+      type: object
+      additionalProperties: true
+      description: A stored steering report. labels/tables are null for empty and failed; sample is null only when a run failed before the digest existed.
+      required:
+        - id
+        - createdAt
+        - windowStart
+        - windowEnd
+        - trigger
+        - status
+        - error
+        - model
+        - sample
+        - sessions
+        - labels
+        - tables
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: integer
+        windowStart:
+          type: integer
+        windowEnd:
+          type: integer
+        trigger:
+          $ref: "#/components/schemas/SteeringReportTrigger"
+        status:
+          $ref: "#/components/schemas/SteeringReportStatus"
+        error:
+          type: string
+          nullable: true
+          description: Why a failed run failed; null otherwise.
+        model:
+          type: string
+          nullable: true
+        sample:
+          allOf:
+            - $ref: "#/components/schemas/SteeringSample"
+          nullable: true
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SteeringReportSession"
+        labels:
+          allOf:
+            - $ref: "#/components/schemas/SteeringLabels"
+          nullable: true
+        tables:
+          allOf:
+            - $ref: "#/components/schemas/SteeringTables"
+          nullable: true
+    SteeringReportSnapshot:
+      type: object
+      additionalProperties: true
+      required:
+        - running
+        - report
+      properties:
+        running:
+          type: boolean
+        report:
+          allOf:
+            - $ref: "#/components/schemas/SteeringReport"
+          nullable: true
+    SteeringRunResult:
+      type: object
+      additionalProperties: true
+      description: POST /api/steering/report/run. `error` is set on the 409 (a run is in flight).
+      required:
+        - running
+      properties:
+        running:
+          type: boolean
+        error:
+          type: string
+    SteeringReportEvent:
+      type: object
+      additionalProperties: true
+      description: "{running: true} when a run starts; {running: false, report} when it finished."
+      required:
+        - running
+      properties:
+        running:
+          type: boolean
+        report:
+          $ref: "#/components/schemas/SteeringReport"
     TerminalClientInfo:
       type: object
       additionalProperties: false
@@ -11443,6 +11774,11 @@ components:
       oneOf:
         - $ref: "#/components/schemas/HeldTask"
         - $ref: "#/components/schemas/Session"
+    RunSteeringReportError:
+      description: "Rust-only: every error body runSteeringReport can answer (statuses 401, 409, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/SteeringRunResult"
+        - $ref: "#/components/schemas/Error"
     GetPullRequestReviewersError:
       description: "Rust-only: every error body getPullRequestReviewers can answer (statuses 400, 401, 404, 409, 502)."
       oneOf:
@@ -12720,6 +13056,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/steering/report:
+    get:
+      operationId: getSteeringReport
+      description: The latest stored steering report (#4175) and whether a run is in flight. Operator only.
+      responses:
+        "200":
+          description: Latest report, or null when none was ever generated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SteeringReportSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: The steering report service is not wired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/steering/report/run:
+    post:
+      operationId: runSteeringReport
+      description: Start a manual steering report run. Accepted, not completed — the report arrives as a steering:report frame. Single-flight.
+      responses:
+        "202":
+          description: Run started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SteeringRunResult"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSteeringReportError"
+        "409":
+          description: A run is already in flight.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSteeringReportError"
+        "503":
+          description: The steering report service is not wired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSteeringReportError"
   /api/sessions/{id}/reply:
     parameters:
       - name: id
@@ -18780,6 +19164,10 @@ x-shepherd-events:
     description: "A task for a connected machine that is not settled changed: it became unknown (no answer), a cancel was requested, it started waiting here for its machine or its readiness or alternatives changed while it waits, its machine holds it, or it resolved (started, rejected, canceled, upload_failed, or redirected — it runs on this instance now). The whole current RemoteDispatch; a client shows it while its state is unknown, canceling, waiting or held and drops it otherwise. Not sent for a task the machine started right away."
     schema:
       $ref: "#/components/schemas/RemoteDispatch"
+  steering:report:
+    description: A steering report run started ({running:true}) or finished ({running:false, report}, the persisted report). Not in the EventName enum; natively it decodes as ServerEvent.unknown.
+    schema:
+      $ref: "#/components/schemas/SteeringReportEvent"
   terminal:owners:
     description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
     schema:

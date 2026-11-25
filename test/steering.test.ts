@@ -47,6 +47,8 @@ interface Harness {
   cleaned: string[];
   inserted: SteeringReport[];
   events: SteeringEvent[];
+  settings: Map<string, string>;
+  ready: SteeringReport[];
 }
 
 function harness(
@@ -55,22 +57,35 @@ function harness(
     readResult?: (cwd: string) => Promise<unknown>;
     start?: () => Promise<{ terminalId: string }>;
     readMessages?: (s: Session) => Promise<SteeringMessages>;
+    stored?: SteeringReport[];
+    usageHeld?: () => boolean;
   } = {},
 ): Harness {
   const h: Omit<Harness, "service"> = {
     started: [],
     stopped: [],
     cleaned: [],
-    inserted: [],
+    inserted: [...(opts.stored ?? [])],
     events: [],
+    settings: new Map(),
+    ready: [],
   };
+  const list = (trigger?: SteeringReport["trigger"]) =>
+    h.inserted
+      .filter((r) => !trigger || r.trigger === trigger)
+      .sort((a, b) => b.createdAt - a.createdAt);
   let clock = NOW;
   const service = new SteeringReportService({
     store: {
       listArchivedSessions: () => sessions,
       insertSteeringReport: (r) => void h.inserted.push(r),
-      latestSteeringReport: () => h.inserted.at(-1) ?? null,
+      latestSteeringReport: (trigger) => list(trigger)[0] ?? null,
+      listSteeringReports: (trigger) => list(trigger),
+      getSetting: (k) => h.settings.get(k) ?? null,
+      setSetting: (k, v) => void h.settings.set(k, v),
     },
+    usageHeld: opts.usageHeld,
+    onWeeklyReady: (r) => void h.ready.push(r),
     readMessages: opts.readMessages ?? (async () => ({ messages: [], unavailable: null })),
     herdr: {
       start: async (label: string, cwd: string, argv: string[]) => {
@@ -129,7 +144,7 @@ describe("SteeringReportService", () => {
     expect(h.started[0]!.argv).not.toContain("--add-dir");
     expect(h.stopped).toEqual(["term-1"]);
     expect(h.cleaned).toEqual(["/tmp/steering-test"]);
-    expect(h.service.snapshot()).toEqual({ running: false, report: r });
+    expect(h.service.snapshot()).toEqual({ running: false, report: r, trend: [], unread: false });
   });
 
   it("emits running at start and the persisted report at the end", async () => {
@@ -230,5 +245,121 @@ describe("SteeringReportService", () => {
     };
     expect(await h.service.run("manual")).toBe(true);
     expect(h.inserted[0]).toMatchObject({ status: "failed", error: "db locked", sample: null });
+  });
+});
+
+function storedReport(over: Partial<SteeringReport> & { id: string }): SteeringReport {
+  return {
+    createdAt: NOW - 8 * DAY,
+    windowStart: NOW - 15 * DAY,
+    windowEnd: NOW - 8 * DAY,
+    trigger: "weekly",
+    status: "ok",
+    error: null,
+    model: null,
+    sample: null,
+    sessions: [],
+    labels: { prompts: [], steers: [], findings: [], examples: [] },
+    tables: null,
+    ...over,
+  };
+}
+
+describe("SteeringReportService weekly digest (#4176)", () => {
+  it("runs a weekly report when due and hands an ok report to onWeeklyReady", async () => {
+    const h = harness(typed(6));
+    expect(await h.service.tickWeekly()).toBe("ran");
+    expect(h.inserted.at(-1)?.trigger).toBe("weekly");
+    expect(h.ready.map((r) => r.id)).toEqual([h.inserted.at(-1)!.id]);
+  });
+
+  it("does not run before the newest weekly report is a week old", async () => {
+    const h = harness(typed(6), { stored: [storedReport({ id: "w", createdAt: NOW - 6 * DAY })] });
+    expect(await h.service.tickWeekly()).toBe("not-due");
+    expect(h.started).toHaveLength(0);
+  });
+
+  it("ignores manual reports when deciding the weekly run is due", async () => {
+    const h = harness(typed(6), {
+      stored: [storedReport({ id: "m", trigger: "manual", createdAt: NOW - HOUR })],
+    });
+    expect(await h.service.tickWeekly()).toBe("ran");
+  });
+
+  it("defers while the usage hold is active", async () => {
+    const h = harness(typed(6), { usageHeld: () => true });
+    expect(await h.service.tickWeekly()).toBe("held");
+    expect(h.started).toHaveLength(0);
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("is busy while a run is in flight", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const h = harness(typed(6), {
+      readMessages: () => gate.then(() => ({ messages: [], unavailable: null })),
+    });
+    const first = h.service.start("manual");
+    expect(first).toBe(true);
+    expect(await h.service.tickWeekly()).toBe("busy");
+    release();
+  });
+
+  it("notifies for weekly ok/thin only — not manual, empty or failed", async () => {
+    const manual = harness(typed(6));
+    await manual.service.run("manual");
+    expect(manual.ready).toHaveLength(0);
+
+    const empty = harness([]);
+    await empty.service.run("weekly");
+    expect(empty.inserted.at(-1)?.status).toBe("empty");
+    expect(empty.ready).toHaveLength(0);
+
+    const failed = harness(typed(6), { readResult: async () => ({ nonsense: true }) });
+    await failed.service.run("weekly");
+    expect(failed.inserted.at(-1)?.status).toBe("failed");
+    expect(failed.ready).toHaveLength(0);
+
+    const thin = harness(typed(2));
+    await thin.service.run("weekly");
+    expect(thin.inserted.at(-1)?.status).toBe("thin");
+    expect(thin.ready).toHaveLength(1);
+  });
+
+  it("marks the newest weekly digest unread until markSeen", () => {
+    const h = harness([], {
+      stored: [
+        storedReport({ id: "w1", createdAt: NOW - 14 * DAY }),
+        storedReport({ id: "w2", createdAt: NOW - 7 * DAY }),
+        storedReport({ id: "m", trigger: "manual", createdAt: NOW - DAY }),
+      ],
+    });
+    expect(h.service.snapshot().unread).toBe(true);
+    h.service.markSeen();
+    expect(h.settings.get("steeringReportSeenId")).toBe("w2");
+    expect(h.service.snapshot().unread).toBe(false);
+  });
+
+  it("never marks unread for manual or failed reports only", () => {
+    const h = harness([], {
+      stored: [
+        storedReport({ id: "m", trigger: "manual" }),
+        storedReport({ id: "f", status: "failed", labels: null }),
+      ],
+    });
+    expect(h.service.snapshot().unread).toBe(false);
+  });
+
+  it("snapshot carries the trend over weekly digests only", () => {
+    const h = harness([], {
+      stored: [
+        storedReport({ id: "w1", createdAt: NOW - 14 * DAY }),
+        storedReport({ id: "m", trigger: "manual", createdAt: NOW - 10 * DAY }),
+        storedReport({ id: "w2", createdAt: NOW - 7 * DAY }),
+      ],
+    });
+    const snap = h.service.snapshot();
+    expect(snap.trend.map((p) => p.reportId)).toEqual(["w1", "w2"]);
+    expect(snap.report?.id).toBe("w2");
   });
 });

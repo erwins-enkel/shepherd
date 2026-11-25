@@ -13,6 +13,7 @@ import {
   buildPayload,
   notifySessionDone,
   USAGE_WARN_PCT,
+  STEERING_HEADLINE_PUSH_CHARS,
   awaitingOperatorCount,
   type NotifyInput,
   type SendFn,
@@ -1266,6 +1267,7 @@ test("reducedPushMode ON: drops blocked, done, ci, review, merge_attention", asy
     mergeState: "merge_error",
     desig: "T",
   });
+  await push.notify({ kind: "steering_report", sessionId: "", tag: "sr", name: "steering" });
   expect(count).toBe(0);
 });
 
@@ -1510,4 +1512,40 @@ test("a relayed notification keys its cooldown by its machine", async () => {
   ]);
   t += config.pushCooldownMs + 1;
   expect(await push.notify(relayed)).toBe(true);
+});
+
+test("steering_report: headline finding as body, localized title", () => {
+  const n: NotifyInput = {
+    kind: "steering_report",
+    sessionId: "",
+    tag: "steering_report",
+    name: "steering",
+    headline: "Prompts that name the fix need fewer corrections.",
+    sessionsReviewed: 12,
+  };
+  expect(buildPayload(n, "en")).toMatchObject({
+    title: "Weekly steering report ready",
+    body: "Prompts that name the fix need fewer corrections.",
+    sessionId: "",
+    kind: "steering_report",
+  });
+  expect(buildPayload(n, "de").title).toBe("Wöchentlicher Steuerungsbericht bereit");
+});
+
+test("steering_report: falls back to the session count, caps a long headline", () => {
+  const n: NotifyInput = {
+    kind: "steering_report",
+    sessionId: "",
+    tag: "steering_report",
+    name: "steering",
+    sessionsReviewed: 3,
+  };
+  expect(buildPayload(n, "en").body).toBe("Reviewed 3 sessions — open Usage → Steering.");
+  expect(buildPayload(n, "de").body).toBe("3 Sitzungen ausgewertet — öffne Nutzung → Steuerung.");
+  expect(buildPayload({ ...n, sessionsReviewed: 1 }, "en").body).toBe(
+    "Reviewed 1 session — open Usage → Steering.",
+  );
+  const long = buildPayload({ ...n, headline: "x".repeat(400) }, "en").body;
+  expect(long).toHaveLength(STEERING_HEADLINE_PUSH_CHARS);
+  expect(long.endsWith("…")).toBe(true);
 });

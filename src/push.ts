@@ -47,6 +47,7 @@ export interface PushPayload {
     | "judge_ceiling"
     | "login_request"
     | "bootstrap_next"
+    | "steering_report"
     // Settings → Notifications "send test message" (#2696); never produced by notify().
     | "test";
   tag: string;
@@ -88,6 +89,8 @@ const KIND_CATEGORY: Record<NotifyInput["kind"], PushCategory> = {
   login_request: "agent",
   // A bootstrap phase advanced (#3112): the next attended session is the operator's to start.
   bootstrap_next: "agent",
+  // Host-global weekly digest (#4176); rides the "agent" toggle like the other host alerts.
+  steering_report: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -111,7 +114,8 @@ export interface NotifyInput {
     | "epic_base_conflict"
     | "judge_ceiling"
     | "login_request"
-    | "bootstrap_next";
+    | "bootstrap_next"
+    | "steering_report";
   sessionId: string;
   tag: string;
   name: string;
@@ -156,6 +160,10 @@ export interface NotifyInput {
   loginReason?: string;
   /** For kind "bootstrap_next": the repo's new bootstrap phase (3, 4 or 5). `name` = the repo. */
   bootstrapPhase?: number;
+  /** For kind "steering_report": the report's headline finding (LLM-written, capped here), and
+   *  how many sessions it read (the fallback body when there is no finding). */
+  headline?: string;
+  sessionsReviewed?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`, or `${kind}:${instanceId}:${sessionId}`
    *  for a relayed session). */
   cooldownKey?: string;
@@ -261,6 +269,9 @@ const NOTIFY_TEXT = {
       host
         ? `Log in at ${host} in the Shared Browser: ${reason}`
         : `Log in in the Shared Browser: ${reason}`,
+    steeringReportTitle: "Weekly steering report ready",
+    steeringReportFallback: (n: number) =>
+      `Reviewed ${n} ${n === 1 ? "session" : "sessions"} — open Usage → Steering.`,
     testTitle: "Shepherd test message",
     testBody: "Push notifications reach this device.",
     onHost: (host: string, name: string) => `${host} · ${name}`,
@@ -340,6 +351,9 @@ const NOTIFY_TEXT = {
       host
         ? `Melde dich im Shared Browser bei ${host} an: ${reason}`
         : `Melde dich im Shared Browser an: ${reason}`,
+    steeringReportTitle: "Wöchentlicher Steuerungsbericht bereit",
+    steeringReportFallback: (n: number) =>
+      `${n} ${n === 1 ? "Sitzung" : "Sitzungen"} ausgewertet — öffne Nutzung → Steuerung.`,
     testTitle: "Shepherd-Testnachricht",
     testBody: "Push-Benachrichtigungen erreichen dieses Gerät.",
     onHost: (host: string, name: string) => `${host} · ${name}`,
@@ -384,6 +398,20 @@ function stalenessParts(t: NotifyText, input: NotifyInput): { title: string; bod
   return input.kind === "onboarding_stale"
     ? { title: t.onboardingStaleTitle, body: t.onboardingStaleBody(hours) }
     : { title: t.backupStaleTitle, body: t.backupStaleBody(hours) };
+}
+
+/** Cap on the steering headline in a push body: a banner shows a line or two, not a paragraph. */
+export const STEERING_HEADLINE_PUSH_CHARS = 160;
+
+/** Weekly steering digest: the headline finding, else how many sessions the report read. */
+function steeringReportParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
+  const headline = input.headline?.trim();
+  const body = headline
+    ? headline.length > STEERING_HEADLINE_PUSH_CHARS
+      ? `${headline.slice(0, STEERING_HEADLINE_PUSH_CHARS - 1).trimEnd()}…`
+      : headline
+    : t.steeringReportFallback(input.sessionsReviewed ?? 0);
+  return { title: t.steeringReportTitle, body };
 }
 
 /** Merge-attention title/body: rebase-cap copy when capped, else the generic merge-error copy. */
@@ -486,6 +514,7 @@ const PARTS_BY_KIND: Partial<
     title: t.bootstrapNextTitle(input.name),
     body: t.bootstrapNextBody(input.bootstrapPhase ?? 0),
   }),
+  steering_report: steeringReportParts,
   login_request: (t, input) => ({
     title: t.loginRequestTitle(input.name),
     body: t.loginRequestBody(input.loginHost ?? "", input.loginReason ?? ""),

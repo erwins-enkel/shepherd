@@ -27,8 +27,11 @@ const autoSession = {
   archivedAt: NOW - 2 * DAY + DAY / 6,
 } as Session;
 
-function harness() {
-  const reports: SteeringReport[] = [];
+function harness(stored: SteeringReport[] = []) {
+  const reports: SteeringReport[] = [...stored];
+  const settings = new Map<string, string>();
+  const newest = (trigger?: string) =>
+    reports.filter((r) => !trigger || r.trigger === trigger).toReversed();
   const events: SteeringEvent[] = [];
   let release!: (m: SteeringMessages) => void;
   const read = new Promise<SteeringMessages>((r) => (release = r));
@@ -38,7 +41,10 @@ function harness() {
     store: {
       listArchivedSessions: () => [autoSession],
       insertSteeringReport: (r) => void reports.push(r),
-      latestSteeringReport: () => reports.at(-1) ?? null,
+      latestSteeringReport: (trigger) => newest(trigger)[0] ?? null,
+      listSteeringReports: (trigger) => newest(trigger),
+      getSetting: (k) => settings.get(k) ?? null,
+      setSetting: (k, v) => void settings.set(k, v),
     },
     readMessages: () => read,
     herdr: {
@@ -69,14 +75,49 @@ const get = (app: ReturnType<typeof makeApp>) =>
 const run = (app: ReturnType<typeof makeApp>) =>
   app.fetch(new Request("http://x/api/steering/report/run", { method: "POST" }));
 
+const seen = (app: ReturnType<typeof makeApp>) =>
+  app.fetch(new Request("http://x/api/steering/report/seen", { method: "POST" }));
+
+test("steering seen route clears the weekly digest's unread flag", async () => {
+  const weekly: SteeringReport = {
+    id: "w1",
+    createdAt: NOW - DAY,
+    windowStart: NOW - 8 * DAY,
+    windowEnd: NOW - DAY,
+    trigger: "weekly",
+    status: "ok",
+    error: null,
+    model: null,
+    sample: null,
+    sessions: [],
+    labels: { prompts: [], steers: [], findings: [], examples: [] },
+    tables: null,
+  };
+  const h = harness([weekly]);
+  const before = (await (await get(h.app)).json()) as { unread: boolean; trend: unknown[] };
+  expect(before.unread).toBe(true);
+  expect(before.trend).toHaveLength(1);
+  const res = await seen(h.app);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ unread: false });
+  expect(((await (await get(h.app)).json()) as { unread: boolean }).unread).toBe(false);
+  const wrongMethod = await h.app.fetch(new Request("http://x/api/steering/report/seen"));
+  expect(wrongMethod.status).not.toBe(200);
+});
+
 test("steering routes drive the real service: 202, 409 while in flight, then the report", async () => {
   const h = harness();
-  expect(await (await get(h.app)).json()).toEqual({ running: false, report: null });
+  expect(await (await get(h.app)).json()).toEqual({
+    running: false,
+    report: null,
+    trend: [],
+    unread: false,
+  });
 
   const started = await run(h.app);
   expect(started.status).toBe(202);
   expect(await started.json()).toEqual({ running: true });
-  expect(await (await get(h.app)).json()).toEqual({ running: true, report: null });
+  expect(await (await get(h.app)).json()).toMatchObject({ running: true, report: null });
 
   const busy = await run(h.app);
   expect(busy.status).toBe(409);
@@ -102,6 +143,7 @@ test("steering routes answer 503 when the service is unwired; other methods fall
   });
   expect((await get(app)).status).toBe(503);
   expect((await run(app)).status).toBe(503);
+  expect((await seen(app)).status).toBe(503);
   const wrongMethod = await app.fetch(
     new Request("http://x/api/steering/report", { method: "POST" }),
   );

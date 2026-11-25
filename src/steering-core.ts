@@ -690,3 +690,77 @@ export function reportSessionsOf(digest: SteeringDigest): SteeringReportSession[
     shepherdSteers: s.shepherdSteers,
   }));
 }
+
+// ── weekly digest + trend (#4176) ────────────────────────────────────────────────────────────────
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+/** True when the weekly run is due: none yet, the newest weekly is a week old, or it failed a day
+ *  ago (a transient helper failure should not cost the whole week's trend point). */
+export function weeklySteeringDue(
+  lastWeekly: Pick<SteeringReport, "createdAt" | "status"> | null,
+  now: number,
+): boolean {
+  if (!lastWeekly) return true;
+  const age = now - lastWeekly.createdAt;
+  return age >= (lastWeekly.status === "failed" ? DAY_MS : WEEK_MS);
+}
+
+/** A report's headline finding (the first one), or null when it made no pattern claim. */
+export function steeringHeadline(report: Pick<SteeringReport, "labels">): string | null {
+  return report.labels?.findings[0]?.text || null;
+}
+
+/** One weekly report reduced to the trend's numbers. Each metric is over the report's typed
+ *  sessions that carry a prompt label; null when there are none. */
+export interface SteeringTrendPoint {
+  reportId: string;
+  createdAt: number;
+  windowEnd: number;
+  /** Typed, prompt-labelled sessions the metrics are over. */
+  n: number;
+  /** 0..1: prescribing-labelled share. */
+  prescribingShare: number | null;
+  /** Median per-session count of steers labelled `correction`. */
+  medianCorrections: number | null;
+  /** Median critic rounds (`review` Shepherd steers). */
+  medianReview: number | null;
+  /** Median CI rounds (`ci_fix` + `ci_red` Shepherd steers). */
+  medianCi: number | null;
+}
+
+function trendPointOf(r: SteeringReport): SteeringTrendPoint | null {
+  if (r.trigger !== "weekly" || (r.status !== "ok" && r.status !== "thin") || !r.labels) {
+    return null;
+  }
+  const styleOf = new Map(r.labels.prompts.map((l) => [l.desig, l.style]));
+  const typed = r.sessions.filter((s) => s.origin === "typed" && styleOf.has(s.desig));
+  const corrections = new Map<string, number>();
+  for (const l of r.labels.steers)
+    if (l.intent === "correction") corrections.set(l.desig, (corrections.get(l.desig) ?? 0) + 1);
+  const steers = (s: SteeringReportSession, kind: string) => s.shepherdSteers[kind] ?? 0;
+  return {
+    reportId: r.id,
+    createdAt: r.createdAt,
+    windowEnd: r.windowEnd,
+    n: typed.length,
+    prescribingShare: typed.length
+      ? typed.filter((s) => styleOf.get(s.desig) === "prescribing").length / typed.length
+      : null,
+    medianCorrections: median(typed.map((s) => corrections.get(s.desig) ?? 0)),
+    medianReview: median(typed.map((s) => steers(s, "review"))),
+    medianCi: median(typed.map((s) => steers(s, "ci_fix") + steers(s, "ci_red"))),
+  };
+}
+
+/** The trend over stored reports: weekly `ok`/`thin` runs only (manual runs overlap the weekly
+ *  windows and would double-count), oldest first. */
+export function steeringTrend(reports: SteeringReport[]): SteeringTrendPoint[] {
+  return reports
+    .flatMap((r) => {
+      const p = trendPointOf(r);
+      return p ? [p] : [];
+    })
+    .sort((a, b) => a.createdAt - b.createdAt);
+}

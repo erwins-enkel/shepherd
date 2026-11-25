@@ -1152,9 +1152,10 @@ export interface AppDeps {
   recapCache?: { snapshot(): Record<string, import("./types").Recap> };
   /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
   recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
-  /** Steering report (#4175): latest stored report + single-flight manual run. Absent in tests
+  /** Steering report (#4175/#4176): latest stored report + trend/unread, single-flight manual run,
+   *  mark-seen. Absent in tests
    *  that skip it; the routes then answer 503. */
-  steering?: Pick<SteeringReportService, "snapshot" | "start">;
+  steering?: Pick<SteeringReportService, "snapshot" | "start" | "markSeen">;
   /** Live hold-reason snapshot keyed by session id; absent in tests that skip it. */
   holds?: { snapshot(): Record<string, import("./types").HoldReason> };
   /** Up Next (#1169) cross-repo ranked queue of un-started work. `snapshot` is the cached
@@ -2664,16 +2665,22 @@ function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
-// Steering report (#4175), operator-only (full scope; not in the token read/repo allowlists):
-//   GET  /api/steering/report     → 200 {running, report|null}
-//   POST /api/steering/report/run → 202 {running:true}; 409 while a run is in flight
+// Steering report (#4175/#4176), operator-only (full scope; not in the token read/repo allowlists):
+//   GET  /api/steering/report      → 200 {running, report|null, trend, unread}
+//   POST /api/steering/report/run  → 202 {running:true}; 409 while a run is in flight
+//   POST /api/steering/report/seen → 200 {unread:false} (the newest weekly digest was opened)
 // A `steering:report` frame signals start/finish ({running, id, status}); the body is GET-only. 503 when the service is unwired.
 function handleSteeringReport({ req, parts, deps }: Ctx): Response | null {
   if (parts[0] !== "api" || parts[1] !== "steering" || parts[2] !== "report") return null;
-  const run = parts[3] === "run" && !parts[4];
-  if (!(run ? req.method === "POST" : req.method === "GET" && !parts[3])) return null;
+  const action = parts[4] ? null : (parts[3] ?? "");
+  const allowed = action === "" ? req.method === "GET" : action === "run" || action === "seen";
+  if (!allowed || (action !== "" && req.method !== "POST")) return null;
   if (!deps.steering) return json({ error: "steering report unavailable" }, 503);
-  if (!run) return json(deps.steering.snapshot());
+  if (action === "") return json(deps.steering.snapshot());
+  if (action === "seen") {
+    deps.steering.markSeen();
+    return json({ unread: false });
+  }
   if (!deps.steering.start("manual")) return json({ error: "already running", running: true }, 409);
   return json({ running: true }, 202);
 }

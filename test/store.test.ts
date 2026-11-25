@@ -3504,6 +3504,18 @@ test("steering reports: latest is the newest by createdAt", () => {
   expect(s.latestSteeringReport()?.id).toBe("new");
 });
 
+test("steering reports: list and latest filter by trigger, newest first", () => {
+  const s = mk();
+  s.insertSteeringReport(steeringReport({ id: "w1", trigger: "weekly", createdAt: 1000 }));
+  s.insertSteeringReport(steeringReport({ id: "m1", trigger: "manual", createdAt: 2000 }));
+  s.insertSteeringReport(steeringReport({ id: "w2", trigger: "weekly", createdAt: 3000 }));
+  s.insertSteeringReport(steeringReport({ id: "m2", trigger: "manual", createdAt: 4000 }));
+  expect(s.listSteeringReports().map((r) => r.id)).toEqual(["m2", "w2", "m1", "w1"]);
+  expect(s.listSteeringReports("weekly").map((r) => r.id)).toEqual(["w2", "w1"]);
+  expect(s.latestSteeringReport("weekly")?.id).toBe("w2");
+  expect(s.latestSteeringReport()?.id).toBe("m2");
+});
+
 test("steering reports: keeps only the newest 52", () => {
   const s = mk();
   for (let i = 0; i < 55; i++)

@@ -30,13 +30,16 @@ import {
   reportSessionsOf,
   selectSteeringSessions,
   steeringStatus,
+  steeringTrend,
   summarizeSteering,
+  weeklySteeringDue,
   type SteeringDigest,
   type SteeringLabels,
   type SteeringMessages,
   type SteeringReport,
   type SteeringReportTrigger,
   type SteeringSessionInput,
+  type SteeringTrendPoint,
 } from "./steering-core";
 import type { SessionStore } from "./store";
 import {
@@ -51,6 +54,9 @@ import type { Session } from "./types";
 /** Label prefix for the labelling helper (`steering <hex>`). Space-prefixed so a prompt-derived
  *  `[a-z0-9-]` session slug can never collide; registered with the tab reaper + boot reap. */
 export const STEERING_LABEL = "steering ";
+
+/** Settings key: id of the newest weekly report the operator has opened (#4176 unread dot). */
+export const STEERING_SEEN_SETTING = "steeringReportSeenId";
 
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_CAP = 60;
@@ -69,7 +75,12 @@ export type SteeringEvent =
 export interface SteeringReportDeps {
   store: Pick<
     SessionStore,
-    "listArchivedSessions" | "insertSteeringReport" | "latestSteeringReport"
+    | "listArchivedSessions"
+    | "insertSteeringReport"
+    | "latestSteeringReport"
+    | "listSteeringReports"
+    | "getSetting"
+    | "setSetting"
   >;
   /** One session's transcript, read async (the composition root reads it via `sessionMessages`). */
   readMessages: (session: Session) => Promise<SteeringMessages>;
@@ -79,6 +90,10 @@ export interface SteeringReportDeps {
   operatorLanguage?: () => OperatorLanguage;
   now?: () => number;
   emit?: (event: SteeringEvent) => void;
+  /** True while the usage hold is active: the weekly tick defers instead of spawning (#4176). */
+  usageHeld?: () => boolean;
+  /** A weekly run produced an `ok`/`thin` report: the composition root pushes the digest. */
+  onWeeklyReady?: (report: SteeringReport) => void;
   makeTmpDir?: () => string;
   readResult?: (cwd: string) => Promise<unknown>;
   cleanup?: (cwd: string) => void;
@@ -139,6 +154,9 @@ async function mapLimit<T, R>(
 const errorText = (err: unknown): string =>
   err instanceof Error ? err.message : String(err || "error");
 
+/** A report worth reading: the weekly digest notifies, marks unread and feeds the trend. */
+const isDigest = (r: SteeringReport): boolean => r.status === "ok" || r.status === "thin";
+
 /** Keep the newest `n` sessions; a trimmed digest says so in its sample. */
 function trimDigest(digest: SteeringDigest, n: number): SteeringDigest {
   if (n >= digest.sessions.length) return digest;
@@ -158,8 +176,40 @@ export class SteeringReportService {
     this.emit = deps.emit ?? (() => {});
   }
 
-  snapshot(): { running: boolean; report: SteeringReport | null } {
-    return { running: this.running, report: this.deps.store.latestSteeringReport() };
+  snapshot(): {
+    running: boolean;
+    report: SteeringReport | null;
+    trend: SteeringTrendPoint[];
+    unread: boolean;
+  } {
+    const store = this.deps.store;
+    const weekly = store.listSteeringReports("weekly");
+    const newest = weekly.find(isDigest);
+    return {
+      running: this.running,
+      report: store.latestSteeringReport(),
+      trend: steeringTrend(weekly),
+      unread: !!newest && store.getSetting(STEERING_SEEN_SETTING) !== newest.id,
+    };
+  }
+
+  /** The operator opened the report: the newest weekly digest is no longer unread. */
+  markSeen(): void {
+    const newest = this.deps.store.listSteeringReports("weekly").find(isDigest);
+    if (newest) this.deps.store.setSetting(STEERING_SEEN_SETTING, newest.id);
+  }
+
+  /** The hourly weekly check (#4176): run when due, unless a run is in flight or usage is held. */
+  async tickWeekly(): Promise<"ran" | "not-due" | "held" | "busy"> {
+    if (this.running) return "busy";
+    if (!weeklySteeringDue(this.deps.store.latestSteeringReport("weekly"), this.now())) {
+      return "not-due";
+    }
+    if (this.deps.usageHeld?.()) {
+      console.log("[steering] weekly run deferred: usage hold active");
+      return "held";
+    }
+    return (await this.run("weekly")) ? "ran" : "busy";
   }
 
   /** Kick a run fire-and-forget. False when one is already in flight (the route's 409). */
@@ -188,6 +238,13 @@ export class SteeringReportService {
     }
     this.running = false;
     this.emit({ running: false, id: report.id, status: report.status });
+    if (trigger === "weekly" && isDigest(report)) {
+      try {
+        this.deps.onWeeklyReady?.(report);
+      } catch (err) {
+        console.warn(`[steering] weekly notification failed: ${errorText(err)}`);
+      }
+    }
     return true;
   }
 

@@ -8,12 +8,17 @@ import {
   labelsForStatus,
   parseSteeringResult,
   selectSteeringSessions,
+  steeringHeadline,
   steeringStatus,
+  steeringTrend,
   summarizeSteering,
+  weeklySteeringDue,
   type SteeringDigest,
   type SteeringLabels,
   type SteeringMessage,
   type SteeringMessages,
+  type SteeringReport,
+  type SteeringReportSession,
   type SteeringSessionDigest,
   type SteeringSessionInput,
 } from "../src/steering-core";
@@ -494,5 +499,134 @@ describe("buildSteeringPrompt()", () => {
 
   it("asks for German prose when the operator language is de", () => {
     expect(buildSteeringPrompt(labelledDigest(), "de")).toContain("German");
+  });
+});
+
+describe("weeklySteeringDue()", () => {
+  it("is due with no weekly report yet", () => {
+    expect(weeklySteeringDue(null, NOW)).toBe(true);
+  });
+  it("waits a week after a finished run", () => {
+    expect(weeklySteeringDue({ createdAt: NOW - 6 * DAY, status: "ok" }, NOW)).toBe(false);
+    expect(weeklySteeringDue({ createdAt: NOW - 7 * DAY, status: "empty" }, NOW)).toBe(true);
+  });
+  it("retries a failed run after a day", () => {
+    expect(weeklySteeringDue({ createdAt: NOW - 23 * HOUR, status: "failed" }, NOW)).toBe(false);
+    expect(weeklySteeringDue({ createdAt: NOW - DAY, status: "failed" }, NOW)).toBe(true);
+  });
+});
+
+function reportSession(
+  over: Partial<SteeringReportSession> & { desig: string },
+): SteeringReportSession {
+  return {
+    repo: "a",
+    origin: "typed",
+    outcome: null,
+    durationMin: null,
+    operatorSteerCount: 0,
+    shepherdSteers: {},
+    ...over,
+  };
+}
+
+function stored(over: Partial<SteeringReport> & { id: string }): SteeringReport {
+  return {
+    createdAt: NOW,
+    windowStart: NOW - 7 * DAY,
+    windowEnd: NOW,
+    trigger: "weekly",
+    status: "ok",
+    error: null,
+    model: null,
+    sample: null,
+    sessions: [],
+    labels: { prompts: [], steers: [], findings: [], examples: [] },
+    tables: null,
+    ...over,
+  };
+}
+
+describe("steeringHeadline()", () => {
+  it("is the first finding, or null", () => {
+    const labels = {
+      prompts: [],
+      steers: [],
+      findings: [
+        { text: "first", desigs: [] },
+        { text: "second", desigs: [] },
+      ],
+      examples: [],
+    };
+    expect(steeringHeadline({ labels })).toBe("first");
+    expect(steeringHeadline({ labels: { ...labels, findings: [] } })).toBeNull();
+    expect(steeringHeadline({ labels: null })).toBeNull();
+  });
+});
+
+describe("steeringTrend()", () => {
+  const full = stored({
+    id: "w2",
+    createdAt: NOW,
+    sessions: [
+      reportSession({ desig: "T-1", shepherdSteers: { review: 2, ci_fix: 1 } }),
+      reportSession({ desig: "T-2", shepherdSteers: { ci_red: 2 } }),
+      reportSession({ desig: "T-3", shepherdSteers: { review: 4 } }),
+      // not typed / not labelled → excluded
+      reportSession({ desig: "I-1", origin: "issue", shepherdSteers: { review: 9 } }),
+      reportSession({ desig: "T-9", shepherdSteers: { review: 9 } }),
+    ],
+    labels: {
+      prompts: [
+        { desig: "T-1", type: "bug", style: "prescribing" },
+        { desig: "T-2", type: "bug", style: "describing" },
+        { desig: "T-3", type: "feature", style: "prescribing" },
+        { desig: "I-1", type: "bug", style: "prescribing" },
+      ],
+      steers: [
+        { desig: "T-1", index: 0, intent: "correction" },
+        { desig: "T-1", index: 1, intent: "correction" },
+        { desig: "T-2", index: 0, intent: "scope" },
+        { desig: "T-3", index: 0, intent: "correction" },
+      ],
+      findings: [],
+      examples: [],
+    },
+  });
+
+  it("computes each metric over typed, prompt-labelled sessions", () => {
+    const [p] = steeringTrend([full]);
+    expect(p).toEqual({
+      reportId: "w2",
+      createdAt: NOW,
+      windowEnd: NOW,
+      n: 3,
+      prescribingShare: 2 / 3,
+      medianCorrections: 1,
+      medianReview: 2,
+      medianCi: 1,
+    });
+  });
+
+  it("keeps weekly ok/thin reports only, oldest first", () => {
+    const points = steeringTrend([
+      full,
+      stored({ id: "manual", trigger: "manual", createdAt: NOW - DAY }),
+      stored({ id: "empty", status: "empty", labels: null, createdAt: NOW - 2 * DAY }),
+      stored({ id: "failed", status: "failed", labels: null, createdAt: NOW - 3 * DAY }),
+      stored({ id: "w1", status: "thin", createdAt: NOW - 7 * DAY }),
+    ]);
+    expect(points.map((p) => p.reportId)).toEqual(["w1", "w2"]);
+  });
+
+  it("nulls the metrics of a report with no labelled typed session", () => {
+    const [p] = steeringTrend([stored({ id: "w", sessions: [reportSession({ desig: "T-1" })] })]);
+    expect(p).toMatchObject({
+      n: 0,
+      prescribingShare: null,
+      medianCorrections: null,
+      medianReview: null,
+      medianCi: null,
+    });
   });
 });

@@ -700,6 +700,12 @@ export { posixShellJoin };
  * sandbox. herdr's foreground list still names `bwrap` beside the relay's `bash`, which keeps the
  * pane out of the idle-shell checks (`awaitPaneLeftShell`, the tab reaper).
  *
+ * ALWAYS strips the inherited `SHEPHERD_TOKEN` via `env -u` (#4167): herdr.service loads
+ * `~/.shepherd/env` once at daemon start, and a deploy restarts only shepherd, so every pane would
+ * inherit a token that may since have changed — and the `shepherd` CLI prefers it over the
+ * operator's profile, so it 401s. Agents never need the operator bearer: hooks and directives use the
+ * auth-exempt agent ingress, and the CLI falls back to the profile.
+ *
  * Puts `agentScopePrefix()` (`systemd-run --user --scope --slice=shepherd_agents.slice …`) OUTERMOST
  * while `agentScopeEnabled()` (#3128): the agent and everything it spawns are charged to the agents
  * slice instead of herdr.service, so a memory-full herd never throttles the herdr daemon.
@@ -726,6 +732,8 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
   return [
     ...(agentScopeEnabled() ? agentScopePrefix() : []),
     "env",
+    "-u",
+    "SHEPHERD_TOKEN",
     ...tmpTokens,
     `NODE_COMPILE_CACHE=${compileCacheDir()}`,
     ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
@@ -1243,7 +1251,10 @@ export class HerdrDriver implements IHerdrDriver {
     env?: Record<string, string>,
   ): Promise<HerdrShellTab> {
     await this.ensureWorkspace(cwd);
+    // `--env` can only set, never unset: blank the daemon's possibly stale SHEPHERD_TOKEN (#4167,
+    // see buildWrappedArgv) — the CLI treats an empty value as absent and uses the profile.
     const args = ["tab", "create", "--cwd", cwd, "--label", label, "--no-focus"];
+    args.push("--env", "SHEPHERD_TOKEN=");
     for (const [k, v] of Object.entries(env ?? {})) args.push("--env", `${k}=${v}`);
     const created = JSON.parse(await this.asyncRunner(args));
     const tabId: string | undefined = created?.result?.tab?.tab_id;

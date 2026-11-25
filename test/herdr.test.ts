@@ -201,6 +201,8 @@ test("start gives each agent its own full-width tab, not a shared split pane", a
     "--no-focus",
     "--",
     "env",
+    "-u",
+    "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "claude",
@@ -221,10 +223,12 @@ test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tm
   await d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
   const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
   const post = startCall.slice(startCall.indexOf("--") + 1);
-  // env shim is the first four post-`--` tokens (env + two pinned vars), and claude is
-  // still argv[0] after it
-  expect(post.slice(0, 4)).toEqual([
+  // env shim is the first six post-`--` tokens (env, `-u SHEPHERD_TOKEN`, two pinned vars), and
+  // claude is still the next token after it
+  expect(post.slice(0, 6)).toEqual([
     "env",
+    "-u",
+    "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "claude",
@@ -679,6 +683,29 @@ test("startShellTab rolls back a half-created SOLE tab — the guard must not or
   expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
 });
 
+test("startShellTab blanks the herdr daemon's inherited SHEPHERD_TOKEN (#4167)", async () => {
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create")
+      return JSON.stringify({
+        result: {
+          type: "tab_created",
+          tab: { tab_id: "w1:t1" },
+          root_pane: { pane_id: "p1", terminal_id: "term1", cwd: "/wt/a" },
+        },
+      });
+    return "{}";
+  });
+
+  await d.startShellTab("/wt/a", "sh", { FOO: "b" });
+
+  const create = calls.find((a) => a[0] === "tab" && a[1] === "create")!;
+  const envs = create.flatMap((t, i) => (t === "--env" ? [create[i + 1]] : []));
+  expect(envs).toEqual(["SHEPHERD_TOKEN=", "FOO=b"]);
+});
+
 test("closeTab fails OPEN: an unreadable tab list still attempts the close", async () => {
   const seen: string[][] = [];
   const d = mkDriver((args) => {
@@ -1035,6 +1062,8 @@ test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE
   const post = extractPost(calls);
   expect(post).toEqual([
     "env",
+    "-u",
+    "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "claude",
@@ -1053,6 +1082,8 @@ test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by 
   // Keys sorted: CLAUDE_CONFIG_DIR < FOO; both pinned vars precede caller-supplied env
   expect(post).toEqual([
     "env",
+    "-u",
+    "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "CLAUDE_CONFIG_DIR=/x",
@@ -1072,6 +1103,8 @@ test("start with empty env {}: wrapped is identical to no-env case", async () =>
   const post = extractPost(calls);
   expect(post).toEqual([
     "env",
+    "-u",
+    "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "claude",
@@ -1659,6 +1692,8 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
     await pin(false);
     expect(buildWrappedArgv(["claude", "--continue"])).toEqual([
       "env",
+      "-u",
+      "SHEPHERD_TOKEN",
       `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
       "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
       "claude",
@@ -1670,6 +1705,8 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
     await pin(true);
     expect(buildWrappedArgv(["claude", "--continue"], { CLAUDE_CONFIG_DIR: "/pool" })).toEqual([
       "env",
+      "-u",
+      "SHEPHERD_TOKEN",
       `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
       "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
       PIN,
@@ -1750,6 +1787,8 @@ describe("buildWrappedArgv: agent scope", () => {
     __resetAgentScope();
     expect(buildWrappedArgv(["claude", "--continue"])).toEqual([
       "env",
+      "-u",
+      "SHEPHERD_TOKEN",
       `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
       "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
       "claude",

@@ -99,6 +99,9 @@ restart can't hand the port to someone else: `events tail` and `wait` stop with 
 reconnecting, and `login --token` refuses to send the token it is validating. A `SHEPHERD_TOKEN`
 token is exempt.
 
+Inside a Shepherd session or terminal tab, `SHEPHERD_TOKEN` is always unset or empty. The herdr daemon
+may hold an outdated value, so the CLI there uses the profile token.
+
 `--profile <name>` picks a profile. Without it the CLI uses `default_profile`, and falls back to
 `default` when that isn't set.
 

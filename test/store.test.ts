@@ -16,6 +16,7 @@ import type {
   Session,
 } from "../src/types";
 import type { SessionUsage } from "../src/usage";
+import type { SteeringReport } from "../src/steering-core";
 
 function mk() {
   return new SessionStore(":memory:");
@@ -3405,4 +3406,91 @@ test("gh grants (#4119): persisted on the session, junk dropped, audit trail app
     ["grant", "ci fix", 1],
     ["revoke", null, 2],
   ]);
+});
+
+// ── steering reports (#4175) ──────────────────────────────────────────────────────────────────────
+
+function steeringReport(over: Partial<SteeringReport> = {}): SteeringReport {
+  return {
+    id: "r1",
+    createdAt: 1000,
+    windowStart: 0,
+    windowEnd: 1000,
+    trigger: "manual",
+    status: "ok",
+    error: null,
+    model: "sonnet",
+    sample: {
+      windowStart: 0,
+      windowEnd: 1000,
+      considered: 1,
+      capped: false,
+      skipped: { unarchived: 0, terminal: 0, relaunch: 0, noop: 0, outOfWindow: 0 },
+    },
+    sessions: [
+      {
+        desig: "TASK-1",
+        repo: "shepherd",
+        origin: "typed",
+        outcome: "merged",
+        durationMin: 12,
+        operatorSteerCount: 2,
+        shepherdSteers: { review: 1 },
+      },
+    ],
+    labels: {
+      prompts: [{ desig: "TASK-1", type: "bugfix", style: "describing" }],
+      steers: [],
+      findings: [{ text: "f", desigs: ["TASK-1"] }],
+      examples: [],
+    },
+    tables: { byType: [], byStyle: [], intents: [] },
+    ...over,
+  };
+}
+
+test("steering reports: latest is null on a fresh store", () => {
+  expect(mk().latestSteeringReport()).toBeNull();
+});
+
+test("steering reports: insert → latest round-trips the full report", () => {
+  const s = mk();
+  const r = steeringReport();
+  s.insertSteeringReport(r);
+  expect(s.latestSteeringReport()).toEqual(r);
+});
+
+test("steering reports: a failed report round-trips null body fields", () => {
+  const s = mk();
+  const r = steeringReport({
+    status: "failed",
+    error: "timeout",
+    model: null,
+    sample: null,
+    sessions: [],
+    labels: null,
+    tables: null,
+  });
+  s.insertSteeringReport(r);
+  expect(s.latestSteeringReport()).toEqual(r);
+});
+
+test("steering reports: latest is the newest by createdAt", () => {
+  const s = mk();
+  s.insertSteeringReport(steeringReport({ id: "new", createdAt: 3000 }));
+  s.insertSteeringReport(steeringReport({ id: "old", createdAt: 1000 }));
+  expect(s.latestSteeringReport()?.id).toBe("new");
+});
+
+test("steering reports: keeps only the newest 52", () => {
+  const s = mk();
+  for (let i = 0; i < 55; i++)
+    s.insertSteeringReport(steeringReport({ id: `r${i}`, createdAt: i }));
+  const db = (s as unknown as { db: Database }).db;
+  const ids = (
+    db.query("SELECT id FROM steering_reports ORDER BY createdAt").all() as { id: string }[]
+  ).map((r) => r.id);
+  expect(ids).toHaveLength(52);
+  expect(ids[0]).toBe("r3");
+  expect(s.latestSteeringReport()?.id).toBe("r54");
 });

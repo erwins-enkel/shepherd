@@ -641,3 +641,52 @@ export function steeringStatus(digest: SteeringDigest): SteeringStatus {
 export function labelsForStatus(labels: SteeringLabels, status: SteeringStatus): SteeringLabels {
   return status === "thin" ? { ...labels, findings: [] } : labels;
 }
+
+// ── persisted report ─────────────────────────────────────────────────────────────────────────────
+
+export type SteeringReportTrigger = "manual" | "weekly";
+export type SteeringReportStatus = SteeringStatus | "failed";
+
+/** One read session as a report keeps it: enough for the UI to name each example's repo and for
+ *  the trend (#4175 child 2) to recompute over stored reports. No prompt or steer text. */
+export interface SteeringReportSession {
+  desig: string;
+  repo: string;
+  origin: SteeringOrigin;
+  outcome: string | null;
+  durationMin: number | null;
+  operatorSteerCount: number;
+  shepherdSteers: Record<string, number>;
+}
+
+/** A stored steering report, as `GET /api/steering/report` returns it. `labels`/`tables` are null
+ *  for `empty` and `failed`; `sample` is null only when a run failed before the digest existed. */
+export interface SteeringReport {
+  id: string;
+  createdAt: number;
+  windowStart: number;
+  windowEnd: number;
+  trigger: SteeringReportTrigger;
+  status: SteeringReportStatus;
+  /** Why a `failed` run failed (`timeout`, `unparseable`, a spawn error); null otherwise. */
+  error: string | null;
+  /** The labelling helper's model; null when nothing was spawned or the provider default ran. */
+  model: string | null;
+  sample: SteeringDigest["sample"] | null;
+  sessions: SteeringReportSession[];
+  labels: SteeringLabels | null;
+  tables: SteeringTables | null;
+}
+
+/** The per-session slice of a digest a report stores. */
+export function reportSessionsOf(digest: SteeringDigest): SteeringReportSession[] {
+  return digest.sessions.map((s) => ({
+    desig: s.desig,
+    repo: s.repo,
+    origin: s.origin,
+    outcome: s.outcome,
+    durationMin: s.durationMin,
+    operatorSteerCount: s.operatorSteerCount,
+    shepherdSteers: s.shepherdSteers,
+  }));
+}

@@ -202,6 +202,7 @@ import { BlockBackstop } from "./block-backstop";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
+import { STEERING_LABEL } from "./steering";
 import {
   deriveRequirementsViaAgent,
   deriveRequirementsViaJudge,
@@ -3684,6 +3685,7 @@ deferredStarts.push(() => {
   void reapTransientByLabel(herdr, VERIFY_KEY_LABEL, new Set(), "[verify-key]");
   void reapTransientByLabel(herdr, RECOMMEND_LABEL, new Set(), "[recommend]");
   void reapTransientByLabel(herdr, SHAPE_LABEL, new Set(), "[shape]");
+  void reapTransientByLabel(herdr, STEERING_LABEL, new Set(), "[steering]");
   void reapTransientByLabel(herdr, REQUIREMENTS_LABEL, new Set(), "[requirements]");
   // Retired helpers (#3139): close any tab a pre-retirement lifetime left behind.
   for (const legacy of ["__distill__", "__optimize__", "__merge__"])

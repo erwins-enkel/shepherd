@@ -764,7 +764,12 @@ feature first started are never sent.
 **How it reaches the agent.** New comments are collected and sent as one message once the agent
 has finished its turn and no critic run is in progress on the PR's head. If Shepherd just sent the
 agent another message, such as a CI result or critic findings, the feedback waits until the agent
-has worked through that message. An agent that has exited is never resumed for this.
+has worked through that message. In an autopilot session whose PR has failing CI, the CI fix goes
+first: the feedback waits until CI passes and the agent has finished its turn again. An agent that
+has exited is never resumed for this.
+
+When the PR is merged or closed, waiting comments are dismissed. Archiving a session keeps track
+of what was already sent or dismissed, so restoring it doesn't bring those comments back.
 
 **Settings → repo → Review.** **Review feedback** picks when comments are sent automatically:
 
@@ -777,9 +782,10 @@ has worked through that message. An agent that has exited is never resumed for t
 **Review bots** edits the bot allowlist.
 
 **On the card.** Waiting comments show as an amber **N review comments** badge on the session
-card and in the git rail. Click it to read them, then **Send to agent** or **Dismiss**. After five
-automatic sends in an hour, a session stops sending on its own until the hour has passed. The
-badge's tooltip then says sending is paused, and you can still send by hand.
+card and in the git rail. Click it to read them, then **Send to agent** or **Dismiss**. If a send
+can't go out, the dialog says why, for example the agent isn't running or the PR is already
+closed. After five automatic sends in an hour, a session stops sending on its own until the hour
+has passed. The badge's tooltip then says sending is paused, and you can still send by hand.
 
 ## Warm and cold repos
 

@@ -90,13 +90,38 @@ test("review_feedback: autoSentSince returns one stamp per automatic steer", () 
   expect(store.reviewFeedbackAutoSentSince("s2", 0)).toEqual([]);
 });
 
-test("review_feedback: drop removes only that session's rows", () => {
+const sessionBase = {
+  name: "rf",
+  prompt: "p",
+  repoPath: "/r",
+  baseBranch: "main",
+  branch: "shepherd/rf",
+  worktreePath: "/r-wt",
+  isolated: true,
+  herdrSession: "default",
+};
+
+test("review_feedback: an archived session keeps its rows but lists none pending (#4144)", () => {
   const store = new SessionStore(":memory:");
-  store.insertReviewFeedbackIfAbsent("s1", review, "pending");
-  store.insertReviewFeedbackIfAbsent("s2", review, "pending");
-  store.dropReviewFeedback("s1");
-  expect(store.knownReviewFeedbackIds("s1").size).toBe(0);
-  expect(store.knownReviewFeedbackIds("s2").size).toBe(1);
+  const a = store.create({ ...sessionBase, herdrAgentId: "term_1" });
+  const b = store.create({ ...sessionBase, herdrAgentId: "term_2" });
+  store.insertReviewFeedbackIfAbsent(a.id, review, "pending");
+  store.insertReviewFeedbackIfAbsent(b.id, review, "pending");
+  store.archive(a.id);
+  expect([...store.listPendingReviewFeedbackAll().keys()]).toEqual([b.id]);
+  expect(store.knownReviewFeedbackIds(a.id)).toEqual(new Set(["review:1"]));
+});
+
+test("review_feedback: pruning an archived session takes its rows with it (#4144)", () => {
+  const store = new SessionStore(":memory:");
+  const a = store.create({ ...sessionBase, herdrAgentId: "term_1" });
+  const b = store.create({ ...sessionBase, herdrAgentId: "term_2" });
+  store.insertReviewFeedbackIfAbsent(a.id, review, "pending");
+  store.insertReviewFeedbackIfAbsent(b.id, review, "pending");
+  store.archive(a.id);
+  expect(store.pruneArchivedSessions({ maxAgeMs: 0, keepNewest: 0 })).toBe(1);
+  expect(store.knownReviewFeedbackIds(a.id).size).toBe(0);
+  expect(store.knownReviewFeedbackIds(b.id).size).toBe(1);
 });
 
 test("review_feedback: activation stamp is set at creation and stable", () => {

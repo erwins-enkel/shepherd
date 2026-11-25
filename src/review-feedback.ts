@@ -36,6 +36,12 @@ export interface ReviewFeedbackEvent {
   autoPaused: boolean;
 }
 
+/** Why an operator send delivered nothing (#4144); the items stay pending. */
+export type ReviewFeedbackSendRefusal =
+  "not_running" | "no_pr" | "pr_closed" | "nothing_pending" | "busy" | "failed";
+
+export type ReviewFeedbackSendOutcome = "sent" | ReviewFeedbackSendRefusal;
+
 export type ReviewFeedbackStore = Pick<
   SessionStore,
   | "get"
@@ -47,7 +53,6 @@ export type ReviewFeedbackStore = Pick<
   | "markReviewFeedbackSent"
   | "markReviewFeedbackDismissed"
   | "reviewFeedbackAutoSentSince"
-  | "dropReviewFeedback"
   | "reviewFeedbackActivatedAt"
 >;
 
@@ -137,6 +142,7 @@ export class ReviewFeedbackService {
     for (const [id, git] of Object.entries(deps.seed ?? {})) {
       this.#git.set(id, git);
       if (git.state === "open") this.#keys.set(id, triggerKey(git));
+      else this.#dismissForClosedPr(id, git);
     }
   }
 
@@ -164,19 +170,21 @@ export class ReviewFeedbackService {
 
   /**
    * The operator's send: the selected pending items (all when `itemIds` is absent) as one steer.
-   * Ignores mode, cap, turn state and earlier steers, but needs a live session with a known PR.
-   * False when nothing was delivered; the items then stay pending.
+   * Ignores mode, cap, turn state and earlier steers, but needs a live session with an open PR.
+   * Anything but `sent` delivered nothing; the items then stay pending.
    */
-  async sendNow(id: string, itemIds?: string[]): Promise<boolean> {
+  async sendNow(id: string, itemIds?: string[]): Promise<ReviewFeedbackSendOutcome> {
     const s = this.#deps.store.get(id);
-    const prNumber = this.#git.get(id)?.number;
-    if (!s || s.status === "archived" || s.terminal || prNumber === undefined) return false;
+    const git = this.#git.get(id);
+    if (!s || s.status === "archived" || s.terminal) return "not_running";
+    if (git?.number === undefined) return "no_pr";
+    if (git.state !== "open") return "pr_closed";
     const want = itemIds ? new Set(itemIds) : null;
     const items = this.#deps.store
       .listPendingReviewFeedback(id)
       .filter((i) => !want || want.has(i.id));
-    if (items.length === 0) return false;
-    return this.#deliver(id, prNumber, items, "operator");
+    if (items.length === 0) return "nothing_pending";
+    return this.#deliver(id, git.number, items, "operator");
   }
 
   dismiss(id: string, itemIds: string[]): void {
@@ -199,6 +207,7 @@ export class ReviewFeedbackService {
 
   #onGit(id: string, git: GitState): void {
     this.#git.set(id, git);
+    this.#dismissForClosedPr(id, git);
     if (!this.#wantsFetch(id, git)) return;
     const key = triggerKey(git);
     if (this.#keys.get(id) === key) return;
@@ -213,14 +222,26 @@ export class ReviewFeedbackService {
     void this.tryFlush(id);
   }
 
+  /** Rows stay (#4144): a restore must not resend or re-show what was already handled. */
   #onArchived(id: string): void {
-    this.#deps.store.dropReviewFeedback(id);
     const timer = this.#deferred.get(id);
     if (timer !== undefined) this.#timers.clearTimeout(timer);
     for (const m of [this.#git, this.#keys, this.#lastFetchAt, this.#deferred, this.#status])
       m.delete(id);
     for (const m of [this.#idleEdgeAt, this.#autoPaused]) m.delete(id);
     this.#refetch.delete(id);
+  }
+
+  /** A merged or closed PR takes its waiting feedback with it (#4144): nothing to address. */
+  #dismissForClosedPr(id: string, git: GitState): void {
+    if (git.state !== "merged" && git.state !== "closed") return;
+    const pending = this.#deps.store.listPendingReviewFeedback(id);
+    if (pending.length === 0) return;
+    this.#deps.store.markReviewFeedbackDismissed(
+      id,
+      pending.map((i) => i.id),
+    );
+    this.#emitState(id);
   }
 
   #mode(s: Session): ReviewFeedbackMode {
@@ -332,7 +353,11 @@ export class ReviewFeedbackService {
     if (!git || git.number === undefined || !steerable(s, git) || !atRest(s.status))
       return { kind: "hold" };
     if (git.headSha && this.#deps.criticHeld(id, git.headSha)) return { kind: "hold" };
-    if (!autoSendAllowed(this.#mode(s), this.#deps.autopilotOn(s))) return { kind: "hold" };
+    const autopilot = this.#deps.autopilotOn(s);
+    if (!autoSendAllowed(this.#mode(s), autopilot)) return { kind: "hold" };
+    // A red autopilot PR belongs to the CI-fix loop (#4144): its steer goes first, not back to
+    // back with this one. Feedback follows once CI is green and the agent is at rest again.
+    if (autopilot && git.checks === "failure") return { kind: "hold" };
     const now = this.#now();
     if (!steerConsumed(this.#deps.lastSteerAt(id), this.#idleEdgeAt.get(id), now))
       return { kind: "hold" };
@@ -348,20 +373,21 @@ export class ReviewFeedbackService {
     prNumber: number,
     items: ReviewFeedbackRow[],
     by: "auto" | "operator",
-  ): Promise<boolean> {
-    if (this.#flushing.has(id)) return false;
+  ): Promise<"sent" | "busy" | "not_running" | "failed"> {
+    if (this.#flushing.has(id)) return "busy";
     this.#flushing.add(id);
     // Only what the steer shows is marked sent; overflow stays pending for the next one.
     const batch = items.slice(0, MAX_STEER_ITEMS);
-    let sent = false;
+    let sent: boolean;
     try {
       sent = await this.#deps.reply(id, buildReviewFeedbackSteer(prNumber, batch));
     } catch (err) {
       console.warn(`[review-feedback] steer for ${id}:`, err);
+      return "failed";
     } finally {
       this.#flushing.delete(id);
     }
-    if (!sent) return false;
+    if (!sent) return "not_running";
     this.#deps.store.markReviewFeedbackSent(
       id,
       batch.map((i) => i.id),
@@ -369,7 +395,7 @@ export class ReviewFeedbackService {
       this.#now(),
     );
     this.#emitState(id);
-    return true;
+    return "sent";
   }
 
   #setAutoPaused(id: string, paused: boolean): void {

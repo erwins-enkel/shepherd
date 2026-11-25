@@ -2536,6 +2536,10 @@ components:
       properties:
         sent:
           type: boolean
+        reason:
+          $ref: "#/components/schemas/ReviewFeedbackSendRefusal"
+    ReviewFeedbackSendRefusal:
+      type: string
     ReviewFeedbackIds:
       type: array
       maxItems: 200
@@ -12211,7 +12215,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendReviewFeedbackError"
         "409":
-          description: Not delivered — no live agent pane, no known PR, or nothing pending among the ids. The items stay pending.
+          description: Not delivered; reason says why (no live agent pane, no known or open PR, nothing pending among the ids, a send already in flight, or the steer failed). The items stay pending.
           content:
             application/json:
               schema:

@@ -103,7 +103,7 @@ function harness(
     autopilot: opts.autopilot ?? true,
   };
   const emitted: ReviewFeedbackEvent[] = [];
-  const git = (updatedAt: string, headSha = "abc1234"): GitState =>
+  const git = (updatedAt: string, headSha = "abc1234", over: Partial<GitState> = {}): GitState =>
     ({
       kind: "github",
       state: "open",
@@ -111,6 +111,7 @@ function harness(
       checks: "success",
       headSha,
       updatedAt,
+      ...over,
     }) as GitState;
   const svc = new ReviewFeedbackService({
     store,
@@ -154,14 +155,17 @@ function harness(
     emitted,
     svc,
     item,
-    pushGit: (updatedAt: string, headSha?: string) =>
-      events.emit("session:git", { id: s.id, git: git(updatedAt, headSha) }),
+    pushGit: (updatedAt: string, headSha?: string, over?: Partial<GitState>) =>
+      events.emit("session:git", { id: s.id, git: git(updatedAt, headSha, over) }),
     setStatus: (status: SessionStatus) => {
       store.update(s.id, { status });
       events.emit("session:status", { id: s.id, status });
     },
     reviewingDone: () => events.emit("session:reviewing", { id: s.id, reviewing: false }),
-    archive: () => events.emit("session:archived", { id: s.id }),
+    archive: () => {
+      store.update(s.id, { status: "archived" });
+      events.emit("session:archived", { id: s.id });
+    },
     pending: () => store.listPendingReviewFeedback(s.id),
   };
 }
@@ -225,7 +229,7 @@ test("attended (mode autopilot, autopilot off): card only, then sendNow delivers
   expect(h.emitted.at(-1)?.pending).toHaveLength(1);
   expect(h.svc.pendingAll()[h.id]?.items).toHaveLength(1);
 
-  expect(await h.svc.sendNow(h.id)).toBe(true);
+  expect(await h.svc.sendNow(h.id)).toBe("sent");
   expect(h.sent).toHaveLength(1);
   expect(h.pending()).toEqual([]);
   expect(h.emitted.at(-1)?.pending).toEqual([]);
@@ -238,11 +242,11 @@ test("sendNow sends only the selected items; dismiss removes items from pending"
   h.pushGit("u1");
   await settle();
   expect(h.pending()).toHaveLength(2);
-  expect(await h.svc.sendNow(h.id, ["ic:2"])).toBe(true);
+  expect(await h.svc.sendNow(h.id, ["ic:2"])).toBe("sent");
   expect(h.pending().map((r) => r.id)).toEqual(["review:1"]);
   h.svc.dismiss(h.id, ["review:1"]);
   expect(h.pending()).toEqual([]);
-  expect(await h.svc.sendNow(h.id)).toBe(false); // nothing left
+  expect(await h.svc.sendNow(h.id)).toBe("nothing_pending"); // nothing left
 });
 
 test("a held critic run holds the steer until session:reviewing false", async () => {
@@ -327,7 +331,7 @@ test("the 6th automatic steer within the hour is not sent and reads autoPaused",
   expect(h.svc.pendingAll()[h.id]?.autoPaused).toBe(true);
 
   // The operator is never capped.
-  expect(await h.svc.sendNow(h.id)).toBe(true);
+  expect(await h.svc.sendNow(h.id)).toBe("sent");
 });
 
 test("a dead pane (reply false) keeps the items pending", async () => {
@@ -348,15 +352,149 @@ test("mode off never calls the forge", async () => {
   expect(h.forgeCalls).toEqual([]);
 });
 
-test("archive drops the session's rows", async () => {
+test("archive → restore → fetch: handled feedback stays handled (#4144)", async () => {
+  const h = harness({ autopilot: false });
+  const ic = (n: number) => h.item({ id: `ic:${n}`, kind: "ic", reviewState: undefined });
+  h.feedback.items.push(ic(1), ic(2), ic(3));
+  h.pushGit("u1");
+  await settle();
+  expect(await h.svc.sendNow(h.id, ["ic:1"])).toBe("sent");
+  h.svc.dismiss(h.id, ["ic:2"]);
+  expect(h.pending().map((r) => r.id)).toEqual(["ic:3"]);
+
+  h.archive();
+  expect(h.svc.pendingAll()).toEqual({}); // archived: nothing shown
+  expect(h.store.knownReviewFeedbackIds(h.id).size).toBe(3); // rows kept
+
+  // SessionService.restore: same id, live again; the poller re-announces the open PR.
+  h.store.update(h.id, { status: "idle" });
+  h.feedback.items.push(ic(4));
+  h.clock.advance(FETCH_MIN_GAP_MS);
+  h.pushGit("u2");
+  await settle();
+  expect(h.pending().map((r) => r.id)).toEqual(["ic:3", "ic:4"]);
+  expect(await h.svc.sendNow(h.id)).toBe("sent");
+  expect(h.sent).toHaveLength(2);
+  expect(h.sent[1]).not.toContain("ic:1");
+  expect(h.store.listPendingReviewFeedback(h.id)).toEqual([]);
+});
+
+test("a red autopilot PR holds the feedback steer until CI is green and the agent idles (#4144)", async () => {
+  const h = harness({ status: "running" });
+  h.feedback.items.push(h.item());
+  h.pushGit("u1", "abc1234", { checks: "failure" });
+  await settle();
+  h.clock.advance(1000);
+  h.setStatus("idle"); // the done edge autopilot's CI-fix steer owns
+  await settle();
+  h.clock.advance(FETCH_MIN_GAP_MS);
+  await settle();
+  expect(h.sent).toEqual([]);
+  expect(h.pending()).toHaveLength(1);
+
+  h.pushGit("u2", "def5678", { checks: "success" });
+  h.setStatus("running");
+  h.clock.advance(1000);
+  h.setStatus("idle");
+  await settle();
+  expect(h.sent).toHaveLength(1);
+});
+
+test("attended sessions are not held by red CI", async () => {
+  const h = harness({ mode: "always", autopilot: false });
+  h.feedback.items.push(h.item());
+  h.pushGit("u1", "abc1234", { checks: "failure" });
+  await settle();
+  expect(h.sent).toHaveLength(1);
+});
+
+test("a merged or closed PR dismisses pending feedback and refuses sends (#4144)", async () => {
+  for (const state of ["merged", "closed"] as const) {
+    const h = harness({ autopilot: false });
+    h.feedback.items.push(h.item());
+    h.pushGit("u1");
+    await settle();
+    expect(h.pending()).toHaveLength(1);
+    h.pushGit("u2", "abc1234", { state });
+    expect(h.pending()).toEqual([]);
+    expect(h.emitted.at(-1)?.pending).toEqual([]);
+    expect(await h.svc.sendNow(h.id)).toBe("pr_closed");
+    expect(h.sent).toEqual([]);
+  }
+});
+
+test("a closed PR in the restart seed dismisses its pending feedback", () => {
+  const store = new SessionStore(":memory:");
+  const item: PrFeedbackItem = {
+    id: "ic:1",
+    kind: "ic",
+    author: "alice",
+    isBot: false,
+    body: "b",
+    createdAt: 1,
+  };
+  store.insertReviewFeedbackIfAbsent("s1", item, "pending");
+  new ReviewFeedbackService({
+    store,
+    resolveForge: () => null,
+    reply: async () => true,
+    lastSteerAt: () => undefined,
+    autopilotOn: () => true,
+    criticHeld: () => false,
+    emit: () => {},
+    seed: { s1: { kind: "github", state: "merged", number: 7 } as GitState },
+  });
+  expect(store.listPendingReviewFeedback("s1")).toEqual([]);
+});
+
+test("sendNow names why it refused (#4144)", async () => {
+  const noPr = harness({ autopilot: false });
+  expect(await noPr.svc.sendNow(noPr.id)).toBe("no_pr");
+  expect(await noPr.svc.sendNow("nope")).toBe("not_running");
+
   const h = harness({ autopilot: false });
   h.feedback.items.push(h.item());
   h.pushGit("u1");
   await settle();
+  expect(await h.svc.sendNow(h.id, ["stale"])).toBe("nothing_pending");
+
+  h.st.replyResult = false;
+  expect(await h.svc.sendNow(h.id)).toBe("not_running");
+
+  let release: (v: boolean) => void = () => {};
+  const blocked = harness({ autopilot: false });
+  blocked.feedback.items.push(blocked.item());
+  blocked.pushGit("u1");
+  await settle();
+  const slow = new ReviewFeedbackService({
+    store: blocked.store,
+    resolveForge: () => null,
+    reply: () => new Promise<boolean>((r) => (release = r)),
+    lastSteerAt: () => undefined,
+    autopilotOn: () => false,
+    criticHeld: () => false,
+    emit: () => {},
+    seed: { [blocked.id]: { kind: "github", state: "open", number: 7 } as GitState },
+  });
+  const first = slow.sendNow(blocked.id);
+  expect(await slow.sendNow(blocked.id)).toBe("busy");
+  release(true);
+  expect(await first).toBe("sent");
+
+  const thrower = new ReviewFeedbackService({
+    store: h.store,
+    resolveForge: () => null,
+    reply: async () => {
+      throw new Error("boom");
+    },
+    lastSteerAt: () => undefined,
+    autopilotOn: () => false,
+    criticHeld: () => false,
+    emit: () => {},
+    seed: { [h.id]: { kind: "github", state: "open", number: 7 } as GitState },
+  });
+  expect(await thrower.sendNow(h.id)).toBe("failed");
   expect(h.pending()).toHaveLength(1);
-  h.archive();
-  expect(h.store.knownReviewFeedbackIds(h.id).size).toBe(0);
-  expect(h.svc.pendingAll()).toEqual({});
 });
 
 test("restart seeding: an unchanged PR is not refetched, a moved one is", async () => {

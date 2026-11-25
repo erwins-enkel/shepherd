@@ -5636,12 +5636,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return rows.map(reviewFeedbackFromRow);
   }
 
-  /** Pending items of every session that has any, oldest first per session. */
+  /** Pending items of every non-archived session that has any, oldest first per session. An
+   *  archived session keeps its rows (restore must not resend handled items) but shows none. */
   listPendingReviewFeedbackAll(): Map<string, ReviewFeedbackRow[]> {
     const rows = this.db
       .query(
         `SELECT sessionId, ${REVIEW_FEEDBACK_COLS} FROM review_feedback
-         WHERE status = 'pending' ORDER BY sessionId, createdAt, itemId`,
+         WHERE status = 'pending'
+           AND sessionId NOT IN (SELECT id FROM sessions WHERE status = 'archived')
+         ORDER BY sessionId, createdAt, itemId`,
       )
       .all() as (ReviewFeedbackDbRow & { sessionId: string })[];
     const out = new Map<string, ReviewFeedbackRow[]>();
@@ -5694,10 +5697,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       )
       .all(sessionId, sinceTs) as { sentAt: number }[];
     return rows.map((r) => r.sentAt);
-  }
-
-  dropReviewFeedback(sessionId: string): void {
-    this.db.run(`DELETE FROM review_feedback WHERE sessionId = ?`, [sessionId]);
   }
 
   /** When the feature first ran on this DB (epoch ms), stamped at table creation. */
@@ -7795,6 +7794,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // this cascade.
       this.db.run(
         `DELETE FROM provider_handoffs WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      // #4144: review_feedback outlives archive (a restore must not resend handled items) and
+      // goes with the sessions row here.
+      this.db.run(
+        `DELETE FROM review_feedback WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);

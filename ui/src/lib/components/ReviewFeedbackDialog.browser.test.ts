@@ -103,7 +103,7 @@ describe("ReviewFeedbackDialog (#4126)", () => {
   it("sends only the selected items and closes once none are left", async () => {
     sendReviewFeedback.mockImplementation(async (_id: string, ids: string[]) => {
       serverEvent(ids);
-      return true;
+      return null;
     });
     const onclose = open();
     await checkbox("coderabbitai").click();
@@ -117,11 +117,18 @@ describe("ReviewFeedbackDialog (#4126)", () => {
     await expect.poll(() => onclose.mock.calls.length).toBe(1);
   });
 
-  it("an agent that isn't running (409) keeps the items and says so", async () => {
-    sendReviewFeedback.mockResolvedValue(false);
+  it.each([
+    ["not_running", () => m.reviewfeedback_not_running()],
+    ["no_pr", () => m.reviewfeedback_refused_no_pr()],
+    ["pr_closed", () => m.reviewfeedback_refused_pr_closed()],
+    ["nothing_pending", () => m.reviewfeedback_refused_nothing_pending()],
+    ["busy", () => m.reviewfeedback_refused_busy()],
+    ["failed", () => m.reviewfeedback_failed()],
+  ])("a refused send (409 %s) keeps the items and says why (#4144)", async (reason, copy) => {
+    sendReviewFeedback.mockResolvedValue(reason);
     const onclose = open();
     await page.getByRole("button", { name: m.reviewfeedback_send() }).click();
-    await expect.element(page.getByRole("alert")).toHaveTextContent(m.reviewfeedback_not_running());
+    await expect.element(page.getByRole("alert")).toHaveTextContent(copy());
     expect(reviewFeedback.items("s1")).toHaveLength(2);
     expect(onclose).not.toHaveBeenCalled();
   });
@@ -129,7 +136,7 @@ describe("ReviewFeedbackDialog (#4126)", () => {
   it("a send the server only partly delivers keeps the overflow listed", async () => {
     sendReviewFeedback.mockImplementation(async (_id: string, ids: string[]) => {
       serverEvent(ids, ["rc:2"]); // the server marked only review:1 sent
-      return true;
+      return null;
     });
     const onclose = open();
     await page.getByRole("button", { name: m.reviewfeedback_send() }).click();

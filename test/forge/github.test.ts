@@ -4969,6 +4969,24 @@ test("hasWriteAccess: admin/write true; read/none false; 404 false (#4126)", asy
   expect(calls[0]).toEqual(["api", "--method", "GET", "repos/o/r/collaborators/ada/permission"]);
 });
 
+test("hasWriteAccess: a permission 403 caches like a 404; a rate-limit 403 doesn't (#4144)", async () => {
+  const { run, calls } = permissionRunner((login) =>
+    Object.assign(new Error("gh failed"), {
+      stderr:
+        login === "limited"
+          ? "gh: API rate limit exceeded for installation (HTTP 403)"
+          : "gh: Must have push access to view repository collaborators. (HTTP 403)",
+    }),
+  );
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.hasWriteAccess("bob")).toBe(false);
+  expect(await forge.hasWriteAccess("bob")).toBe(false);
+  expect(calls.length).toBe(1);
+  expect(await forge.hasWriteAccess("limited")).toBe(false);
+  expect(await forge.hasWriteAccess("limited")).toBe(false);
+  expect(calls.length).toBe(3);
+});
+
 test("hasWriteAccess: answers and 404s cache per login for 1h; other errors don't (#4126)", async () => {
   let fail = true;
   const { run, calls } = permissionRunner((login) => {

@@ -264,6 +264,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/login-requests"),
   get("/api/gh-permission-requests"),
   get("/api/action-requests"),
+  get("/api/review-feedback/pending"),
   get("/api/operator-assistant"),
 
   // session-detail tabs
@@ -354,6 +355,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/review-pr",
     "/api/sessions/:p/review-hold",
     "/api/sessions/:p/review-cancel",
+    // #4126: no seeded session has pending review feedback, so the dialog never opens.
+    "/api/sessions/:p/review-feedback/send",
+    "/api/sessions/:p/review-feedback/dismiss",
     "/api/sessions/:p/recap/regenerate",
     // #3165: the demo's blocks never carry an AskUserQuestion `ask`, so the dialog never opens;
     // `answerAsk` would read the tail's `{ok:true}` as "unverified" rather than throw.

@@ -2,10 +2,13 @@ import { expect, test } from "bun:test";
 import {
   checkBrowserHost,
   checkEgressHost,
+  checkReviewBot,
   PRIORITY_LABEL as UI_PRIORITY_LABEL,
+  REVIEW_FEEDBACK_PRESET_BOTS as UI_REVIEW_FEEDBACK_PRESET_BOTS,
 } from "../ui/src/lib/list-entries";
 import { validateBrowserAllowedHosts, validateEgressExtraHosts } from "../src/validate";
 import { PRIORITY_LABEL } from "../src/drain-core";
+import { normalizeBotLogin, REVIEW_FEEDBACK_PRESET_BOTS } from "../src/review-feedback-core";
 
 // The repo settings' list fields check each entry client-side before the PUT (#3446). A client
 // rule that drifts from the server's either refuses a host the server takes or lets one through
@@ -63,3 +66,15 @@ test.each(HOSTS)("browser host %j: client and server agree", (raw) => {
 test("the built-in priority label matches the drain's", () => {
   expect(UI_PRIORITY_LABEL).toBe(PRIORITY_LABEL);
 });
+
+test("the review-bot preset matches the server's (#4126)", () => {
+  expect(UI_REVIEW_FEEDBACK_PRESET_BOTS).toEqual([...REVIEW_FEEDBACK_PRESET_BOTS]);
+});
+
+test.each(["Claude", "  CodeRabbitAI[bot] ", "copilot-pull-request-reviewer"])(
+  "review bot %j: the client normalizes like the server",
+  (raw) => {
+    const client = checkReviewBot(raw, []);
+    expect(client).toEqual({ ok: true, value: normalizeBotLogin(raw) });
+  },
+);

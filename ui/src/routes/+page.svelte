@@ -125,6 +125,7 @@
   import { openPreviewInNewTab } from "#lib/previewOpen.js";
   import { recaps } from "#lib/recaps.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
+  import { reviewFeedback } from "#lib/review-feedback.svelte.js";
   import { upNext } from "#lib/up-next.svelte.js";
   import { upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
@@ -1268,6 +1269,7 @@
     spawnNotices.load();
     recaps.load();
     amendments.load();
+    reviewFeedback.load();
   }
 
   // Forced resync whenever a REPLACEMENT socket opens (epoch 1 is the initial
@@ -2748,6 +2750,7 @@
     spawnNotices.load();
     recaps.load();
     amendments.load();
+    reviewFeedback.load();
     refreshHeldCount();
     loadSettings();
     // Feature-discovery gate — synchronous, independent of loadSettings().

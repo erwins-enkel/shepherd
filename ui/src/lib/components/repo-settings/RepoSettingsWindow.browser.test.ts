@@ -281,6 +281,53 @@ describe("RepoSettingsWindow — every section saves through /api/repo-config", 
     await vi.waitFor(() => expect(api.puts).toContainEqual({ criticEnabled: false }));
   });
 
+  it("review: the review-feedback mode (#4126)", async () => {
+    const api = mockApi();
+    await open({ section: "review" });
+    const select = page.getByRole("combobox", { name: m.reposettings_review_feedback_name() });
+    await expect.element(select).toHaveValue("autopilot");
+    await select.selectOptions("always");
+    await vi.waitFor(() => expect(api.puts).toContainEqual({ reviewFeedbackMode: "always" }));
+    await select.selectOptions("off");
+    await vi.waitFor(() => expect(api.puts).toContainEqual({ reviewFeedbackMode: "off" }));
+    // off reads no comments, so there is no bot list to edit
+    await expect
+      .element(page.getByRole("textbox", { name: m.reposettings_review_bots_name() }))
+      .not.toBeInTheDocument();
+  });
+
+  it("review: the review bots, their default and the reset (#4126)", async () => {
+    const preset = ["coderabbitai", "copilot-pull-request-reviewer", "copilot", "claude"];
+    const api = mockApi({ reviewFeedbackBots: preset });
+    await open({ section: "review" });
+    await expect.element(page.getByText(m.reposettings_review_bots_default())).toBeVisible();
+    const input = page.getByRole("textbox", { name: m.reposettings_review_bots_name() });
+    await input.fill("Sourcery-AI[bot]");
+    await page.getByRole("button", { name: m.reposettings_review_bots_add(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(api.puts).toContainEqual({ reviewFeedbackBots: [...preset, "sourcery-ai"] }),
+    );
+    await input.fill("not a login");
+    await page.getByRole("button", { name: m.reposettings_review_bots_add(), exact: true }).click();
+    await expect.element(page.getByText(m.reposettings_review_bots_err_invalid())).toBeVisible();
+    await page
+      .getByRole("button", { name: m.reposettings_review_bots_remove({ bot: "claude" }) })
+      .click();
+    await vi.waitFor(() =>
+      expect(api.puts.at(-1)).toEqual({
+        reviewFeedbackBots: [
+          "coderabbitai",
+          "copilot-pull-request-reviewer",
+          "copilot",
+          "sourcery-ai",
+        ],
+      }),
+    );
+    await page.getByRole("button", { name: m.reposettings_review_bots_reset() }).click();
+    await vi.waitFor(() => expect(api.puts.at(-1)).toEqual({ reviewFeedbackBots: preset }));
+    await expect.element(page.getByText(m.reposettings_review_bots_default())).toBeVisible();
+  });
+
   it("merge: merge without CI", async () => {
     const api = mockApi();
     await open({ section: "merge" });

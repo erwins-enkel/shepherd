@@ -4,10 +4,15 @@
   import { useRepoConfig } from "./repo-config-editor.svelte.js";
   const repoConfig = useRepoConfig();
   import RepoSettingRow from "./RepoSettingRow.svelte";
+  import ReviewFeedbackFields from "./ReviewFeedbackFields.svelte";
 
   // Review (#3443): the Critic, what builds on it (auto-address, the smell lens), and the
-  // repo-wide critic for PRs no session opened.
-  let { repoPath, sessionId }: { repoPath: string; sessionId?: string } = $props();
+  // repo-wide critic for PRs no session opened; and PR review feedback from people (#4126).
+  let {
+    repoPath,
+    sessionId,
+    armCoachmarks = false,
+  }: { repoPath: string; sessionId?: string; armCoachmarks?: boolean } = $props();
 
   const flags = $derived(repoConfig.flags(repoPath));
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
@@ -62,3 +67,4 @@
   checked={flags.criticAllPrs && !lightweight}
   ontoggle={() => repoConfig.toggleAllPrs(repoPath)}
 />
+<ReviewFeedbackFields {repoPath} {armCoachmarks} />

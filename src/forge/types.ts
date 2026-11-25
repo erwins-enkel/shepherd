@@ -311,6 +311,10 @@ export interface PrStatus {
   /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
    *  "review this head once" dedup and per-push re-review. */
   headSha?: string;
+  /** GitHub's last-change timestamp for the PR (ISO string, verbatim). A new review, comment or
+   *  push moves it, so it keys the review-feedback fetch (#4126). Absent on Gitea and when there
+   *  is no PR. */
+  updatedAt?: string;
   /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
   /** Latest terminal human review state per reviewer, critic-marked reviews excluded.
@@ -708,6 +712,37 @@ export interface ForgeRunArtifact {
   expired: boolean;
 }
 
+/** One piece of review feedback on a PR, normalized from GitHub (#4126). */
+export interface PrFeedbackItem {
+  /** Stable id: `review:<databaseId>` | `rc:<databaseId>` | `ic:<databaseId>`. */
+  id: string;
+  /** `review` = review body, `rc` = inline review comment, `ic` = PR conversation comment. */
+  kind: "review" | "rc" | "ic";
+  /** Author login as GitHub returns it (`""` when absent, e.g. a deleted account). */
+  author: string;
+  /** The author is a GitHub App / bot account (GraphQL `__typename === "Bot"`). */
+  isBot: boolean;
+  body: string;
+  /** Epoch ms (a review's `submittedAt`). */
+  createdAt: number;
+  /** Kind `review` only. */
+  reviewState?: "approved" | "changes_requested" | "commented";
+  /** Kind `rc` only: the commented file. */
+  path?: string;
+  /** Kind `rc` only: the commented line; null when outdated. */
+  line?: number | null;
+  /** Kind `rc` only: `review:<databaseId>` of the review the comment belongs to. */
+  parentReviewId?: string;
+  /** Kind `rc` only: the comment's thread is resolved. */
+  resolved?: boolean;
+}
+
+/** A PR's review feedback plus its author, from {@link GitForge.listPrFeedback}. */
+export interface PrFeedback {
+  prAuthor: string;
+  items: PrFeedbackItem[];
+}
+
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
@@ -813,6 +848,13 @@ export interface GitForge {
   }>;
   /** Explicitly request a human review; never invoked by setting repo roles. */
   requestReview?(prNumber: number, reviewer: string): Promise<void>;
+  /** Review bodies, inline review comments and conversation comments on `prNumber`, normalized
+   *  (#4126). Unfiltered: eligibility is the caller's call. Rejects on a host error. Optional:
+   *  only GitHub implements it; absent ⇒ the review-feedback steer is inert for the repo. */
+  listPrFeedback?(prNumber: number): Promise<PrFeedback>;
+  /** Whether `login` has write (or admin) permission on the repo. Fails closed: any error
+   *  resolves false. Optional: absent ⇒ no human feedback counts as having standing. */
+  hasWriteAccess?(login: string): Promise<boolean>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** Whether the operator has push access to the repo on this host. Gates the
    *  gitignore-adopt flow (no push → it can't open the adopt PR; the caller shows

@@ -90,8 +90,8 @@ function pairKey(git: GitState): string {
 }
 
 /** Sessions the steer may address: a live agent session with an open PR, not planning and not
- *  owned by the merge train (which steers its own rebase). */
-function steerable(s: Session | null | undefined, git: GitState): s is Session {
+ *  owned by the merge train (which steers its own rebase). Shared with the review-feedback steer. */
+export function steerable(s: Session | null | undefined, git: GitState): s is Session {
   return (
     !!s &&
     s.status !== "archived" &&

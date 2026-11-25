@@ -42,7 +42,7 @@
 {:else if section === "schedules"}
   <AutomationSchedules {repoPath} />
 {:else if section === "review"}
-  <ReviewSection {repoPath} {sessionId} />
+  <ReviewSection {repoPath} {sessionId} {armCoachmarks} />
 {:else if section === "merge"}
   <MergeSection {repoPath} {armCoachmarks} />
 {:else if section === "epics"}

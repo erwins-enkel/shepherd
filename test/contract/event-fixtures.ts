@@ -1,5 +1,6 @@
 import type { AutoMergeStatus } from "../../src/automerge";
 import type { BlockReason } from "../../src/blocked";
+import type { ReviewFeedbackRow } from "../../src/store";
 import type { SubagentEntry } from "../../src/hooks-ingest";
 import type {
   EpicDraft,
@@ -222,6 +223,47 @@ const subagents: SubagentEntry[] = [
   },
 ];
 
+/** #4126: one item of each kind, optional fields both present and absent. */
+export const reviewFeedbackItems: ReviewFeedbackRow[] = [
+  {
+    id: "review:1",
+    kind: "review",
+    author: "alice",
+    isBot: false,
+    body: "Please split this.",
+    createdAt: 1_799_999_000_000,
+    reviewState: "changes_requested",
+    status: "pending",
+    sentAt: null,
+    sentBy: null,
+  },
+  {
+    id: "rc:2",
+    kind: "rc",
+    author: "coderabbitai",
+    isBot: true,
+    body: "Off by one.",
+    createdAt: 1_799_999_000_001,
+    path: "src/a.ts",
+    line: null,
+    parentReviewId: "review:1",
+    status: "pending",
+    sentAt: null,
+    sentBy: null,
+  },
+  {
+    id: "ic:3",
+    kind: "ic",
+    author: "bob",
+    isBot: false,
+    body: "LGTM otherwise",
+    createdAt: 1_799_999_000_002,
+    status: "pending",
+    sentAt: null,
+    sentBy: null,
+  },
+];
+
 /** [event, payload] pairs, null branches included. */
 export const cliSessionEvents: [string, unknown][] = [
   ["session:epic-draft", epicDraft],
@@ -265,4 +307,9 @@ export const cliSessionEvents: [string, unknown][] = [
   ],
   ["session:ci-restart-failed", { id: "sess_fixture", reason: "cancel" }],
   ["session:ci-restart-failed", { id: "sess_fixture", reason: "rerun" }],
+  [
+    "session:review-feedback",
+    { id: "sess_fixture", pending: reviewFeedbackItems, autoPaused: true },
+  ],
+  ["session:review-feedback", { id: "sess_fixture", pending: [], autoPaused: false }],
 ];

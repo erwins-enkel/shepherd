@@ -1251,6 +1251,7 @@ test("GithubForge.prStatus: GraphQL rate limit falls back to REST PR status", as
           state: "open",
           draft: false,
           created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-02T03:04:05Z",
           mergeable: true,
           mergeable_state: "clean",
           head: { ref: "feature", sha: "abc123", repo: { owner: { login: "o" } } },
@@ -1277,6 +1278,7 @@ test("GithubForge.prStatus: GraphQL rate limit falls back to REST PR status", as
     mergeStateStatus: "clean",
     baseRefName: "main",
     requestedReviewers: ["reviewer"],
+    updatedAt: "2024-01-02T03:04:05Z",
   });
   expect(calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(true);
   const restList = calls.find((c) => c[0] === "api" && c.includes("repos/o/r/pulls"))!;
@@ -4732,4 +4734,268 @@ test("GithubForge.headWorkflowRuns: lists every run of one head commit (#3831)",
       url: "https://github.com/o/r/actions/runs/42672130324",
     },
   ]);
+});
+
+// ── #4126: PR updatedAt, review feedback read, write-access check ──
+
+test("updatedAt: mapped on the open-PR list, single-PR and gh pr view paths (#4126)", async () => {
+  const node = {
+    number: 5,
+    url: "u5",
+    title: "t",
+    state: "OPEN",
+    headRefName: "feat/x",
+    headRepositoryOwner: { login: "o" },
+    updatedAt: "2026-11-20T10:00:00Z",
+  };
+  const { run, calls } = fakeRunner({
+    "pr list": JSON.stringify([node]),
+    "pr view": JSON.stringify(node),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  const snap = await forge.listOpenPrSnapshot();
+  expect(snap.statuses.get("feat/x")?.updatedAt).toBe("2026-11-20T10:00:00Z");
+  expect((await forge.prStatus("feat/x")).updatedAt).toBe("2026-11-20T10:00:00Z");
+  expect((await forge.openPullRequest(5))?.status.updatedAt).toBe("2026-11-20T10:00:00Z");
+  const jsonFields = calls
+    .filter((c) => c[0] === "pr")
+    .map((c) => (c[c.indexOf("--json") + 1] ?? "").split(","));
+  expect(jsonFields.length).toBe(3);
+  for (const fields of jsonFields) expect(fields).toContain("updatedAt");
+});
+
+const FEEDBACK_RESPONSE = {
+  data: {
+    repository: {
+      pullRequest: {
+        author: { login: "shepherd-agent" },
+        reviews: {
+          nodes: [
+            {
+              databaseId: 11,
+              author: { login: "alice", __typename: "User" },
+              state: "CHANGES_REQUESTED",
+              body: "Please fix",
+              submittedAt: "2026-11-20T10:00:00Z",
+            },
+            {
+              databaseId: 12,
+              author: { login: "coderabbitai", __typename: "Bot" },
+              state: "COMMENTED",
+              body: "",
+              submittedAt: "2026-11-20T11:00:00Z",
+            },
+            {
+              databaseId: 13,
+              author: { login: "bob", __typename: "User" },
+              state: "DISMISSED",
+              body: "old",
+              submittedAt: "2026-11-20T09:00:00Z",
+            },
+            {
+              databaseId: 14,
+              author: null,
+              state: "PENDING",
+              body: "draft",
+              submittedAt: null,
+            },
+            { databaseId: null, state: "APPROVED", submittedAt: "2026-11-20T09:00:00Z" },
+            null,
+          ],
+        },
+        reviewThreads: {
+          nodes: [
+            {
+              isResolved: true,
+              path: "src/a.ts",
+              line: 42,
+              comments: {
+                nodes: [
+                  {
+                    databaseId: 21,
+                    author: { login: "coderabbitai", __typename: "Bot" },
+                    body: "Nit",
+                    createdAt: "2026-11-20T11:00:00Z",
+                    pullRequestReview: { databaseId: 12 },
+                  },
+                ],
+              },
+            },
+            {
+              isResolved: false,
+              path: "src/b.ts",
+              line: null,
+              comments: {
+                nodes: [
+                  {
+                    databaseId: 22,
+                    author: null,
+                    body: null,
+                    createdAt: "2026-11-20T12:00:00Z",
+                    pullRequestReview: null,
+                  },
+                  { databaseId: 23, body: "bad date", createdAt: "not-a-date" },
+                ],
+              },
+            },
+            { isResolved: false, comments: null },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              databaseId: 31,
+              author: { login: "carol", __typename: "User" },
+              body: "LGTM?",
+              createdAt: "2026-11-20T13:00:00Z",
+            },
+          ],
+        },
+      },
+    },
+  },
+};
+
+test("listPrFeedback: one GraphQL call, normalized items (#4126)", async () => {
+  const { run, calls } = fakeRunner({ "api graphql": JSON.stringify(FEEDBACK_RESPONSE) });
+  const forge = new GithubForge("o/r", {}, run);
+  const fb = await forge.listPrFeedback(9);
+  expect(calls.length).toBe(1);
+  const call = calls[0]!;
+  expect(call.slice(0, 2)).toEqual(["api", "graphql"]);
+  expect(call).toContain("owner=o");
+  expect(call).toContain("name=r");
+  expect(call).toContain("number=9");
+  expect(call.find((a) => a.startsWith("query="))).toContain("rateLimit");
+  expect(fb.prAuthor).toBe("shepherd-agent");
+  expect(fb.items).toEqual([
+    {
+      id: "review:11",
+      kind: "review",
+      author: "alice",
+      isBot: false,
+      body: "Please fix",
+      createdAt: Date.parse("2026-11-20T10:00:00Z"),
+      reviewState: "changes_requested",
+    },
+    {
+      id: "review:12",
+      kind: "review",
+      author: "coderabbitai",
+      isBot: true,
+      body: "",
+      createdAt: Date.parse("2026-11-20T11:00:00Z"),
+      reviewState: "commented",
+    },
+    {
+      id: "rc:21",
+      kind: "rc",
+      author: "coderabbitai",
+      isBot: true,
+      body: "Nit",
+      createdAt: Date.parse("2026-11-20T11:00:00Z"),
+      path: "src/a.ts",
+      line: 42,
+      parentReviewId: "review:12",
+      resolved: true,
+    },
+    {
+      id: "rc:22",
+      kind: "rc",
+      author: "",
+      isBot: false,
+      body: "",
+      createdAt: Date.parse("2026-11-20T12:00:00Z"),
+      path: "src/b.ts",
+      line: null,
+      parentReviewId: undefined,
+      resolved: false,
+    },
+    {
+      id: "ic:31",
+      kind: "ic",
+      author: "carol",
+      isBot: false,
+      body: "LGTM?",
+      createdAt: Date.parse("2026-11-20T13:00:00Z"),
+    },
+  ]);
+});
+
+test("listPrFeedback: a missing PR yields no items; GraphQL backoff throws without a call (#4126)", async () => {
+  const { run, calls } = fakeRunner({ "api graphql": '{"data":{"repository":null}}' });
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.listPrFeedback(1)).toEqual({ prAuthor: "", items: [] });
+  blockGraphql();
+  try {
+    await expect(forge.listPrFeedback(1)).rejects.toThrow("graphql rate limit backoff");
+    expect(calls.length).toBe(1);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+function permissionRunner(answer: (login: string) => string | Error) {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    const path = args.find((a) => a.includes("/collaborators/")) ?? "";
+    const login = decodeURIComponent(path.split("/")[4] ?? "");
+    const out = answer(login);
+    if (out instanceof Error) throw out;
+    return out;
+  };
+  return { run, calls };
+}
+
+test("hasWriteAccess: admin/write true; read/none false; 404 false (#4126)", async () => {
+  const perms: Record<string, string> = {
+    ada: "admin",
+    wes: "write",
+    rita: "read",
+    nora: "none",
+  };
+  const { run, calls } = permissionRunner((login) =>
+    login in perms
+      ? JSON.stringify({ permission: perms[login] })
+      : Object.assign(new Error("gh failed"), { stderr: "gh: Not Found (HTTP 404)" }),
+  );
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.hasWriteAccess("ada")).toBe(true);
+  expect(await forge.hasWriteAccess("wes")).toBe(true);
+  expect(await forge.hasWriteAccess("rita")).toBe(false);
+  expect(await forge.hasWriteAccess("nora")).toBe(false);
+  expect(await forge.hasWriteAccess("ghost")).toBe(false);
+  expect(calls[0]).toEqual(["api", "--method", "GET", "repos/o/r/collaborators/ada/permission"]);
+});
+
+test("hasWriteAccess: answers and 404s cache per login for 1h; other errors don't (#4126)", async () => {
+  let fail = true;
+  const { run, calls } = permissionRunner((login) => {
+    if (login === "ghost")
+      return Object.assign(new Error("gh failed"), { stderr: "gh: Not Found (HTTP 404)" });
+    if (login === "flaky" && fail) return new Error("network down");
+    return JSON.stringify({ permission: "write" });
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  const t0 = Date.parse("2026-11-24T10:00:00Z");
+  setSystemTime(new Date(t0));
+  try {
+    expect(await forge.hasWriteAccess("Alice")).toBe(true);
+    expect(await forge.hasWriteAccess("alice")).toBe(true);
+    expect(await forge.hasWriteAccess("ghost")).toBe(false);
+    expect(await forge.hasWriteAccess("ghost")).toBe(false);
+    expect(calls.length).toBe(2);
+
+    expect(await forge.hasWriteAccess("flaky")).toBe(false);
+    fail = false;
+    expect(await forge.hasWriteAccess("flaky")).toBe(true);
+    expect(calls.length).toBe(4);
+
+    setSystemTime(new Date(t0 + 60 * 60_000));
+    expect(await forge.hasWriteAccess("alice")).toBe(true);
+    expect(calls.length).toBe(5);
+  } finally {
+    setSystemTime();
+  }
 });

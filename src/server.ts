@@ -35,6 +35,7 @@ import { localHealthIdentity } from "./local-health";
 import { clampBlock } from "./prompt-fit";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
 import type { PushRelayPrefs, RepoConfig, SessionStore, StoredPushSub } from "./store";
+import { normalizeBotLogin, type ReviewFeedbackMode } from "./review-feedback-core";
 import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
@@ -1301,6 +1302,12 @@ export interface AppDeps {
       parent: number,
     ): Promise<import("./drain").RepairLandingCiResult>;
   };
+  /** #4126: pending PR review feedback per session, and the operator's send / dismiss. Absent in
+   *  tests that don't exercise it. */
+  reviewFeedback?: Pick<
+    import("./review-feedback").ReviewFeedbackService,
+    "pendingAll" | "sendNow" | "dismiss"
+  >;
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
   /** Injectable `gh` CLI runner for the POST /api/projects remote step. Absent in
@@ -3526,6 +3533,32 @@ function parsePreviewOpenMode(v: unknown): "ask" | "inline" | "tab" | { error: s
   return { error: "previewOpenMode must be one of: ask, inline, tab" };
 }
 
+// #4126: reviewFeedbackMode / reviewFeedbackBots
+const REVIEW_FEEDBACK_MODES: readonly ReviewFeedbackMode[] = [
+  "off",
+  "manual",
+  "autopilot",
+  "always",
+];
+function parseReviewFeedbackMode(v: unknown): ReviewFeedbackMode | { error: string } {
+  if (REVIEW_FEEDBACK_MODES.includes(v as ReviewFeedbackMode)) return v as ReviewFeedbackMode;
+  return { error: `reviewFeedbackMode must be one of: ${REVIEW_FEEDBACK_MODES.join(", ")}` };
+}
+
+const REVIEW_FEEDBACK_BOTS_MAX = 20;
+/** A normalized GitHub login (lowercase, no `[bot]` suffix). */
+const REVIEW_FEEDBACK_BOT_RE = /^[a-z0-9][a-z0-9-]{0,38}$/;
+/** Bot logins normalized, empties dropped, deduped; at most 20 GitHub-shaped logins. */
+function parseReviewFeedbackBots(v: unknown): string[] | { error: string } {
+  if (!Array.isArray(v) || !v.every((b) => typeof b === "string"))
+    return { error: "reviewFeedbackBots must be an array of strings" };
+  const bots = [...new Set(v.map(normalizeBotLogin).filter(Boolean))];
+  if (bots.length > REVIEW_FEEDBACK_BOTS_MAX)
+    return { error: `reviewFeedbackBots allows at most ${REVIEW_FEEDBACK_BOTS_MAX} entries` };
+  const bad = bots.find((b) => !REVIEW_FEEDBACK_BOT_RE.test(b));
+  return bad === undefined ? bots : { error: "reviewFeedbackBots entries must be GitHub logins" };
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -3588,6 +3621,8 @@ type RepoCfgBody = {
   previewStartScript?: unknown;
   previewStartCommand?: unknown;
   previewOpenMode?: unknown;
+  reviewFeedbackMode?: unknown;
+  reviewFeedbackBots?: unknown;
   automationConfirmed?: unknown;
   leitrechner?: unknown;
 };
@@ -3621,6 +3656,8 @@ type RepoCfgScalars = {
   previewStartScript?: string | null;
   previewStartCommand?: string | null;
   previewOpenMode?: "ask" | "inline" | "tab";
+  reviewFeedbackMode?: ReviewFeedbackMode;
+  reviewFeedbackBots?: string[];
 };
 
 /** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
@@ -3685,6 +3722,8 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["previewStartScript", parseNullableString],
   ["previewStartCommand", parseNullableString],
   ["previewOpenMode", parsePreviewOpenMode],
+  ["reviewFeedbackMode", parseReviewFeedbackMode],
+  ["reviewFeedbackBots", parseReviewFeedbackBots],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -3742,6 +3781,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
       previewStartScript?: string | null;
       previewStartCommand?: string | null;
       previewOpenMode?: "ask" | "inline" | "tab";
+      reviewFeedbackMode?: ReviewFeedbackMode;
+      reviewFeedbackBots?: string[];
       automationConfirmed?: boolean;
     }
   | Response
@@ -3781,6 +3822,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     previewStartScript,
     previewStartCommand,
     previewOpenMode,
+    reviewFeedbackMode,
+    reviewFeedbackBots,
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
@@ -3791,7 +3834,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed, leitrechner",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, automationConfirmed, leitrechner",
       },
       400,
     );
@@ -3836,6 +3879,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     previewStartScript,
     previewStartCommand,
     previewOpenMode,
+    reviewFeedbackMode,
+    reviewFeedbackBots,
     automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }
@@ -7760,6 +7805,49 @@ async function handleSessionReviewHold({ req, parts, deps }: Ctx): Promise<Respo
   return json({ ok: true, held: body.held, kind });
 }
 
+// #4126 review feedback on a session's PR:
+//   GET  /api/review-feedback/pending               → {[sessionId]: {items, autoPaused}}
+//   POST /api/sessions/:id/review-feedback/send     {ids?} → 200 {sent:true} | 409 {sent:false}
+//   POST /api/sessions/:id/review-feedback/dismiss  {ids}  → 200 {ok:true}
+// 404 for an unknown session; 400 for a malformed `ids`.
+const REVIEW_FEEDBACK_IDS_MAX = 200;
+const REVIEW_FEEDBACK_ID_MAX_CHARS = 64;
+
+function handleReviewFeedbackPending({ req, parts, deps, token }: Ctx): Response | null {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "review-feedback")) return null;
+  if (parts[2] !== "pending" || parts[3]) return null;
+  return json(tokenMap(token, deps, deps.reviewFeedback?.pendingAll() ?? {}));
+}
+
+/** `ids` as a bounded list of item ids, undefined when absent, or null when malformed. */
+function reviewFeedbackIds(raw: unknown): string[] | undefined | null {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length > REVIEW_FEEDBACK_IDS_MAX) return null;
+  const ok = raw.every((v) => typeof v === "string" && v.length <= REVIEW_FEEDBACK_ID_MAX_CHARS);
+  return ok ? (raw as string[]) : null;
+}
+
+const REVIEW_FEEDBACK_IDS_ERROR = `ids must be an array of at most ${REVIEW_FEEDBACK_IDS_MAX} strings of at most ${REVIEW_FEEDBACK_ID_MAX_CHARS} chars`;
+
+async function handleSessionReviewFeedback({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[1] === "sessions" && parts[3] === "review-feedback"))
+    return null;
+  const action = parts[4];
+  if ((action !== "send" && action !== "dismiss") || parts[5]) return null;
+  const id = parts[2]!;
+  if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+  const body = (await readJsonBody(req)) as { ids?: unknown } | null;
+  const ids = reviewFeedbackIds(body?.ids);
+  if (ids === null) return json({ error: REVIEW_FEEDBACK_IDS_ERROR }, 400);
+  if (action === "dismiss") {
+    if (!ids?.length) return json({ error: "ids must be a non-empty array" }, 400);
+    deps.reviewFeedback?.dismiss(id, ids);
+    return json({ ok: true });
+  }
+  const sent = (await deps.reviewFeedback?.sendNow(id, ids)) ?? false;
+  return json({ sent }, sent ? 200 : 409);
+}
+
 // POST /api/sessions/:id/review-cancel — kill the in-flight review and discard its work: no
 // verdict, no paste, and no automatic re-run until the head / plan changes. 409 when nothing is in
 // flight, or when the review is already finalizing (its result is landing — nothing to cancel).
@@ -9933,6 +10021,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionReviewPr,
     handleSessionReviewHold,
     handleSessionReviewCancel,
+    handleSessionReviewFeedback,
     handleSessionRecap,
     handleSessionRecapRegenerate,
     handlePreviewStart,
@@ -15872,6 +15961,7 @@ const ROUTE_HANDLERS = [
   handleSpawnNotices,
   handleRecaps,
   handleAmendments,
+  handleReviewFeedbackPending,
   handleUpNextPrs,
   handleUpNext,
   handleDrainClaimResolve,

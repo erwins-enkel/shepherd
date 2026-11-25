@@ -11,10 +11,12 @@
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { reviews, planGates } from "#lib/reviews.svelte.js";
+  import { reviewFeedback } from "#lib/review-feedback.svelte.js";
   import { criticChip } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import PrFindingsDialog from "./PrFindingsDialog.svelte";
+  import ReviewFeedbackBadge from "./ReviewFeedbackBadge.svelte";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { railEpicChild, railEpicStopped } from "./git-rail/epic-rail";
 
@@ -224,10 +226,14 @@
           : m.gitrail_review_plan(),
   );
 
+  // #4126: the review-feedback chip renders on its own, even when the merge row owns the PR.
+  const feedbackPending = $derived(reviewFeedback.items(sessionId).length > 0);
   // RailStatusActions reports whether any status or action item renders.
   let railHasContent = $state(false);
   $effect(() => {
-    empty = !loadFailed && !(git && (railHasContent || !!err || (showReview && !!verdict)));
+    empty =
+      !loadFailed &&
+      !(git && (railHasContent || !!err || (showReview && !!verdict) || feedbackPending));
   });
 
   async function doReviewPlan() {
@@ -336,13 +342,15 @@
         {rowOwnsPr}
         bind:hasContent={railHasContent}
       />
+      <!-- #4126: PR review feedback waiting for the agent; opens ReviewFeedbackDialog. -->
+      <ReviewFeedbackBadge {sessionId} {git} variant="rail" />
 
       {#if err}
         <span class="err" role="alert" title={err}>{err}</span>
         {#if retry}
-          <button class="gbtn" type="button" disabled={busy} onclick={() => retry?.()}
-            >{m.common_retry()}</button
-          >
+          <button class="gbtn" type="button" disabled={busy} onclick={() => retry?.()}>
+            {m.common_retry()}
+          </button>
         {/if}
       {/if}
     </span>
@@ -365,12 +373,12 @@
        retry; the 15s poll also keeps retrying so a transient rate-limit clears itself. -->
   <span class="git-rail-wrap" class:mobile>
     <span class="rail" class:mobile use:edgeFades={mobile}>
-      <span class="err" role="alert" title={m.gitrail_status_failed()}
-        >{m.gitrail_status_failed()}</span
-      >
-      <button class="gbtn" type="button" disabled={busy} onclick={() => load(sessionId)}
-        >{m.common_retry()}</button
-      >
+      <span class="err" role="alert" title={m.gitrail_status_failed()}>
+        {m.gitrail_status_failed()}
+      </span>
+      <button class="gbtn" type="button" disabled={busy} onclick={() => load(sessionId)}>
+        {m.common_retry()}
+      </button>
     </span>
   </span>
 {/if}

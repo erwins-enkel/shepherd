@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
+import { REVIEW_FEEDBACK_PRESET_BOTS } from "../src/review-feedback-core";
 import { EventHub } from "../src/events";
 import type { ReviewVerdict } from "../src/types";
 import { config } from "../src/config";
@@ -141,6 +142,8 @@ const LOCAL_CONFIG_METADATA = {
     previewOpenMode: "rechner",
     pluginAllowlist: "rechner",
     skillAllowlist: "rechner",
+    reviewFeedbackMode: "rechner",
+    reviewFeedbackBots: "rechner",
   },
 };
 
@@ -194,6 +197,8 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     previewOpenMode: "ask",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     automationConfirmed: false,
     automationRowExists: false,
   });
@@ -290,6 +295,8 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     previewOpenMode: "ask",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -340,6 +347,8 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     previewOpenMode: "ask",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -400,6 +409,8 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     previewOpenMode: "ask",
     pluginAllowlist: null,
     skillAllowlist: null,
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     automationConfirmed: false,
     automationRowExists: true,
   });

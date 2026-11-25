@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
+import { reviewFeedback } from "./review-feedback.svelte";
 import { HerdStore, connectTimeout, reconnectDelay } from "./store.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
@@ -2119,6 +2120,28 @@ test("archiving a session drops its amendments from the live cache", () => {
   });
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(amendments.forSession("s1")).toEqual([]);
+});
+
+test("session:review-feedback routes to its store; archiving drops the entry (#4126)", () => {
+  const s = new HerdStore();
+  const item = {
+    id: "ic:1",
+    kind: "ic" as const,
+    author: "alice",
+    isBot: false,
+    body: "nit",
+    createdAt: 1000,
+    status: "pending" as const,
+    sentAt: null,
+    sentBy: null,
+  };
+  s.apply({
+    event: "session:review-feedback",
+    data: { id: "s1", pending: [item], autoPaused: false },
+  });
+  expect(reviewFeedback.items("s1").map((i) => i.id)).toEqual(["ic:1"]);
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect("s1" in reviewFeedback.map).toBe(false);
 });
 
 test("terminal owner snapshots replace stale owners and lose freshness on disconnect and foreground return", () => {

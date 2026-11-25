@@ -54,6 +54,7 @@ const COLLECTION_READS = new Set([
   "/api/reviews",
   "/api/plan-gates",
   "/api/amendments",
+  "/api/review-feedback/pending",
 ]);
 const SESSION_READS = new Set([
   "recap",
@@ -93,6 +94,8 @@ const SESSION_POSTS = new Set([
   "answer-ask",
   "review-plan",
   "review-pr",
+  "review-feedback/send",
+  "review-feedback/dismiss",
   "amendments",
   "queue/approve",
   "scratchpad/upload",
@@ -218,6 +221,7 @@ const SESSION_EVENTS = new Set([
   "session:experiment",
   "session:autopilot",
   "session:ci-restart-failed",
+  "session:review-feedback",
 ]);
 
 /** Unknown events never inherit access merely because their payload contains an id. */

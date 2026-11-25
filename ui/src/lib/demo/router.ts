@@ -364,6 +364,8 @@ const ambientGetRoutes: Record<string, GetHandler> = {
   "/api/login-requests": () => json({}),
   "/api/gh-permission-requests": () => json({}),
   "/api/action-requests": () => json({}),
+  // No seeded session has a PR with review feedback waiting (#4126).
+  "/api/review-feedback/pending": () => json({}),
   // The demo runs no agents, so the Operator Assistant (#1446) can't either. `reason` stays null:
   // neither live-node failure (no `claude`, herdr down) is true of a demo.
   "/api/operator-assistant": () => json({ available: false, reason: null, session: null }),

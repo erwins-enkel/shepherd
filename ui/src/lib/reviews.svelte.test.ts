@@ -1104,6 +1104,31 @@ test("ingest reads egress hosts and priority labels; an older server's absent fi
   expect(repoConfig.priorityLabelsFor("/w-lists-old")).toEqual([]);
 });
 
+// #4126: review feedback — an older server's absent fields read as the server defaults.
+test("ingest reads the review-feedback mode and bots; absent means autopilot and the preset", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(
+    rc({ reviewFeedbackMode: "manual", reviewFeedbackBots: ["coderabbitai"] }),
+  );
+  await repoConfig.ensure("/w-rf");
+  expect(repoConfig.reviewFeedbackModeFor("/w-rf")).toBe("manual");
+  expect(repoConfig.reviewFeedbackBotsFor("/w-rf")).toEqual(["coderabbitai"]);
+
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc());
+  await repoConfig.ensure("/w-rf-old");
+  expect(repoConfig.reviewFeedbackModeFor("/w-rf-old")).toBe("autopilot");
+  expect(repoConfig.reviewFeedbackBotsFor("/w-rf-old")).toEqual([
+    "coderabbitai",
+    "copilot-pull-request-reviewer",
+    "copilot",
+    "claude",
+  ]);
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ reviewFeedbackMode: "always" }));
+  await repoConfig.setReviewFeedbackMode("/w-rf", "always");
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-rf", { reviewFeedbackMode: "always" });
+  expect(repoConfig.reviewFeedbackModeFor("/w-rf")).toBe("always");
+});
+
 test("the list setters PUT the whole list and overlay it optimistically", async () => {
   let resolve!: (v: RepoConfig) => void;
   vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));

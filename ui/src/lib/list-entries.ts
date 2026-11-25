@@ -4,6 +4,8 @@
 //    validateHostList), plus the IP-literal refusal of validateBrowserAllowedHosts.
 //  - egress entries: src/egress.ts → normalizeEgressEntry (`[*.]host[:port]`, `:443` dropped).
 //  - priority labels: src/server.ts → parsePriorityLabels (trimmed, non-empty).
+//  - review bots: src/server.ts → parseReviewFeedbackBots (normalizeBotLogin from
+//    src/review-feedback-core.ts, then a GitHub login, at most 20).
 const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 const IPV4_RE = /^\d+(\.\d+)+$/;
 const EGRESS_ENTRY_RE = /^(\*\.)?([^:*]+)(?::([1-9]\d{0,4}))?$/;
@@ -77,4 +79,31 @@ export function checkPriorityLabel(
   if (!label) return { ok: false, reason: "empty" };
   if (existing.includes(label)) return { ok: false, reason: "duplicate" };
   return { ok: true, value: label };
+}
+
+/** Review bots trusted by default (#4126): src/review-feedback-core.ts → REVIEW_FEEDBACK_PRESET_BOTS. */
+export const REVIEW_FEEDBACK_PRESET_BOTS: readonly string[] = [
+  "coderabbitai",
+  "copilot-pull-request-reviewer",
+  "copilot",
+  "claude",
+];
+/** The server keeps at most this many review bots per repo. */
+export const REVIEW_FEEDBACK_BOTS_MAX = 20;
+const BOT_LOGIN_RE = /^[a-z0-9][a-z0-9-]{0,38}$/;
+
+/** A review-bot login (reviewFeedbackBots): lowercased, without GitHub's `[bot]` suffix. */
+export function checkReviewBot(
+  raw: string,
+  existing: readonly string[],
+): ListEntryCheck<"empty" | "invalid" | "duplicate" | "full"> {
+  const login = raw
+    .trim()
+    .toLowerCase()
+    .replace(/\[bot\]$/, "");
+  if (!login) return { ok: false, reason: "empty" };
+  if (!BOT_LOGIN_RE.test(login)) return { ok: false, reason: "invalid" };
+  if (existing.includes(login)) return { ok: false, reason: "duplicate" };
+  if (existing.length >= REVIEW_FEEDBACK_BOTS_MAX) return { ok: false, reason: "full" };
+  return { ok: true, value: login };
 }

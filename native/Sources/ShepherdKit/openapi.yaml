@@ -2740,6 +2740,136 @@ components:
                 - cancel
                 - rerun
             - type: string
+    ReviewFeedbackItem:
+      type: object
+      additionalProperties: true
+      description: "One piece of PR review feedback ingested for a session (#4126): a review body, an inline review comment or a PR conversation comment, from someone with write access or an allowlisted review bot."
+      required:
+        - id
+        - kind
+        - author
+        - isBot
+        - body
+        - createdAt
+        - status
+        - sentAt
+      properties:
+        id:
+          type: string
+          description: "Stable id: review:<databaseId>, rc:<databaseId> (inline) or ic:<databaseId> (conversation)."
+        kind:
+          description: review = review body, rc = inline review comment, ic = PR conversation comment.
+          anyOf:
+            - type: string
+              enum:
+                - review
+                - rc
+                - ic
+            - type: string
+        author:
+          type: string
+          description: The author's GitHub login.
+        isBot:
+          type: boolean
+          description: The author is a GitHub App / bot account.
+        body:
+          type: string
+          description: The comment text (untrusted Markdown).
+        createdAt:
+          type: number
+          description: Epoch ms.
+        reviewState:
+          description: Kind review only.
+          anyOf:
+            - type: string
+              enum:
+                - approved
+                - changes_requested
+                - commented
+            - type: string
+        path:
+          type: string
+          description: Kind rc only — the commented file.
+        line:
+          type:
+            - integer
+            - "null"
+          description: Kind rc only — the commented line; null when outdated.
+        parentReviewId:
+          type: string
+          description: Kind rc only — review:<databaseId> of the review the comment belongs to.
+        status:
+          anyOf:
+            - type: string
+              enum:
+                - pending
+                - sent
+                - dismissed
+                - primed
+            - type: string
+        sentAt:
+          type:
+            - number
+            - "null"
+          description: Epoch ms the item went to the agent.
+        sentBy:
+          anyOf:
+            - type: string
+              enum:
+                - auto
+                - operator
+            - type: string
+    ReviewFeedbackPending:
+      type: object
+      additionalProperties: true
+      required:
+        - items
+        - autoPaused
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFeedbackItem"
+          description: The session's pending items, oldest first.
+        autoPaused:
+          type: boolean
+          description: Automatic sends hit the rolling cap (5 per session per hour); items wait for the operator or the next window.
+    ReviewFeedbackPendingMap:
+      type: object
+      description: Pending review feedback by session id; sessions with nothing pending are absent.
+      additionalProperties:
+        $ref: "#/components/schemas/ReviewFeedbackPending"
+    SessionReviewFeedbackEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - pending
+        - autoPaused
+      properties:
+        id:
+          type: string
+        pending:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFeedbackItem"
+          description: The FULL current pending list, so an empty array is a genuine all-clear.
+        autoPaused:
+          type: boolean
+    ReviewFeedbackSendResult:
+      type: object
+      additionalProperties: true
+      required:
+        - sent
+      properties:
+        sent:
+          type: boolean
+    ReviewFeedbackIds:
+      type: array
+      maxItems: 200
+      items:
+        type: string
+        maxLength: 64
     OperatorAssistantUnavailableReason:
       anyOf:
         - $ref: "#/components/schemas/OperatorAssistantUnavailableReasonKnown"
@@ -10622,6 +10752,14 @@ components:
             - "null"
         previewOpenMode:
           type: string
+        reviewFeedbackMode:
+          type: string
+          description: "off | manual | autopilot (default) | always. How PR review feedback from people with write access and allowlisted review bots reaches the task agent: off never fetches it; manual shows it on the card for the operator to send; autopilot sends it automatically while the session's autopilot is on, else card only; always sends it automatically in attended sessions too."
+        reviewFeedbackBots:
+          type: array
+          items:
+            type: string
+          description: Review-bot logins (lowercase, no [bot] suffix) whose PR feedback counts without a write-access check. Only real bot accounts match. Default coderabbitai, copilot-pull-request-reviewer, copilot, claude; [] trusts no bot.
         automationConfirmed:
           type: boolean
         automationRowExists:
@@ -10829,6 +10967,15 @@ components:
             - "null"
         previewOpenMode:
           type: string
+        reviewFeedbackMode:
+          type: string
+          description: off | manual | autopilot | always (see RepoConfig.reviewFeedbackMode). Any other value is 400.
+        reviewFeedbackBots:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+          description: Review-bot logins. PUT lowercases them, strips a trailing [bot], drops empties and deduplicates; at most 20, each a GitHub login after normalization, else 400. [] trusts no bot.
         automationConfirmed:
           type: boolean
     RepoRoles:
@@ -13025,6 +13172,114 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/review-feedback/send:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: sendReviewFeedback
+      description: Send the session's pending PR review feedback to its live agent as one steer (#4126) — the selected ids, or every pending item when ids is absent. Ignores the repo's mode and the automatic-send cap. Lands as session:review-feedback.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ids:
+                  $ref: "#/components/schemas/ReviewFeedbackIds"
+      responses:
+        "200":
+          description: Delivered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewFeedbackSendResult"
+        "400":
+          description: ids is not an array of at most 200 strings of at most 64 chars.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Not delivered — no live agent pane, no known PR, or nothing pending among the ids. The items stay pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewFeedbackSendResult"
+  /api/sessions/{id}/review-feedback/dismiss:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: dismissReviewFeedback
+      description: Dismiss pending PR review feedback items (#4126); they are never shown or sent again. Lands as session:review-feedback.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: string
+                    maxLength: 64
+      responses:
+        "200":
+          description: Dismissed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: ids is missing, empty, or not an array of at most 200 strings of at most 64 chars.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/review-feedback/pending:
+    get:
+      operationId: listPendingReviewFeedback
+      description: Every session's pending PR review feedback (#4126), keyed by session id; sessions with nothing pending are absent. Bootstrap for session:review-feedback. A repository-scoped token sees only its repositories' sessions.
+      responses:
+        "200":
+          description: Pending feedback by session id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewFeedbackPendingMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/repos:
     get:
       operationId: listRepos
@@ -19518,6 +19773,10 @@ x-shepherd-events:
     description: A background CI restart (POST /api/sessions/{id}/ci/restart) failed after its 202.
     schema:
       $ref: "#/components/schemas/SessionCiRestartFailedEvent"
+  session:review-feedback:
+    description: A session's pending PR review feedback changed (ingested, sent, dismissed) or its automatic sends paused at the cap. Always the FULL current pending list. Bootstrap from GET /api/review-feedback/pending.
+    schema:
+      $ref: "#/components/schemas/SessionReviewFeedbackEvent"
   operator-assistant:update:
     description: An Operator Assistant's row (global or repo-scoped) was created, resumed, replaced or closed, or the operator changed their permissions (Settings → Assistant). Carries the global row as session and every live assistant as sessions. Deliberately not session:new, so no row joins the herd; status changes still arrive as session:status.
     schema:

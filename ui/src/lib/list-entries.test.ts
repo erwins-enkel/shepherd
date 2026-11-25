@@ -3,6 +3,8 @@ import {
   checkBrowserHost,
   checkEgressHost,
   checkPriorityLabel,
+  checkReviewBot,
+  REVIEW_FEEDBACK_BOTS_MAX,
   isWildcardEgressEntry,
   PRIORITY_LABEL,
 } from "./list-entries";
@@ -130,5 +132,21 @@ describe("checkPriorityLabel", () => {
 
   it("matches case-sensitively", () => {
     expect(checkPriorityLabel("Urgent", ["urgent"])).toEqual({ ok: true, value: "Urgent" });
+  });
+});
+
+describe("checkReviewBot (#4126)", () => {
+  it("lowercases and strips GitHub's [bot] suffix", () => {
+    expect(checkReviewBot("  Sourcery-AI[bot] ", [])).toEqual({ ok: true, value: "sourcery-ai" });
+  });
+
+  it("rejects empty, non-login, duplicate and over-cap entries", () => {
+    expect(checkReviewBot(" ", [])).toEqual({ ok: false, reason: "empty" });
+    expect(checkReviewBot("not a login", [])).toEqual({ ok: false, reason: "invalid" });
+    expect(checkReviewBot("-dash", [])).toEqual({ ok: false, reason: "invalid" });
+    expect(checkReviewBot("a".repeat(40), [])).toEqual({ ok: false, reason: "invalid" });
+    expect(checkReviewBot("Claude", ["claude"])).toEqual({ ok: false, reason: "duplicate" });
+    const full = Array.from({ length: REVIEW_FEEDBACK_BOTS_MAX }, (_, i) => `bot${i}`);
+    expect(checkReviewBot("one-more", full)).toEqual({ ok: false, reason: "full" });
   });
 });

@@ -75,7 +75,7 @@ import {
 } from "./operator-assistant-permissions";
 import type { PrCache } from "./pr-poller";
 import type { AddressedItemResult, ReviewFeedbackService } from "./review-feedback";
-import { MAX_REPLY_CHARS } from "./review-feedback-core";
+import { MAX_REPLY_CHARS, reviewFeedbackResolveOn } from "./review-feedback-core";
 import type { RepoConfig, SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
@@ -1069,16 +1069,12 @@ export function ghPermissionRequestAllowed(o: {
 }
 
 /** The `reviewFeedbackResolve` rule (#4139), shared by the spawn path and the row path: the repo
- *  opted in, and it has a forge with review threads. */
+ *  opted in with review feedback on, and it has a forge with review threads. */
 export function reviewFeedbackResolveAllowed(o: {
   plain: boolean | undefined;
-  repoConfig: Pick<RepoConfig, "reviewFeedbackResolve" | "repoMode">;
+  repoConfig: Pick<RepoConfig, "reviewFeedbackResolve" | "reviewFeedbackMode" | "repoMode">;
 }): boolean {
-  return (
-    !o.plain &&
-    o.repoConfig.reviewFeedbackResolve === true &&
-    o.repoConfig.repoMode !== "lightweight"
-  );
+  return !o.plain && reviewFeedbackResolveOn(o.repoConfig);
 }
 
 /** A stored session's capabilities; an unknown session has none. Reads the session's PERSISTED

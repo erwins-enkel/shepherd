@@ -677,6 +677,17 @@ test("resolve off or lightweight: the steer carries no ids and markAddressed ref
   }
 });
 
+test("review feedback switched off after a steer: markAddressed refuses, nothing posted", async () => {
+  const h = harness({ resolve: true });
+  await steeredInline(h, [["rc:5", "T1"]]);
+  h.store.setRepoConfig("/r", { ...h.store.getRepoConfig("/r"), reviewFeedbackMode: "off" });
+  h.st.fresh = h.git("u2", "def5678");
+  const out = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(out.ok).toBe(false);
+  expect(out.error).toContain("not enabled");
+  expect(h.resolveCalls).toEqual([]);
+});
+
 test("markAddressed: cached head stale but freshGit moved ⇒ replies + resolves", async () => {
   const h = harness({ resolve: true });
   await steeredInline(h, [["rc:5", "T1"]]);

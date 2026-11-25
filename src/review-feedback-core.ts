@@ -18,6 +18,20 @@ export const REVIEW_FEEDBACK_PRESET_BOTS = [
  *  session's effective autopilot is on; `always` auto-send in attended sessions too. */
 export type ReviewFeedbackMode = "off" | "manual" | "autopilot" | "always";
 
+/** Resolving addressed threads (#4139) is live: the repo opted in, review feedback is not `off`
+ *  (its absent mode reads as the `autopilot` default), and the repo is not lightweight. */
+export function reviewFeedbackResolveOn(cfg: {
+  reviewFeedbackResolve?: boolean;
+  reviewFeedbackMode?: ReviewFeedbackMode;
+  repoMode?: string;
+}): boolean {
+  return (
+    cfg.reviewFeedbackResolve === true &&
+    (cfg.reviewFeedbackMode ?? "autopilot") !== "off" &&
+    cfg.repoMode !== "lightweight"
+  );
+}
+
 /** Lowercased, trimmed, without GitHub's trailing `[bot]`. */
 export function normalizeBotLogin(login: string): string {
   return login

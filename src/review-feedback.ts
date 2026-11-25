@@ -20,6 +20,7 @@ import {
   preFilter,
   primeCutoff,
   resolveReplyBody,
+  reviewFeedbackResolveOn,
   steerConsumed,
   withinAutoCap,
   type AddressedVerdict,
@@ -401,10 +402,10 @@ export class ReviewFeedbackService {
     return this.#deps.store.getRepoConfig(s.repoPath).reviewFeedbackMode ?? "autopilot";
   }
 
-  /** The repo opted in to resolving addressed threads (#4139); never on a lightweight repo. */
+  /** The repo opted in to resolving addressed threads (#4139) with review feedback on; never on a
+   *  lightweight repo. */
   #resolveOn(s: Session): boolean {
-    const cfg = this.#deps.store.getRepoConfig(s.repoPath);
-    return cfg.reviewFeedbackResolve === true && cfg.repoMode !== "lightweight";
+    return reviewFeedbackResolveOn(this.#deps.store.getRepoConfig(s.repoPath));
   }
 
   /** An open PR on a live session in a GitHub repo whose mode is not `off`. */

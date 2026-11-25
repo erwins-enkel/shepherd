@@ -18,6 +18,7 @@ import {
   steerConsumed,
   withinAutoCap,
   type ReviewFeedbackMode,
+  reviewFeedbackResolveOn,
 } from "../src/review-feedback-core";
 
 const T = Date.parse("2026-11-24T10:00:00Z");
@@ -320,4 +321,19 @@ describe("addressedVerdict", () => {
     expect(addressedVerdict(row, undefined)).toBe("not-pushed");
     expect(addressedVerdict({ ...row, sentHeadSha: null }, "bbb")).toBe("not-pushed");
   });
+});
+
+test("reviewFeedbackResolveOn needs the opt-in, review feedback on and a forge repo (#4139)", () => {
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: true })).toBe(true);
+  expect(
+    reviewFeedbackResolveOn({ reviewFeedbackResolve: true, reviewFeedbackMode: "manual" }),
+  ).toBe(true);
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: true, reviewFeedbackMode: "off" })).toBe(
+    false,
+  );
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: true, repoMode: "lightweight" })).toBe(
+    false,
+  );
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: false })).toBe(false);
+  expect(reviewFeedbackResolveOn({})).toBe(false);
 });

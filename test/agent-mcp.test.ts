@@ -1384,6 +1384,11 @@ describe("review_feedback_addressed", () => {
     const light = harness();
     optIn(light, { repoMode: "lightweight" });
     expect(names(light.deps, light.sessionId)).not.toContain("review_feedback_addressed");
+    const feedbackOff = harness();
+    optIn(feedbackOff, { reviewFeedbackMode: "off" });
+    expect(names(feedbackOff.deps, feedbackOff.sessionId)).not.toContain(
+      "review_feedback_addressed",
+    );
     const assistant = harness({ operatorAssistant: true });
     optIn(assistant);
     expect(names(assistant.deps, assistant.sessionId)).not.toContain("review_feedback_addressed");

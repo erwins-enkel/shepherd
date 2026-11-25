@@ -71,8 +71,9 @@ The shared fields are `criticEnabled`, `criticAllPrs`, `criticSmellLensEnabled`,
 
 `claudeShipStewardDefer` (default `false`) hands a PR to Claude Ship's PR Steward while it
 carries the `claude-pr-steward-watching` label: Shepherd then sends no rebase, CI-fix or
-base-moved steer for it and the merge train neither rebases it nor waits on CI it would fix
-(wait code `steward_watching`). Removing the label restores Shepherd's steers.
+base-moved steer for it and the merge train never rebases it: a conflict or red CI waits on
+Steward (`steward_watching`), a PR that is only behind waits on you (`steward_behind` — update
+the branch or remove the label). Removing the label restores Shepherd's steers.
 
 With a valid file, every shared field comes from that file. An omitted field gets
 Shepherd's default, **not** the machine's saved database value. An empty object therefore

@@ -885,6 +885,7 @@ export class AutopilotService {
     )
       return;
     // Before the capacity call: a held head must not record codex capacity demand.
+    if (this.stewardOwns(s, git)) return void this.skipCi(s, git, "steward-watching", false);
     if (this.criticHolds(s, git)) return void this.skipCi(s, git, "critic-reviewing", false);
     // Likewise a reclaimable session that isn't resting: tick() steers once it is.
     if (ciReclaimable(s) && this.working(s)) return void this.skipWorking(s, git);
@@ -1475,18 +1476,18 @@ export class AutopilotService {
     if (ciReclaimable(s) && this.ciNudged.get(s.id) === this.redPr(s.id)?.headSha) return false;
     if (this.deps.fullAuto(s.id)) {
       const git = this.deps.prGit(s.id);
-      return (
-        !!git &&
-        git.state === "open" &&
-        git.checks === "failure" &&
-        !this.ownedByRebaser(s, git) &&
-        !this.criticHolds(s, git)
-      );
+      return !!git && git.state === "open" && git.checks === "failure" && !this.redHeld(s, git);
     }
     const red = this.redPr(s.id);
-    if (red && !this.ownedByRebaser(s, red) && !this.criticHolds(s, red)) return true;
+    if (red && !this.redHeld(s, red)) return true;
     const git = this.rebaseCandidate(s);
     return !!git && (git.mergeStateStatus === "behind" || isDefiniteConflict(git));
+  }
+
+  /** A red PR nothing will CI-fix right now — a rebase actor, the critic (#3426) or PR Steward
+   *  (#4146) holds it — so tick() must not record capacity demand for it. */
+  private redHeld(s: Session, git: GitState): boolean {
+    return this.ownedByRebaser(s, git) || this.criticHolds(s, git) || this.stewardOwns(s, git);
   }
 
   async tick(): Promise<void> {

@@ -888,7 +888,7 @@ test("computeMerge: never rebases while PR Steward owns the PR (#4146)", () => {
   expect(computeMerge(state([sess({ stewardDefers: true })])).kind).toBe("merge");
 });
 
-test("mergeWaitReason: Steward-owned conflict / behind / red CI → steward_watching (#4146)", () => {
+test("mergeWaitReason: Steward-owned conflict / red CI → steward_watching, behind-only → steward_behind (#4146)", () => {
   const clean = { reviewDecision: "commented" as const, reviewHeadSha: "h1", stewardDefers: true };
   const conflict = {
     mergeable: false,
@@ -896,7 +896,9 @@ test("mergeWaitReason: Steward-owned conflict / behind / red CI → steward_watc
     checks: "none" as const,
   };
   expect(wait({ ...clean, ...conflict })).toBe("steward_watching");
-  expect(wait({ ...clean, behind: true })).toBe("steward_watching");
+  // behind-only: neither Shepherd nor Steward rebases it → the operator's move
+  expect(wait({ ...clean, behind: true })).toBe("steward_behind");
+  expect(wait({ ...clean, behind: true, checks: "failure" })).toBe("steward_watching");
   expect(wait({ ...clean, checks: "failure" })).toBe("steward_watching");
   expect(wait({ ...clean, mergeable: false })).toBe("steward_watching");
   // gates Steward does not own read as before

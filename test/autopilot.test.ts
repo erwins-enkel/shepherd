@@ -3792,3 +3792,30 @@ test("#4146: holdsCriticWhenBehind drops under Steward; rebasesWhenBehind (base-
   o.prGit = git({ checks: "success" });
   expect(h.svc.holdsCriticWhenBehind(h.state())).toBe(true);
 });
+
+test("#4146: a Steward-held red PR never reaches the capacity gate (edge or tick)", async () => {
+  let asked = 0;
+  const capacity = async () => {
+    asked++;
+    return true;
+  };
+  const edge = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    stewardDefer: true,
+    capacity,
+  });
+  edge.svc.onGit("s1", git(watched));
+  const tick = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    stewardDefer: true,
+    capacity,
+    prGit: git(watched),
+  });
+  await tick.svc.tick();
+  await flush();
+  expect(asked).toBe(0);
+  expect([...edge.events, ...tick.events].some((e) => "steer" in e)).toBe(false);
+});

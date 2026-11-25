@@ -58,6 +58,8 @@ describe("waitOwner", () => {
     "signoff",
     "protection_blocked",
     "approval_pending",
+    // #4146: behind while PR Steward owns it — no one rebases it.
+    "steward_behind",
     "no_ci",
     "checks_absent",
   ])("%s needs the operator", (code) => expect(waitOwner(code, true)).toBe("operator"));

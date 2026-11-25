@@ -1559,6 +1559,7 @@ export type MergeWaitCode =
   | "code_review_pending"
   | "code_review_failed"
   | "steward_watching"
+  | "steward_behind"
   | "behind"
   | "rebase_cap"
   | "signoff"

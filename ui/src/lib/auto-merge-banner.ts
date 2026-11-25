@@ -45,6 +45,7 @@ const OPERATOR_CODES: ReadonlySet<MergeWaitCode> = new Set([
   "signoff",
   "protection_blocked",
   "approval_pending",
+  "steward_behind",
   "no_ci",
   "checks_absent",
 ]);

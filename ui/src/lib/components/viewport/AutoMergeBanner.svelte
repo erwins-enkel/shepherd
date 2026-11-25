@@ -73,6 +73,7 @@
     code_review_pending: m.automergebanner_code_review_pending,
     code_review_failed: m.automergebanner_code_review_failed,
     steward_watching: m.automergebanner_steward_watching,
+    steward_behind: m.automergebanner_steward_behind,
     critic_error: m.automergebanner_critic_error,
     rebase_cap: m.automergebanner_rebase_cap,
     merge_backoff: m.automergebanner_merge_backoff,

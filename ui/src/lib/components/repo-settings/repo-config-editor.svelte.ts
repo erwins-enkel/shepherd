@@ -7,7 +7,7 @@ import {
 } from "#lib/api.js";
 import { repoConfig, RepoConfigStore } from "#lib/reviews.svelte.js";
 
-import { RULE_FIELDS, isRuleField } from "#lib/repo-config-fields.js";
+import { RULE_FIELDS, isRuleField, sameRuleValue } from "#lib/repo-config-fields.js";
 
 export type SettingsLayer = "repo" | "rechner";
 const EDITOR = Symbol("repo-config-editor");
@@ -78,7 +78,7 @@ export class RepoConfigEditor extends RepoConfigStore {
     const staged = { ...this.draft };
     for (const [key, value] of Object.entries(patch)) {
       if (isRuleField(key) && this.shareable) {
-        if (value === this.view![key]) delete staged[key];
+        if (sameRuleValue(value, this.view![key])) delete staged[key];
         else Object.assign(staged, { [key]: value });
       } else Object.assign(local, { [key]: value });
     }
@@ -117,7 +117,7 @@ export class RepoConfigEditor extends RepoConfigStore {
         latest.repoConfigBranch !== previous.repoConfigBranch ||
         (latest.repoConfigCommit == null) !== (previous.repoConfigCommit == null) ||
         (previous.repoConfigCommit == null ? RULE_FIELDS : Object.keys(this.draft)).some(
-          (key) => isRuleField(key) && latest[key] !== previous[key],
+          (key) => isRuleField(key) && !sameRuleValue(latest[key], previous[key]),
         );
       this.sync(latest);
       if (changed) {

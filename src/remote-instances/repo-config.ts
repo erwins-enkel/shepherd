@@ -4,6 +4,7 @@ import {
   REPO_RULE_FIELDS,
   repoRulesFromConfig,
   parseRepoRules,
+  sameRuleValue,
 } from "../repo-config-file";
 import type { RepoConfigView } from "../repo-config-service";
 import { repoConfigDefaults } from "../store";
@@ -30,7 +31,9 @@ export function compareRepoConfigs(machines: readonly RepoMachine[]) {
   const applicable = available.every((m) => m.config!.repoConfigCommit === null);
   const unavailableInstanceIds = owners.filter((m) => !m.config).map((m) => m.instanceId);
   const differing = applicable
-    ? REPO_RULE_FIELDS.filter((key) => new Set(available.map((m) => m.config![key])).size > 1)
+    ? REPO_RULE_FIELDS.filter((key) =>
+        available.some((m) => !sameRuleValue(m.config![key], available[0]!.config![key])),
+      )
     : [];
   return {
     applicable,

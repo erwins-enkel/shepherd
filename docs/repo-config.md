@@ -67,7 +67,17 @@ The shared fields are `criticEnabled`, `criticAllPrs`, `criticSmellLensEnabled`,
 `claudeReviewSkipsCritic`, `autoAddressEnabled`, `autopilotEnabled`, `planGateEnabled`, `autoDrainEnabled`,
 `autoMergeEnabled`, `buildQueueEnabled`, `draftMode`, `signoffAuthority`,
 `manualStepsIssueEnabled`, `preWarmEpicLandingCi`, `epicStacksEnabled`,
-`claudeShipStewardDefer`, `autoLabel`, `defaultModel`, `defaultEffort` and `leitrechner`.
+`claudeShipStewardDefer`, `autoLabel`, `defaultModel`, `defaultEffort`,
+`reviewFeedbackMode`, `reviewFeedbackBots`, `reviewFeedbackResolve` and `leitrechner`.
+
+`reviewFeedbackBots` is the only list-valued rule. A committed list is validated like the
+settings API: at most 20 GitHub logins, normalized to lowercase without `[bot]`, duplicates
+dropped. Any invalid entry makes the whole file invalid.
+
+These three review feedback fields used to be machine settings. In a repo that already has a
+committed file, the machine's saved values no longer apply: the defaults (`autopilot`, the
+preset bot list, `false`) do until someone sets the values again and confirms them as shared
+rules.
 
 `claudeShipStewardDefer` (default `false`) hands a PR to Claude Ship's PR Steward while it
 carries the `claude-pr-steward-watching` label: Shepherd then sends no rebase, CI-fix or

@@ -5,6 +5,11 @@ import { execGit, execGitSync } from "./safe-git";
 import type { RepoConfig } from "./store";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
+import {
+  parseReviewFeedbackBots,
+  parseReviewFeedbackMode,
+  REVIEW_FEEDBACK_PRESET_BOTS,
+} from "./review-feedback-core";
 
 /** Only these settings may travel with a repository. All other settings stay local. */
 export const REPO_RULE_FIELDS = [
@@ -28,6 +33,9 @@ export const REPO_RULE_FIELDS = [
   "autoLabel",
   "defaultModel",
   "defaultEffort",
+  "reviewFeedbackMode",
+  "reviewFeedbackBots",
+  "reviewFeedbackResolve",
 ] as const satisfies readonly (keyof RepoConfig)[];
 export type RepoRuleKey = (typeof REPO_RULE_FIELDS)[number];
 export type RepoRules = Pick<RepoConfig, RepoRuleKey>;
@@ -66,7 +74,17 @@ export const REPO_RULE_DEFAULTS: Readonly<RepoRules> = Object.freeze({
   autoLabel: "shepherd:auto",
   defaultModel: "inherit",
   defaultEffort: "inherit",
+  reviewFeedbackMode: "autopilot",
+  reviewFeedbackBots: Object.freeze([...REVIEW_FEEDBACK_PRESET_BOTS]) as string[],
+  reviewFeedbackResolve: false,
 });
+
+/** Rule equality: `reviewFeedbackBots` is an array, so compare element-wise (ordered). */
+export function sameRuleValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b))
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  return a === b;
+}
 
 /** Same cross-field rules for committed files and explicit settings edits. */
 export function repoRuleValidationError(config: RepoRules): string | null {
@@ -100,6 +118,31 @@ export function repoRulesFromConfig(config: RepoConfig): RepoRules {
   return Object.fromEntries(REPO_RULE_FIELDS.map((key) => [key, config[key]])) as RepoRules;
 }
 
+const INVALID = Symbol("invalid");
+const orInvalid = <T>(parsed: T | { error: string }) =>
+  typeof parsed === "object" && parsed !== null && "error" in parsed ? INVALID : parsed;
+/** One committed rule value, normalized (bot logins), or INVALID. */
+function parseRuleValue(key: RepoRuleKey, v: unknown): unknown {
+  switch (key) {
+    case "leitrechner":
+      return isLeitrechner(v) ? v : INVALID;
+    case "signoffAuthority":
+      return v === "human" || v === "critic" || v === "either" ? v : INVALID;
+    case "autoLabel":
+      return typeof v === "string" && v.trim().length > 0 ? v : INVALID;
+    case "defaultModel":
+      return normalizeRepoDefaultModelSetting(v) !== null ? v : INVALID;
+    case "defaultEffort":
+      return normalizeRepoDefaultEffortSetting(v) !== null ? v : INVALID;
+    case "reviewFeedbackMode":
+      return orInvalid(parseReviewFeedbackMode(v));
+    case "reviewFeedbackBots":
+      return orInvalid(parseReviewFeedbackBots(v));
+    default:
+      return typeof v === "boolean" ? v : INVALID;
+  }
+}
+
 /** Invalid known values invalidate the file; unknown (including machine) fields never apply. */
 export function parseRepoRules(raw: string): Partial<RepoRules> | null {
   try {
@@ -110,28 +153,9 @@ export function parseRepoRules(raw: string): Partial<RepoRules> | null {
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value)) {
       if (!isRepoRuleKey(key)) continue;
-      let valid: boolean;
-      switch (key) {
-        case "leitrechner":
-          valid = isLeitrechner(v);
-          break;
-        case "signoffAuthority":
-          valid = v === "human" || v === "critic" || v === "either";
-          break;
-        case "autoLabel":
-          valid = typeof v === "string" && v.trim().length > 0;
-          break;
-        case "defaultModel":
-          valid = normalizeRepoDefaultModelSetting(v) !== null;
-          break;
-        case "defaultEffort":
-          valid = normalizeRepoDefaultEffortSetting(v) !== null;
-          break;
-        default:
-          valid = typeof v === "boolean";
-      }
-      if (!valid) return null;
-      out[key] = v;
+      const parsed = parseRuleValue(key, v);
+      if (parsed === INVALID) return null;
+      out[key] = parsed;
     }
     const rules = out as Partial<RepoRules>;
     return repoRuleValidationError({ ...REPO_RULE_DEFAULTS, ...rules }) ? null : rules;

@@ -311,3 +311,33 @@ test("a no-forge repository without a committed file keeps local rule edits", as
   expect(tip(r)).toBe(before);
   expect(store.getLocalRepoConfig(r.b).criticAllPrs).toBe(true);
 });
+
+test("review feedback settings (#4184) are shared rules: committed, read back, never copied to DB", async () => {
+  const { r, store, svc } = fixture();
+  const result = await svc.patch(r.b, {
+    reviewFeedbackMode: "always",
+    reviewFeedbackBots: ["coderabbitai"],
+    reviewFeedbackResolve: true,
+  });
+  expect(result.ok).toBe(true);
+  expect(JSON.parse(git(r.origin, "show", "main:.shepherd/config.json"))).toMatchObject({
+    reviewFeedbackMode: "always",
+    reviewFeedbackBots: ["coderabbitai"],
+    reviewFeedbackResolve: true,
+  });
+  expect(store.getLocalRepoConfig(r.b)).toMatchObject({
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackResolve: false,
+  });
+  invalidateRepoConfigFile(r.b);
+  expect(svc.read(r.b)).toMatchObject({
+    reviewFeedbackMode: "always",
+    reviewFeedbackBots: ["coderabbitai"],
+    reviewFeedbackResolve: true,
+    fieldSources: {
+      reviewFeedbackMode: "repo",
+      reviewFeedbackBots: "repo",
+      reviewFeedbackResolve: "repo",
+    },
+  });
+});

@@ -35,7 +35,11 @@ import { localHealthIdentity } from "./local-health";
 import { clampBlock } from "./prompt-fit";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
 import type { PushRelayPrefs, RepoConfig, SessionStore, StoredPushSub } from "./store";
-import { normalizeBotLogin, type ReviewFeedbackMode } from "./review-feedback-core";
+import {
+  parseReviewFeedbackBots,
+  parseReviewFeedbackMode,
+  type ReviewFeedbackMode,
+} from "./review-feedback-core";
 import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
@@ -3546,32 +3550,6 @@ function parseRepoDefaultExecutionEffort(v: unknown): string | { error: string }
 function parsePreviewOpenMode(v: unknown): "ask" | "inline" | "tab" | { error: string } {
   if (v === "ask" || v === "inline" || v === "tab") return v;
   return { error: "previewOpenMode must be one of: ask, inline, tab" };
-}
-
-// #4126: reviewFeedbackMode / reviewFeedbackBots
-const REVIEW_FEEDBACK_MODES: readonly ReviewFeedbackMode[] = [
-  "off",
-  "manual",
-  "autopilot",
-  "always",
-];
-function parseReviewFeedbackMode(v: unknown): ReviewFeedbackMode | { error: string } {
-  if (REVIEW_FEEDBACK_MODES.includes(v as ReviewFeedbackMode)) return v as ReviewFeedbackMode;
-  return { error: `reviewFeedbackMode must be one of: ${REVIEW_FEEDBACK_MODES.join(", ")}` };
-}
-
-const REVIEW_FEEDBACK_BOTS_MAX = 20;
-/** A normalized GitHub login (lowercase, no `[bot]` suffix). */
-const REVIEW_FEEDBACK_BOT_RE = /^[a-z0-9][a-z0-9-]{0,38}$/;
-/** Bot logins normalized, empties dropped, deduped; at most 20 GitHub-shaped logins. */
-function parseReviewFeedbackBots(v: unknown): string[] | { error: string } {
-  if (!Array.isArray(v) || !v.every((b) => typeof b === "string"))
-    return { error: "reviewFeedbackBots must be an array of strings" };
-  const bots = [...new Set(v.map(normalizeBotLogin).filter(Boolean))];
-  if (bots.length > REVIEW_FEEDBACK_BOTS_MAX)
-    return { error: `reviewFeedbackBots allows at most ${REVIEW_FEEDBACK_BOTS_MAX} entries` };
-  const bad = bots.find((b) => !REVIEW_FEEDBACK_BOT_RE.test(b));
-  return bad === undefined ? bots : { error: "reviewFeedbackBots entries must be GitHub logins" };
 }
 
 // the optional boolean fields of a repo-config patch body

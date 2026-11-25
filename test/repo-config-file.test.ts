@@ -103,3 +103,30 @@ test("leitrechner accepts an instance UUID or null, never host names or surround
   for (const leitrechner of [false, 42, "", " ", " id ", "host-name"])
     expect(parseRepoRules(JSON.stringify({ leitrechner }))).toBeNull();
 });
+
+test("review feedback rules (#4184): validated like the settings PUT, bot logins normalized", () => {
+  expect(
+    parseRepoRules(
+      JSON.stringify({
+        reviewFeedbackMode: "always",
+        reviewFeedbackBots: ["CodeRabbitAI[bot]", "coderabbitai", " claude "],
+        reviewFeedbackResolve: true,
+      }),
+    ),
+  ).toEqual({
+    reviewFeedbackMode: "always",
+    reviewFeedbackBots: ["coderabbitai", "claude"],
+    reviewFeedbackResolve: true,
+  });
+  expect(parseRepoRules('{"reviewFeedbackBots":[]}')).toEqual({ reviewFeedbackBots: [] });
+  for (const rules of [
+    { reviewFeedbackMode: "sometimes" },
+    { reviewFeedbackMode: null },
+    { reviewFeedbackBots: "claude" },
+    { reviewFeedbackBots: [1] },
+    { reviewFeedbackBots: ["not a login"] },
+    { reviewFeedbackBots: Array.from({ length: 21 }, (_, i) => `bot${i}`) },
+    { reviewFeedbackResolve: "yes" },
+  ])
+    expect(parseRepoRules(JSON.stringify(rules))).toBeNull();
+});

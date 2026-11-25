@@ -13,7 +13,16 @@
       dialog.scrollTop = 0;
     }
   });
-  function value(v: unknown): string {
+  const MODE_LABELS: Record<string, () => string> = {
+    off: m.reposettings_review_feedback_off,
+    manual: m.reposettings_review_feedback_manual,
+    autopilot: m.reposettings_review_feedback_autopilot,
+    always: m.reposettings_review_feedback_always,
+  };
+  function value(key: string, v: unknown): string {
+    if (Array.isArray(v)) return v.length ? v.join(", ") : m.reposettings_review_bots_empty();
+    const mode = key === "reviewFeedbackMode" && typeof v === "string" ? MODE_LABELS[v] : undefined;
+    if (mode) return mode();
     switch (v) {
       case true:
         return m.automation_layers_on();
@@ -72,33 +81,33 @@
     <dd>chore(shepherd): set repo rules</dd>
   </dl>
   <table>
-    <thead
-      ><tr
-        ><th></th><th>{m.automation_layers_before()}</th><th>{m.automation_layers_after()}</th></tr
-      ></thead
-    >
-    <tbody
-      >{#each editor.changes as change (change.key)}<tr
-          ><th scope="row">{ruleName(change.key)}</th><td
-            >{change.key === "leitrechner" && typeof change.before === "string"
+    <thead>
+      <tr>
+        <th></th><th>{m.automation_layers_before()}</th><th>{m.automation_layers_after()}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#each editor.changes as change (change.key)}<tr>
+          <th scope="row">{ruleName(change.key)}</th><td>
+            {change.key === "leitrechner" && typeof change.before === "string"
               ? (editor.machineNames[change.before] ?? change.before)
-              : value(change.before)}</td
-          ><td
-            >{change.key === "leitrechner" && typeof change.after === "string"
+              : value(change.key, change.before)}
+          </td><td>
+            {change.key === "leitrechner" && typeof change.after === "string"
               ? (editor.machineNames[change.after] ?? change.after)
-              : value(change.after)}</td
-          ></tr
-        >{/each}</tbody
-    >
+              : value(change.key, change.after)}
+          </td>
+        </tr>{/each}
+    </tbody>
   </table>
   {#if error}<p role="alert">{error}</p>{/if}
   <footer>
-    <button class="gbtn" disabled={editor.saving} onclick={() => dialog?.close()}
-      >{m.common_cancel()}</button
-    >
-    <button class="gbtn primary" disabled={editor.saving} onclick={save}
-      >{m.automation_layers_save()}</button
-    >
+    <button class="gbtn" disabled={editor.saving} onclick={() => dialog?.close()}>
+      {m.common_cancel()}
+    </button>
+    <button class="gbtn primary" disabled={editor.saving} onclick={save}>
+      {m.automation_layers_save()}
+    </button>
   </footer>
 </dialog>
 

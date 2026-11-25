@@ -231,6 +231,10 @@ which is where Shepherd's GHSAs came from (auth, ingress, membrane, IPC). deepse
 known-bad patterns at breadth, cheaply on re-runs. Whether that breadth finds anything the
 boundary-driven runs missed is exactly what the pilot must measure.
 
+> **Result (#4155):** adopt as an operator-run, diff-scoped skill. See
+> [`deepsec-evaluation-2026-11.md`](deepsec-evaluation-2026-11.md). It also corrects two points in
+> this table: there is a `js-bun-serve` matcher, and Swift and Rust are covered by generated matchers.
+
 **Pilot:**
 
 1. Install it in a throwaway clone with `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` unset, using

@@ -2067,7 +2067,22 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     providerSessionId: null,
     outcome: null,
     planDrift: null,
+    reviewedPlanHash: null,
   });
+});
+
+test("recordReviewerSpawn persists a plan_gate spawn's reviewedPlanHash (#4160)", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-p",
+    taskSessionId: "task-1",
+    kind: "plan_gate",
+    worktreePath: "/rev-wt",
+    model: null,
+    spawnedAt: 1000,
+    reviewedPlanHash: "hash-a",
+  });
+  expect(s.listReviewerSpawns()[0]!.reviewedPlanHash).toBe("hash-a");
 });
 
 test("reviewer_spawns FRESH schema (DDL alone, no migration) already has providerSessionId", () => {
@@ -2087,6 +2102,8 @@ test("reviewer_spawns FRESH schema (DDL alone, no migration) already has provide
   expect(cols).toContain("planDrift");
   // #2929: and for the 1h cache-write share.
   expect(cols).toContain("cacheWrite1hTokens");
+  // #4160: and for the plan hash a plan_gate reviewer was given.
+  expect(cols).toContain("reviewedPlanHash");
 });
 
 test("reviewer_spawns migration: an old table without providerSessionId gains a NULL column", () => {
@@ -2114,6 +2131,8 @@ test("reviewer_spawns migration: an old table without providerSessionId gains a 
     expect(row!.planDrift).toBeNull();
     // #2929: a legacy row has no recorded split → NULL (priced at 5m).
     expect(row!.cacheWrite1hTokens).toBeNull();
+    // #4160: a legacy row has no reviewed hash → adoption falls back to the live plan.
+    expect(row!.reviewedPlanHash).toBeNull();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

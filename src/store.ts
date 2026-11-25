@@ -1787,7 +1787,8 @@ export const REVIEWER_SPAWNS_DDL = `CREATE TABLE IF NOT EXISTS reviewer_spawns (
   totalTokens       INTEGER,
   providerSessionId TEXT,
   outcome           TEXT,
-  planDrift         TEXT)`;
+  planDrift         TEXT,
+  reviewedPlanHash  TEXT)`;
 
 export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   private db: Database;
@@ -7017,11 +7018,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     model: string | null;
     reviewerEffort?: string | null;
     spawnedAt: number;
+    /** plan_gate only: hash of the plan text this reviewer was given (#4160). */
+    reviewedPlanHash?: string | null;
   }): void {
     this.db.run(
       `INSERT INTO reviewer_spawns
-         (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model, reviewerEffort, spawnedAt)
-       VALUES (?,?,?,?,?,?,?,?)`,
+         (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model, reviewerEffort, spawnedAt, reviewedPlanHash)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       [
         r.reviewerSessionId,
         r.taskSessionId,
@@ -7031,6 +7034,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         r.model,
         r.reviewerEffort ?? null,
         r.spawnedAt,
+        r.reviewedPlanHash ?? null,
       ],
     );
   }
@@ -8506,6 +8510,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // The 1h-TTL share of cacheWriteTokens, so spawns price each part at its own rate (#2929).
     // Legacy rows stay NULL and price entirely at 5m, as before.
     add("cacheWrite1hTokens", `cacheWrite1hTokens INTEGER`);
+    // The plan hash a plan_gate reviewer was given (#4160), so a restart adopts its verdict onto the
+    // text it read. Legacy rows stay NULL and adopt the live plan, as before.
+    add("reviewedPlanHash", `reviewedPlanHash TEXT`);
   }
 
   // ── build queue ──────────────────────────────────────────────────────────────

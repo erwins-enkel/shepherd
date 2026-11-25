@@ -36,6 +36,7 @@ function world(over: any = {}) {
     plan: "PLAN A",
     gate: null as any,
     spawns: [] as any[],
+    revisions: [] as { planHash: string; plan: string }[],
     verdicts: new Map<string, unknown>(),
     started: [] as string[],
     wtSeq: 0,
@@ -60,8 +61,10 @@ function world(over: any = {}) {
     },
     setReviewerSpawnOutcome() {},
     listReviewerSpawns: () => state.spawns.map((s) => ({ ...s })),
-    recordAgentPlanRevision() {},
-    listPlanRevisions: () => [],
+    recordAgentPlanRevision: (_id: string, planHash: string, plan: string) => {
+      if (state.revisions.at(-1)?.planHash !== planHash) state.revisions.push({ planHash, plan });
+    },
+    listPlanRevisions: () => [...state.revisions],
     dropPlanRevisions() {},
     putSpawnNotice: () => true,
     getSpawnNotice: () => null,
@@ -114,26 +117,23 @@ function world(over: any = {}) {
 }
 
 // CE-1 (#4160; INV-ApprovalMatchesReviewed): the reviewer reads plan A; the plan changes to B; the server
-// restarts; adoptOrphans -> buildAdoptedInflight hashes the CURRENT plan (B), so the reviewer's
-// approval of A is stamped on B — a plan no reviewer has read.
-test.failing(
-  "CE-1: an adopted orphan's approval is stamped on the plan the reviewer read",
-  async () => {
-    const w = world();
-    await w.svc.consider(w.session);
-    expect(w.state.started).toHaveLength(1);
-    const reviewerWt = w.state.spawns[0]!.worktreePath;
+// restarts; adoptOrphans -> buildAdoptedInflight used to hash the CURRENT plan (B), stamping the
+// reviewer's approval of A on B. Fixed: adoption uses the spawn row's `reviewedPlanHash`.
+test("CE-1: an adopted orphan's approval is stamped on the plan the reviewer read", async () => {
+  const w = world();
+  await w.svc.consider(w.session);
+  expect(w.state.started).toHaveLength(1);
+  const reviewerWt = w.state.spawns[0]!.worktreePath;
 
-    w.state.plan = "PLAN B"; // agent (or operator) edits the plan while the review runs
-    const restarted = w.restart(); // server restart: in-memory inflight is gone
-    await restarted.adoptOrphans();
-    w.state.verdicts.set(reviewerWt, APPROVE); // the reviewer approves what it read: PLAN A
-    await restarted.tick();
+  w.state.plan = "PLAN B"; // agent (or operator) edits the plan while the review runs
+  const restarted = w.restart(); // server restart: in-memory inflight is gone
+  await restarted.adoptOrphans();
+  w.state.verdicts.set(reviewerWt, APPROVE); // the reviewer approves what it read: PLAN A
+  await restarted.tick();
 
-    expect(w.state.gate.approved).toBe(true);
-    expect(w.state.gate.planHash).toBe(planHashOf("PLAN A"));
-  },
-);
+  expect(w.state.gate.approved).toBe(true);
+  expect(w.state.gate.planHash).toBe(planHashOf("PLAN A"));
+});
 
 // CE-2 (#4161; INV-SingleReviewer / INV-NoLeakedSpawn / INV-NoStaleReviewer): at boot, adoptOrphans checks
 // `inflight`/`starting`, then awaits buildAdoptedInflight (herdr.listAsync). A consider() in that

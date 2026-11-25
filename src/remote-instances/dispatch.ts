@@ -45,16 +45,17 @@
  * (`POST /api/instance/capabilities`) right before it is sent, then its project path is mapped —
  * cloned there first when the machine has no checkout; a clone that fails ends the task as
  * `rejected` (`remote_clone_failed`), it is never tried again on its own — and it goes out like any
- * other dispatch, attachments first. Until then it can be canceled (it never
- * goes out) or redirected: to another machine (`redirect`, same dispatch ID — it was never sent)
- * or to this one (`claimForHere`, after which the row is gone and the client key names a local
- * dispatch). A machine that is removed here takes its waiting tasks with it (canceled). Every
- * write that ends a wait is conditional on the row still waiting, so a send, a redirect and a
- * cancel never all win.
+ * other dispatch, attachments first. Until then it can be canceled (it never goes out) or
+ * redirected: to another machine (`redirect`, same dispatch ID — it was never sent) or to this one
+ * (`claimForHere`, after which the row is gone and the client key names a local dispatch). A
+ * machine that is removed here takes its waiting tasks with it (canceled). Every write that ends a
+ * wait is conditional on the row still waiting, so a send, a redirect and a cancel never all win.
  *
  * Held there (#2775): a task its machine holds (its usage hold or capacity) is shown too, until
  * the machine says it started or dropped it; a cancel discards it there (`DELETE /api/held/{id}`)
  * and settles once the machine's dispatch record confirms it.
+ *
+ * Operator-facing states (waiting, blocked, busy, unknown): `docs/machines.md#waiting-tasks`.
  *
  * One operation per dispatch at a time: a send (`inflight`, shared with a concurrent duplicate) or
  * a check/cancel/redirect (`checks`). Each is registered in the same tick as the guard that

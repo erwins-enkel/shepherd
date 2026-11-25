@@ -22,13 +22,12 @@ import { withTimeout } from "./async";
 // darwin), `environForPid`/`cpuStatForPid`/`uptimeSeconds` (keeps the #1144
 // runaway reaper fail-closed) and `listeningPorts` (class-3 `tailscale serve`
 // detection needs a uid-agnostic listener set the non-root `lsof` can't give;
-// its absence makes `scanSystemSideEffects` return [] — fail closed, matching
-// today).
+// its absence makes `scanSystemSideEffects` return [] — fail closed).
 //
-// SIGNALLING (#1922) — `canAuthorizeSignal` stays FALSE, so cell data alone still
+// SIGNALLING (#1922) — `canAuthorizeSignal` stays FALSE, so cell data alone
 // authorizes nothing: class-2 leftover detection, `reap()`'s pid branch and
-// `canDetectLeftovers` all remain fail-closed exactly as before. What the backend
-// now supplies is a NARROW pair of seams that only `stopListenersOnPort` consults:
+// `canDetectLeftovers` all remain fail-closed. The backend supplies a NARROW pair
+// of seams that only `stopListenersOnPort` consults:
 //
 //   `signalWindowOpen()`  — refuses outright once the cell is older than a dedicated
 //                           kill-age bound (see `maxKillAgeMs`).
@@ -44,7 +43,7 @@ import { withTimeout } from "./async";
 // the runaway reaper the omitted `environForPid`/`cpuStatForPid`/`uptimeSeconds`,
 // and `reap()` is gated on `canAuthorizeSignal`).
 //
-// Since #1925 `cpuStatForPid` carries a SECOND meaning: it is the starttime the
+// `cpuStatForPid` carries a SECOND meaning (#1925): it is the starttime the
 // generic kill sites bracket their signals with. Omitting it therefore fails each
 // of them closed here a second time over, independently of the omissions above —
 // which is consistent, not redundant, because the one path that IS armed proves

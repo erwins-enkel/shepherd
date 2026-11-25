@@ -36,8 +36,8 @@ export const HERDR_INSTALL = herdrPinnedInstallCommand(HERDR_LAST_SUPPORTED_VERS
 });
 
 /** Bring the herdr daemon up and PROVE it answers. herdr 0.7.3 does NOT auto-spawn its
- *  server on a CLI call (verified in a clean instance, #1574) — a host that never ran
- *  `herdr server` has a dead socket, which is exactly the `offline` state #1562 made red.
+ *  server on a CLI call (verified, #1574) — a host that never ran `herdr server` has a
+ *  dead socket, i.e. the red `offline` check.
  *
  *  Shape, in order, and every clause is load-bearing:
  *   - `export PATH` — herdr installs to ~/.local/bin, absent from a non-login shell's PATH.
@@ -48,20 +48,18 @@ export const HERDR_INSTALL = herdrPinnedInstallCommand(HERDR_LAST_SUPPORTED_VERS
  *     static string still carries no env dependency of its own.
  *   - `agent list || { start }` — IDEMPOTENT: a live daemon short-circuits, so this never
  *     races a second server against a bound socket (a second `herdr server` against a bound
- *     socket exits 1 with "herdr server is already running" — verified, #1574).
+ *     socket exits 1 with "herdr server is already running").
  *   - `systemctl --user reset-failed herdr` THEN `restart herdr` WHEN THE UNIT EXISTS — on a
  *     provisioned host, `herdr: offline` means `herdr.service` itself cannot bind. Spawning a
  *     detached daemon there would put an unsupervised process on the socket, so the unit's
  *     ExecStart exits 1 forever (`StartLimitIntervalSec=0` means it never even parks in `failed`)
- *     while the check reads `ok` because the orphan answers — exactly the green-check/thrashing-unit
- *     state this whole change exists to eliminate. Drive the unit; never race it. The leading
- *     `reset-failed` mirrors provision's `HERDR_ADOPT_SOCKET`: on a host provisioned by the current
- *     `deploy/` the unit carries `StartLimitIntervalSec=0` and so NEVER parks in `failed` from the
- *     start-limiter, making `reset-failed` a strict no-op there — its only value is a LEGACY or
- *     hand-edited unit lacking that setting, which a crash-loop against a held socket can park in
- *     `failed` with the limiter tripped, whereupon a bare `restart` is refused ("start request
- *     repeated too quickly") until the failed state is cleared. `;`-sequenced, not `&&`: a non-zero
- *     `reset-failed` (nothing to clear) must NOT block the restart.
+ *     while the check reads `ok` because the orphan answers. Drive the unit; never race it. The
+ *     leading `reset-failed` mirrors provision's `HERDR_ADOPT_SOCKET`: a no-op on a current
+ *     `deploy/` unit (`StartLimitIntervalSec=0`), it matters for a LEGACY or hand-edited unit
+ *     lacking that setting, which a crash-loop can park in `failed` with the limiter tripped,
+ *     whereupon a bare `restart` is refused ("start request repeated too quickly").
+ *     `;`-sequenced, not `&&`: a non-zero `reset-failed` (nothing to clear) must NOT block the
+ *     restart.
  *   - `setsid … || nohup …` — the FALLBACK, for hosts with no unit (macOS, `buildOnly`'s
  *     SHEPHERD_NO_SERVICE path, hand-rolled installs). Detach so the daemon outlives the shell
  *     (an `incus exec` session, or the in-app Fix endpoint's child). macOS has NO `setsid`, so
@@ -93,8 +91,7 @@ const CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash";
  * The claude/codex install remediation, made mise-aware.
  *
  * When the tool is ALREADY managed by mise, the native installer is the wrong fix: it plants a
- * SECOND copy beside the mise-managed one, and the two then diverge silently (the shepherd host
- * this was written on carries a native claude 2.1.226 next to mise's 2.1.222). mise-managed is the
+ * SECOND copy beside the mise-managed one, and the two then diverge silently. mise-managed is the
  * ONLY condition that diverts — never a "mise exists, so prefer it" heuristic — and `mise which
  * <tool>` is the test: exit 0 + a path when mise can hand us that binary right now, non-zero
  * ("… is not a mise bin") otherwise. `mise ls <tool>` exits 0 either way and cannot be used.

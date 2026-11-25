@@ -777,7 +777,11 @@ Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.
 The Shepherd server itself runs unconfined, and it runs git over state that
 agents and PR authors control: worktree files, the shared `.git` config and
 hooks, the worktree's own `.git` gitfile, and integration-branch content. Plain
-git over that state would execute it as the operator. This is audit
+git over that state would execute it as the operator, outside the sandbox: a
+relative `core.hooksPath` (husky's `.husky/_`) resolves into the worktree,
+`core.fsmonitor` runs on every status/diff, `ext::` remotes run on fetch,
+`diff.external`/textconv run on diff, and a repo-relative merge driver runs the
+branch's own script. This is audit
 F01/F02/F05/F07. Every server-side git call therefore goes through
 `src/safe-git.ts`, and `test/safe-git-guard.test.ts` fails on any raw git
 launch outside a short allowlist (plugin checkouts, a version probe, the

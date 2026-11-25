@@ -684,9 +684,8 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // errorRound + the human it escalates to, not by this gate.
     //
     // RE-ENGAGEMENT CLIFF: a PR paused one round short of clean stays paused on the AUTO path.
-    // Crossing the ceiling halts only auto re-spawns here — the resume paths are a clean verdict
-    // that lands while still under budget (won't happen once paused — we don't auto re-spawn), a
-    // human archiving the session (forget() → dropReview clears the row, resetting the streak),
+    // Crossing the ceiling halts only auto re-spawns; once paused, the only resume paths are a
+    // human archiving the session (forget() → dropReview clears the row, resetting the streak)
     // or an operator manually re-engaging via forceReview (which resets the streak as hygiene so
     // the next auto consider() re-engages too). `force` here is that manual path bypassing the
     // ceiling for one run.
@@ -1192,9 +1191,8 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *
    * Never skip past an `error` verdict: a timeout/unparseable run produced no real verdict,
    * so its decision is a transient failure to RETRY, not a result to preserve — inheriting it
-   * across an identical-diff rebase would freeze the PR on a stale error. (Defensive even
-   * though buildVerdict no longer fingerprints error verdicts: this also covers error rows
-   * persisted before that change.)
+   * across an identical-diff rebase would freeze the PR on a stale error. (Defensive:
+   * buildVerdict does not fingerprint error verdicts, but older persisted rows may carry one.)
    */
   private async rebaseSkip(
     session: Session,
@@ -2674,12 +2672,12 @@ function defaultReadPlan(worktreePath: string): string | null {
  *  nothing CLAMPABLE, but its prompt is not thereby bounded: `session.prompt`, `issueBody`,
  *  `priorFindings` and `authorNotes` can exceed the argv limit between them. Skipping the budget
  *  would let the spawn die on E2BIG and land in begin's bare `catch` — no spawn_notices row, no
- *  badge, no suppression, i.e. exactly the silent failure #1944 is about, on the branch most
- *  sessions take. An empty `specs` list still enforces the terminal guarantee: it fits, or it
- *  refuses `over-budget` and the operator sees it.
+ *  badge, no suppression: a silent failure on the branch most sessions take. An empty `specs`
+ *  list still enforces the terminal guarantee: it fits, or it refuses `over-budget` and the
+ *  operator sees it.
  *
  *  Both clamp flags are DERIVED, never passed in: each is true exactly when the composed text
- *  differs from what the agent wrote, so an un-clamped prompt stays byte-identical to main. */
+ *  differs from what the agent wrote, so an un-clamped prompt stays byte-identical. */
 function fitCriticPrompt(
   plan: string | null,
   planCurrent: string | null,

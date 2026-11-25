@@ -1563,8 +1563,7 @@ function isPublicRequest(req: Request): boolean {
  * Fail-closed in production: the boot bootstrap (bootstrapAuth, src/index.ts) ALWAYS provisions a
  * cookie-signing secret + password hash before the server serves, so a deployed instance is always
  * gated. When NO auth is configured at all (no cookie secret AND no token — only ever the case in
- * an un-bootstrapped unit-test app) the gate is open, mirroring the prior `config.token === null`
- * contract the test suite relies on.
+ * an un-bootstrapped unit-test app) the gate is open — a contract the test suite relies on.
  *
  * The third credential (#2082) is a minted access token — named, individually revocable and
  * optionally expiring. It is checked LAST so the two cheaper paths (one HMAC, one length-guarded

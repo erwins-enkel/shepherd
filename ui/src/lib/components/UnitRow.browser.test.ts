@@ -2526,6 +2526,41 @@ describe("UnitRow mirrored session (#2762)", () => {
     expect(ondecommission).toHaveBeenCalledWith("r1");
   });
 
+  it("opens its review feedback while connected; read-only once disconnected (#4139)", async () => {
+    const { reviewFeedback } = await import("#lib/review-feedback.svelte.js");
+    const item = {
+      id: "rc:1",
+      kind: "rc" as const,
+      author: "alice",
+      isBot: false,
+      body: "fix",
+      createdAt: 1000,
+      status: "pending" as const,
+      sentAt: null,
+      sentBy: null,
+    };
+    reviewFeedback.applyRemote({ id: "r1", pending: [item], autoPaused: false });
+    try {
+      const props = { selected: false, nowMs: Date.now(), onselect: () => {} };
+      const { rerender } = await render(UnitRow, { ...props, session: remote() });
+      const badge = page.getByRole("button", { name: m.reviewfeedback_badge_one() });
+      (badge.element() as HTMLElement).click();
+      await expect
+        .element(page.getByRole("dialog", { name: m.reviewfeedback_title() }))
+        .toBeInTheDocument();
+      await page.getByRole("button", { name: m.common_close() }).click();
+      await rerender({
+        ...props,
+        session: remote({ connection: { state: "disconnected", since: Date.now() } }),
+      });
+      await expect
+        .element(page.getByRole("img", { name: m.reviewfeedback_badge_one() }))
+        .toBeInTheDocument();
+    } finally {
+      reviewFeedback.remote = {};
+    }
+  });
+
   it("offers no action while its machine is disconnected, and says why", async () => {
     const onselect = vi.fn();
     render(UnitRow, {

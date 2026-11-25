@@ -6,9 +6,11 @@ import {
   machineColorVar,
   machineDisplayNames,
   machineHeavySlot,
+  connectedMachineReads,
   mirroredBlockChange,
   mirroredNeedsYou,
   mirroredPreviewChange,
+  mirroredReviewFeedbackChange,
   platformName,
   projectFilterKey,
   projectKeySlug,
@@ -79,6 +81,48 @@ describe("remote sessions (#2762)", () => {
     ).toEqual({ id: "a", block: null });
     expect(mirroredBlockChange({ event: "session:block", data: { id: "l", block } })).toBeNull();
     expect(mirroredBlockChange({ event: "session:status", data: { ...frame, block } })).toBeNull();
+  });
+
+  test("a machine's review feedback frames name the session's full pending list (#4139)", () => {
+    const frame = { id: "a", host: HOST, connection: LIVE };
+    const pending = [{ id: "rc:1" }];
+    expect(
+      mirroredReviewFeedbackChange({
+        event: "session:review-feedback",
+        data: { ...frame, pending, autoPaused: true },
+      }),
+    ).toEqual({ id: "a", pending, autoPaused: true });
+    expect(mirroredReviewFeedbackChange({ event: "session:review-feedback", data: frame })).toEqual(
+      { id: "a", pending: [], autoPaused: false },
+    );
+    expect(
+      mirroredReviewFeedbackChange({
+        event: "session:review-feedback",
+        data: { id: "l", pending, autoPaused: false },
+      }),
+    ).toBeNull();
+    expect(mirroredReviewFeedbackChange({ event: "session:status", data: frame })).toBeNull();
+  });
+
+  test("each connected machine is read once per connection and per reopened page socket", () => {
+    const other = { instanceId: "m2", name: "Studio", platform: "linux" };
+    const down = { state: "disconnected" as const, since: 5 };
+    const reads = connectedMachineReads(
+      [
+        s("a"),
+        s("b"),
+        s("c", { host: other }),
+        s("d", { host: { ...other, instanceId: "m3" }, connection: down }),
+        { id: "l" } as Session,
+      ],
+      1,
+    );
+    expect(reads.map((r) => r.instanceId)).toEqual(["m1", "m2"]);
+    expect(connectedMachineReads([s("a")], 2)[0]!.key).not.toBe(reads[0]!.key);
+    expect(
+      connectedMachineReads([s("a", { connection: { state: "connected", since: 2 } })], 1)[0]!.key,
+    ).not.toBe(reads[0]!.key);
+    expect(connectedMachineReads([s("b", { status: "idle" })], 1)[0]!.key).toBe(reads[0]!.key);
   });
 
   test("a machine's block reasons are re-read per connection and per reopened page socket", () => {

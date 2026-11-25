@@ -3,6 +3,7 @@ import type {
   HeavySlotSnapshot,
   RemoteInstance,
   RepoEntry,
+  ReviewFeedbackItem,
   Session,
   SessionConnection,
   SessionHost,
@@ -250,6 +251,48 @@ export function remoteBlocksReadKey(
 ): string | null {
   if (!s?.host || s.connection?.state !== "connected") return null;
   return JSON.stringify([s.host.instanceId, s.connection.since, epoch]);
+}
+
+/**
+ * The review feedback a machine reported for one of its mirrored sessions (#4139), or null. Kept
+ * apart from the local map so nothing local ever sees a mirrored id.
+ */
+export function mirroredReviewFeedbackChange(ev: {
+  event: string;
+  data: unknown;
+}): { id: string; pending: ReviewFeedbackItem[]; autoPaused: boolean } | null {
+  if (ev.event !== "session:review-feedback" || !isMirroredFrame(ev.data)) return null;
+  const { id, pending, autoPaused } = ev.data as {
+    id: string;
+    pending?: unknown;
+    autoPaused?: unknown;
+  };
+  return {
+    id,
+    pending: Array.isArray(pending) ? (pending as ReviewFeedbackItem[]) : [],
+    autoPaused: autoPaused === true,
+  };
+}
+
+/** One connected machine's snapshot read: `key` changes once per machine connection and once per
+ *  socket of this page (`epoch`), when frames may have been missed. */
+export interface MachineRead {
+  instanceId: string;
+  key: string;
+}
+
+/** A read per machine that has a connected mirrored session, in first-seen order. */
+export function connectedMachineReads(
+  sessions: Pick<Session, "host" | "connection">[],
+  epoch: number,
+): MachineRead[] {
+  const reads = new Map<string, MachineRead>();
+  for (const s of sessions) {
+    if (!s.host || s.connection?.state !== "connected" || reads.has(s.host.instanceId)) continue;
+    const key = JSON.stringify([s.connection.since, epoch]);
+    reads.set(s.host.instanceId, { instanceId: s.host.instanceId, key });
+  }
+  return [...reads.values()];
 }
 
 /**

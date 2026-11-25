@@ -151,7 +151,8 @@ literal missing state). They are the class of bug Tobi predicts.
    counterexamples. This validates the toolchain and the agent's TLA+ fluency on code where the
    ground truth is easy to check.
 2. **Real target: the plan gate (#3)** (decided, §7; #2 drain claim next): spec its lifecycle _including restart as an
-   action_. Most past bugs are "restart mid-transition".
+   action_. Most past bugs are "restart mid-transition". **Result:** [spike #4154](../spikes/4154-tla-plan-gate.md)
+   found 4 confirmed bugs and returned GO for #2.
 3. **The human writes the invariants.** Both practitioner write-ups stress this:
    [A. Jesse Jiryu Davis, 2026-05](https://emptysqua.re/blog/intro-to-tla-plus-for-the-llm-era) and
    [Hillel Wayne](https://buttondown.com/hillelwayne/archive/ai-is-a-gamechanger-for-tla-users).

@@ -9,6 +9,7 @@
   import { relativeTimeAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
   import { reviewFeedback } from "#lib/review-feedback.svelte.js";
+  import type { ReviewFeedbackSendRefusal } from "#lib/types.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { feedbackWhere } from "./review-feedback-view";
 
@@ -36,7 +37,17 @@
   const safePrUrl = $derived(firstSafeHttpUrl(prUrl));
 
   let busy = $state(false);
-  let error = $state<"not-running" | "failed" | null>(null);
+  let error = $state<ReviewFeedbackSendRefusal | null>(null);
+
+  // Why a send delivered nothing (#4144); the items stay listed either way.
+  const REFUSAL_COPY: Record<ReviewFeedbackSendRefusal, () => string> = {
+    not_running: m.reviewfeedback_not_running,
+    no_pr: m.reviewfeedback_refused_no_pr,
+    pr_closed: m.reviewfeedback_refused_pr_closed,
+    nothing_pending: m.reviewfeedback_refused_nothing_pending,
+    busy: m.reviewfeedback_refused_busy,
+    failed: m.reviewfeedback_failed,
+  };
 
   // Everything was sent or dismissed (here or on another client): nothing left to show.
   $effect(() => {
@@ -72,7 +83,7 @@
     else unticked.add(id);
   }
 
-  async function run(action: (ids: string[]) => Promise<boolean>) {
+  async function run(action: (ids: string[]) => Promise<ReviewFeedbackSendRefusal | null>) {
     const ids = selected;
     if (!ids.length || busy) return;
     busy = true;
@@ -80,7 +91,7 @@
     try {
       // No optimistic removal: the server's session:review-feedback event (sent before the HTTP
       // reply) is the truth — a send delivers at most 20 items and keeps the overflow pending.
-      if (!(await action(ids))) error = "not-running";
+      error = await action(ids);
     } catch {
       error = "failed";
     } finally {
@@ -92,7 +103,7 @@
   const dismiss = () =>
     run(async (ids) => {
       await dismissReviewFeedback(sessionId, ids);
-      return true;
+      return null;
     });
 </script>
 
@@ -112,12 +123,7 @@
     <span class="rf-title">{m.reviewfeedback_title()}</span>
     {#if safePrUrl && prNumber != null}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-      <a
-        class="rf-prlink"
-        href={firstSafeHttpUrl(prUrl) ?? undefined}
-        target="_blank"
-        rel="noopener"
-      >
+      <a class="rf-prlink" href={safePrUrl} target="_blank" rel="noopener">
         PR #{prNumber} ↗
       </a>
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
@@ -155,7 +161,7 @@
   <div class="rf-actions">
     {#if error}
       <span class="err" role="alert">
-        {error === "not-running" ? m.reviewfeedback_not_running() : m.reviewfeedback_failed()}
+        {REFUSAL_COPY[error]()}
       </span>
     {/if}
     <button class="gbtn" type="button" disabled={busy || !selected.length} onclick={dismiss}>

@@ -1159,12 +1159,12 @@ describe("sessions", () => {
       await validateResponse("POST", template, res);
       return res.status;
     };
-    let delivered = true;
+    let outcome: "sent" | "pr_closed" = "sent";
     s.deps.reviewFeedback = {
       pendingAll: () => ({
         [created.id]: { items: fx.reviewFeedbackItems, autoPaused: false },
       }),
-      sendNow: async () => delivered,
+      sendNow: async () => outcome,
       dismiss: () => {},
     };
     try {
@@ -1175,7 +1175,7 @@ describe("sessions", () => {
 
       expect(await postIds(SEND, created.id, { ids: ["rc:2"] })).toBe(200);
       expect(await postIds(SEND, created.id)).toBe(200);
-      delivered = false;
+      outcome = "pr_closed";
       expect(await postIds(SEND, created.id, {})).toBe(409);
       expect(await postIds(SEND, created.id, { ids: "rc:2" }, false)).toBe(400);
       expect(await postIds(SEND, "nope", {})).toBe(404);

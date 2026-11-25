@@ -1331,6 +1331,11 @@ export interface ReviewFeedbackPending {
   autoPaused: boolean;
 }
 
+/** Why an operator send delivered nothing (#4144). Mirrors the server's
+ *  `ReviewFeedbackSendRefusal`, an open enum: an unknown value reads as `failed`. */
+export type ReviewFeedbackSendRefusal =
+  "not_running" | "no_pr" | "pr_closed" | "nothing_pending" | "busy" | "failed";
+
 /** Per-repo review-feedback delivery (#4126): `off` fetches nothing; `manual` shows it on the card
  *  only; `autopilot` (default) sends automatically while autopilot is on; `always` sends
  *  automatically in attended sessions too. */

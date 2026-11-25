@@ -2170,6 +2170,14 @@ components:
       required: [sent]
       properties:
         sent: { type: boolean }
+        reason: { $ref: "#/components/schemas/ReviewFeedbackSendRefusal" }
+    # Why a send delivered nothing (#4144): not_running (archived, terminal or no live agent pane),
+    # no_pr (no known PR), pr_closed (PR merged or closed), nothing_pending (none of the ids is
+    # pending), busy (a send is already in flight), failed (the steer errored).
+    ReviewFeedbackSendRefusal:
+      type: string
+      enum: [not_running, no_pr, pr_closed, nothing_pending, busy, failed]
+      x-shepherd-open-enum: true
     ReviewFeedbackIds:
       type: array
       maxItems: 200
@@ -10207,8 +10215,9 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
           description: >-
-            Not delivered — no live agent pane, no known PR, or nothing pending among the ids. The
-            items stay pending.
+            Not delivered; reason says why (no live agent pane, no known or open PR, nothing
+            pending among the ids, a send already in flight, or the steer failed). The items stay
+            pending.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ReviewFeedbackSendResult" }

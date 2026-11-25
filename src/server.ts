@@ -7803,7 +7803,7 @@ async function handleSessionReviewHold({ req, parts, deps }: Ctx): Promise<Respo
 
 // #4126 review feedback on a session's PR:
 //   GET  /api/review-feedback/pending               → {[sessionId]: {items, autoPaused}}
-//   POST /api/sessions/:id/review-feedback/send     {ids?} → 200 {sent:true} | 409 {sent:false}
+//   POST /api/sessions/:id/review-feedback/send     {ids?} → 200 {sent:true} | 409 {sent:false, reason}
 //   POST /api/sessions/:id/review-feedback/dismiss  {ids}  → 200 {ok:true}
 // 404 for an unknown session; 400 for a malformed `ids`.
 const REVIEW_FEEDBACK_IDS_MAX = 200;
@@ -7840,8 +7840,9 @@ async function handleSessionReviewFeedback({ req, parts, deps }: Ctx): Promise<R
     deps.reviewFeedback?.dismiss(id, ids);
     return json({ ok: true });
   }
-  const sent = (await deps.reviewFeedback?.sendNow(id, ids)) ?? false;
-  return json({ sent }, sent ? 200 : 409);
+  const outcome = (await deps.reviewFeedback?.sendNow(id, ids)) ?? "not_running";
+  if (outcome === "sent") return json({ sent: true });
+  return json({ sent: false, reason: outcome }, 409);
 }
 
 // POST /api/sessions/:id/review-cancel — kill the in-flight review and discard its work: no

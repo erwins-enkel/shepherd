@@ -106,6 +106,7 @@ import type {
   Recap,
   TaskAmendment,
   ReviewFeedbackPending,
+  ReviewFeedbackSendRefusal,
   CompletedEpic,
   RawAnswer,
   AnswerAskResult,
@@ -3029,20 +3030,37 @@ export async function getPendingReviewFeedback(): Promise<Record<string, ReviewF
   return getJson("/api/review-feedback/pending", "review feedback");
 }
 
+const REVIEW_FEEDBACK_REFUSALS: readonly ReviewFeedbackSendRefusal[] = [
+  "not_running",
+  "no_pr",
+  "pr_closed",
+  "nothing_pending",
+  "busy",
+  "failed",
+];
+
 /** Send a session's pending review feedback to its agent as one steer: the given items, or all
- *  when `ids` is absent. False when the agent isn't running (409) — the items stay pending. */
-export async function sendReviewFeedback(id: string, ids?: string[]): Promise<boolean> {
+ *  when `ids` is absent. Null when delivered; on a 409 the server's reason (an unknown one reads
+ *  as `failed`) — the items stay pending. */
+export async function sendReviewFeedback(
+  id: string,
+  ids?: string[],
+): Promise<ReviewFeedbackSendRefusal | null> {
   const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/review-feedback/send`, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(ids ? { ids } : {}),
   });
-  if (r.status === 409) return false;
+  if (r.status === 409) {
+    const body = (await r.json().catch(() => null)) as { reason?: unknown } | null;
+    const reason = body?.reason as ReviewFeedbackSendRefusal;
+    return REVIEW_FEEDBACK_REFUSALS.includes(reason) ? reason : "failed";
+  }
   if (!r.ok) {
     flagIfUnauthorized(r.status);
     throw await failed(r, "send review feedback");
   }
-  return true;
+  return null;
 }
 
 /** Dismiss pending review feedback items: they never reach the agent. */

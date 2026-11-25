@@ -687,6 +687,12 @@ function isGhNotFound(e: unknown): boolean {
   return /HTTP 404|Not Found/.test(String((e as { stderr?: unknown })?.stderr ?? e));
 }
 
+/** A `gh api` 403 that is a standing refusal (no permission), not a rate or abuse limit. */
+function isGhForbidden(e: unknown): boolean {
+  const text = String((e as { stderr?: unknown })?.stderr ?? e);
+  return /HTTP 403/.test(text) && !/rate limit|abuse/i.test(text);
+}
+
 /** A `gh api` 403 for a feature the repo's plan lacks (rulesets, branch protection, auto-merge on
  *  a private repo under GitHub Free): "Upgrade to GitHub Pro or make this repository public…". */
 function isGhPlanLimited(e: unknown): boolean {
@@ -3255,7 +3261,9 @@ export class GithubForge implements GitForge {
       const { permission } = JSON.parse(out || "{}") as { permission?: string };
       value = permission === "admin" || permission === "write";
     } catch (err) {
-      if (!isGhNotFound(err)) return false;
+      // 404 and a standing 403 (e.g. fork mode) are answers worth caching (#4144); anything else
+      // (rate limit, network) is retried next time.
+      if (!isGhNotFound(err) && !isGhForbidden(err)) return false;
       value = false;
     }
     this.writeAccessCache.set(key, { at: Date.now(), value });

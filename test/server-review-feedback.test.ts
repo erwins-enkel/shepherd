@@ -63,7 +63,7 @@ function fakeFeedback(over: Partial<FakeFeedback> = {}): FakeFeedback & {
     sends,
     dismissals,
     pendingAll: () => ({}),
-    sendNow: async (id, ids) => (sends.push([id, ids]), true),
+    sendNow: async (id, ids) => (sends.push([id, ids]), "sent"),
     dismiss: (id, ids) => void dismissals.push([id, ids]),
     ...over,
   };
@@ -242,11 +242,11 @@ test("send: 200 when delivered, forwarding the selected ids", async () => {
 
 test("send: 409 when not delivered, 404 for an unknown session, 400 for bad ids", async () => {
   const s = store.create({ ...base, repoPath: repoA });
-  const r = await app(fakeFeedback({ sendNow: async () => false })).fetch(
+  const r = await app(fakeFeedback({ sendNow: async () => "pr_closed" })).fetch(
     post(`/api/sessions/${s.id}/review-feedback/send`, {}),
   );
   expect(r.status).toBe(409);
-  expect(await r.json()).toEqual({ sent: false });
+  expect(await r.json()).toEqual({ sent: false, reason: "pr_closed" });
   const missing = await app(fakeFeedback()).fetch(post("/api/sessions/nope/review-feedback/send"));
   expect(missing.status).toBe(404);
   for (const ids of [

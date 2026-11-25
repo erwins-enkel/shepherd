@@ -71,7 +71,8 @@ test("the Rust guardrail set omits type_checker and lint_staged", async () => {
   const r = await analyzeReadiness(dir);
   expect(ids(r)).not.toContain("type_checker");
   expect(ids(r)).not.toContain("lint_staged");
-  expect(r.checks.length).toBe(RUST_GUARDRAILS.length);
+  // lint_strictness is conditional on a linter, which a bare crate lacks.
+  expect(r.checks.length).toBe(RUST_GUARDRAILS.filter((g) => !g.applies).length);
 });
 
 test("pitwall-shaped crate (pre-push CI mirror) scores its guardrails correctly", async () => {
@@ -199,4 +200,47 @@ test("swallowed_errors is JS/TS-only — never scored on a Rust crate, even with
   const r = await analyzeReadiness(dir);
   expect(r.ecosystem).toBe("rust");
   expect(ids(r)).not.toContain("swallowed_errors");
+});
+
+// ── lint_strictness (#4153) ──
+
+const strictCheck = (r: { checks: { id: GuardrailId; present: boolean; evidence: string[] }[] }) =>
+  r.checks.find((c) => c.id === "lint_strictness");
+
+test("lint_strictness is omitted when the crate has no clippy", async () => {
+  write("Cargo.toml", '[package]\nname = "x"\n');
+  write(".githooks/pre-push", "cargo test -- -D warnings\n");
+  expect(strictCheck(await analyzeReadiness(dir))).toBeUndefined();
+});
+
+test("strict: clippy -- -D warnings in the hook → present", async () => {
+  pitwallShaped(".githooks/pre-push");
+  expect(strictCheck(await analyzeReadiness(dir))).toMatchObject({
+    present: true,
+    evidence: ["-D warnings"],
+  });
+});
+
+test("strict: a [lints] / [workspace.lints] table or lints.workspace key → present", async () => {
+  write(".githooks/pre-push", "cargo clippy --all-targets\n");
+  for (const toml of [
+    '[package]\nname = "x"\n\n[lints.clippy]\nunwrap_used = "deny"\n',
+    '[workspace]\nmembers = ["a"]\n\n[workspace.lints.rust]\nunsafe_code = "forbid"\n',
+    '[package]\nname = "a"\n\n[lints]\nworkspace = true\n',
+    '[package]\nname = "a"\nlints.workspace = true\n',
+  ]) {
+    write("Cargo.toml", toml);
+    expect(strictCheck(await analyzeReadiness(dir))).toMatchObject({
+      present: true,
+      evidence: ["Cargo.toml [lints]"],
+    });
+  }
+});
+
+test("lax: clippy without -D warnings or [lints] → absent, prescribed", async () => {
+  write("Cargo.toml", '[package]\nname = "x"\n# not [lints]\n');
+  write(".githooks/pre-push", "cargo clippy --all-targets\n");
+  const r = await analyzeReadiness(dir);
+  expect(strictCheck(r)).toMatchObject({ present: false, evidence: [] });
+  expect(r.claudeMd).toContain("Strict clippy (-D warnings or a [lints] table)");
 });

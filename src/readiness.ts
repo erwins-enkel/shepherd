@@ -29,6 +29,7 @@ import { mergeTsconfigs, tsconfigStrictness, type TsConfigStrictness } from "./r
 export type GuardrailId =
   | "formatter"
   | "linter"
+  | "lint_strictness"
   | "type_checker"
   | "ts_strict"
   | "commit_lint"
@@ -195,6 +196,9 @@ interface RepoScan extends FileScan {
   /** Effective strictness of each root's tsconfig.json (repo root + package roots that have one)
    *  and of the projects it references. */
   tsconfigs: TsConfigStrictness[];
+  /** Every script value, the lint-staged config and the command corpus (hooks/CI/Makefile), joined —
+   *  where `lint_strictness` looks for warning-failing lint flags. */
+  commandText: string;
 }
 
 const dep = (s: RepoScan, name: string) => s.deps.has(name);
@@ -237,6 +241,10 @@ const detectLinter = (s: RepoScan): string[] => {
 
 type TextEvidence = [match: (text: string) => boolean, evidence: string];
 
+/** typescript-eslint's type-aware presets (flat + legacy names). */
+const TYPE_CHECKED_PRESET =
+  /recommendedTypeChecked|strictTypeChecked|recommended-type-checked|strict-type-checked|recommended-requiring-type-checking/;
+
 /** Rules that flag an empty `catch {}` (`no-empty` is in eslint recommended, empty catch included). */
 const EMPTY_CATCH_EVIDENCE: TextEvidence[] = [
   [(t) => /["'`]no-empty["'`]/.test(t), "mentions no-empty"],
@@ -251,13 +259,7 @@ const EMPTY_CATCH_EVIDENCE: TextEvidence[] = [
 /** Rules that flag an unhandled or silently handled promise rejection. */
 const PROMISE_CATCH_EVIDENCE: TextEvidence[] = [
   [(t) => t.includes("no-floating-promises"), "mentions no-floating-promises"],
-  [
-    (t) =>
-      /recommendedTypeChecked|strictTypeChecked|recommended-type-checked|strict-type-checked|recommended-requiring-type-checking/.test(
-        t,
-      ),
-    "mentions a type-checked preset (no-floating-promises)",
-  ],
+  [(t) => TYPE_CHECKED_PRESET.test(t), "mentions a type-checked preset (no-floating-promises)"],
   [(t) => t.includes("promise/catch-or-return"), "mentions promise/catch-or-return"],
   [
     (t) => t.includes("no-restricted-syntax") && /property\.name\s*=\s*['"]?catch\b/.test(t),
@@ -276,6 +278,44 @@ const detectSwallowedErrors = (s: RepoScan): string[] => {
   const emptyCatch = hits(EMPTY_CATCH_EVIDENCE);
   const promiseCatch = hits(PROMISE_CATCH_EVIDENCE);
   return emptyCatch.length && promiseCatch.length ? [...emptyCatch, ...promiseCatch] : [];
+};
+
+/** Lint flags that make a warning fail the run: ESLint/oxlint `--max-warnings 0`, Biome, oxlint. */
+const LINT_ENFORCED_EVIDENCE: TextEvidence[] = [
+  [(t) => /--max-warnings[= ]0(?!\d)/.test(t), "--max-warnings 0"],
+  [(t) => t.includes("--error-on-warnings"), "--error-on-warnings"],
+  [(t) => t.includes("--deny-warnings"), "--deny-warnings"],
+];
+
+/** House-specific rules beyond a stock preset, read from the ESLint config text. */
+const LINT_HOUSE_EVIDENCE: TextEvidence[] = [
+  [(t) => t.includes("no-restricted-syntax"), "no-restricted-syntax"],
+  [(t) => t.includes("no-restricted-imports"), "no-restricted-imports"],
+  [(t) => /["'`]\.\.?\/[^"'`\n]*(?:rule|plugin)[^"'`\n]*["'`]/i.test(t), "local ESLint rules"],
+  [(t) => TYPE_CHECKED_PRESET.test(t), "type-aware preset"],
+];
+
+/** A rule severity literal (`"rule": "error"` / `"rule": ["error", …]`) of each level. */
+const ERROR_SEVERITY = /(?::|\[)\s*["'`]error["'`]/;
+const WARN_SEVERITY = /(?::|\[)\s*["'`]warn["'`]/;
+
+const textHits = (group: TextEvidence[], text: string) =>
+  group.filter(([m]) => m(text)).map(([, ev]) => ev);
+
+/**
+ * Text evidence that lint is strict (#4153): present only when warnings fail the gate (a
+ * `--max-warnings 0`-style flag, or explicit `error` severities and no `warn`) AND the config
+ * carries house-specific rules.
+ */
+const detectLintStrictness = (s: RepoScan): string[] => {
+  const config = ESLINT_CONFIG_FILES.flatMap((f) => s.readText(f)).join("\n");
+  const enforced = textHits(LINT_ENFORCED_EVIDENCE, s.commandText);
+  if (ERROR_SEVERITY.test(config) && !WARN_SEVERITY.test(config))
+    enforced.push("rules at error (no warn)");
+  const house = textHits(LINT_HOUSE_EVIDENCE, config);
+  if (dep(s, "eslint-plugin-local-rules") || dep(s, "eslint-plugin-local"))
+    house.push("local ESLint rules plugin");
+  return enforced.length && house.length ? [...enforced, ...house] : [];
 };
 
 /**
@@ -338,6 +378,13 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
     id: "linter",
     weight: 8,
     detect: detectLinter,
+  },
+  {
+    // #4153: a linter whose warnings scroll past and that carries no house rules coaches little.
+    id: "lint_strictness",
+    weight: 5,
+    applies: (s) => detectLinter(s).length > 0,
+    detect: detectLintStrictness,
   },
   {
     id: "formatter",
@@ -465,12 +512,20 @@ export function pickPackageManager(
   return "npm";
 }
 
+/** What {@link collectManifest} accumulates beyond deps + scripts. */
+interface ManifestMeta {
+  packageManager?: string;
+  engines?: boolean;
+  /** Every script value and the JSON of each `lint-staged` field — feeds `commandText`. */
+  commands: string[];
+}
+
 /** Merges one package.json's deps + scripts (+ first packageManager) into the accumulators. */
 function collectManifest(
   text: string,
   deps: Set<string>,
   scripts: Record<string, string>,
-  meta: { packageManager?: string; engines?: boolean },
+  meta: ManifestMeta,
 ) {
   let pkg: {
     dependencies?: Record<string, string>;
@@ -478,6 +533,7 @@ function collectManifest(
     scripts?: Record<string, string>;
     packageManager?: string;
     engines?: Record<string, string>;
+    "lint-staged"?: unknown;
   } = {};
   try {
     pkg = JSON.parse(text);
@@ -487,7 +543,11 @@ function collectManifest(
   }
   for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
   for (const d of Object.keys(pkg.devDependencies ?? {})) deps.add(d);
-  for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) scripts[name] ??= cmd;
+  for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) {
+    scripts[name] ??= cmd;
+    meta.commands.push(String(cmd));
+  }
+  if (pkg["lint-staged"] !== undefined) meta.commands.push(JSON.stringify(pkg["lint-staged"]));
   meta.packageManager ??= pkg.packageManager;
   if (pkg.engines && Object.keys(pkg.engines).length) meta.engines = true;
 }
@@ -509,10 +569,35 @@ async function readEslintConfigs(
   return new Map(entries);
 }
 
+const isLintStagedConfig = (n: string) =>
+  n.startsWith(".lintstagedrc") || n.startsWith("lint-staged.config.");
+
+/** The JS command text: manifest commands + lint-staged config files + each root's command corpus. */
+async function readJsCommandText(
+  dir: string,
+  probes: ProbeSurface,
+  manifestCommands: string[],
+): Promise<string> {
+  const lintStaged = probes.roots.flatMap((root) =>
+    probes
+      .ls(root, ".")
+      .filter(isLintStagedConfig)
+      .map((n) => join(dir, root, n)),
+  );
+  const [corpus, configs] = await Promise.all([
+    Promise.all(
+      probes.roots.map((root) => commandCorpus(join(dir, root), (sub) => probes.ls(root, sub))),
+    ),
+    Promise.all(lintStaged.map((f) => readRegular(f, READ_CAP))),
+  ]);
+  const texts = configs.filter((t): t is string => t !== null);
+  return [...manifestCommands, ...texts, ...corpus.flat()].join("\n");
+}
+
 async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan> {
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
-  const meta: { packageManager?: string; engines?: boolean } = {};
+  const meta: ManifestMeta = { commands: [] };
   const manifests = await Promise.all(
     pkgRoots.map((root) => readRegular(join(dir, root, "package.json"))),
   );
@@ -521,9 +606,10 @@ async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan
   const probes = await probeSurface(dir, pkgRoots);
   const { has, glob, roots } = probes;
   const rootConfigs = roots.map((root) => join(root, "tsconfig.json"));
-  const [tsconfigs, eslintText] = await Promise.all([
+  const [tsconfigs, eslintText, commandText] = await Promise.all([
     Promise.all(rootConfigs.map((rel) => tsconfigStrictness(dir, rel))),
     readEslintConfigs(dir, probes),
+    readJsCommandText(dir, probes, meta.commands),
   ]);
   const pins: string[] = [];
   if (meta.packageManager) pins.push("packageManager");
@@ -542,6 +628,7 @@ async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan
       return texts;
     },
     tsconfigs: mergeTsconfigs(rootConfigs, tsconfigs),
+    commandText,
   };
 }
 
@@ -608,7 +695,13 @@ interface RustScan extends FileScan {
   /** True when the bounded command corpus matches `re`. */
   corpus: (re: RegExp) => boolean;
   devDeps: Set<string>;
+  /** True when a root's Cargo.toml declares lint levels (`[lints]`, `[workspace.lints]`, `lints.workspace`). */
+  lintsTable: boolean;
 }
+
+/** A Cargo.toml lint-level declaration: a `[lints]`/`[workspace.lints]` table (or a sub-table), or a
+ *  `lints…=` key such as a member crate's `lints.workspace = true`. */
+const CARGO_LINTS = /^\s*(?:\[(?:workspace\.)?lints(?:\.[\w-]+)?\]|lints(?:\.[\w-]+)*\s*=)/m;
 
 function findCargoRoots(dir: string, deep: boolean): Promise<string[]> {
   return findManifestRoots(dir, "Cargo.toml", (n) => n !== "target", deep);
@@ -666,8 +759,16 @@ async function buildRustContext(dir: string, crateRoots: string[]): Promise<Rust
   }
   const text = chunks.join("\n");
   const corpus = (re: RegExp) => re.test(text);
-  return { dir, has, glob, corpus, devDeps };
+  const lintsTable = perRoot.some(({ cargo }) => CARGO_LINTS.test(cargo));
+  return { dir, has, glob, corpus, devDeps, lintsTable };
 }
+
+const detectRustLinter = (s: RustScan): string[] => {
+  const ev: string[] = [];
+  if (s.has("clippy.toml") || s.has(".clippy.toml")) ev.push("clippy config");
+  if (s.corpus(/clippy/)) ev.push("clippy");
+  return ev;
+};
 
 /**
  * Rust guardrails. Shared weights with the JS baseline for the same ids so scores are
@@ -705,10 +806,17 @@ export const RUST_GUARDRAILS: GuardrailDef<RustScan>[] = [
   {
     id: "linter",
     weight: 8,
+    detect: detectRustLinter,
+  },
+  {
+    // #4153: warnings must fail clippy, via `-D warnings` (RUSTFLAGS counts) or declared lint levels.
+    id: "lint_strictness",
+    weight: 5,
+    applies: (s) => detectRustLinter(s).length > 0,
     detect: (s) => {
       const ev: string[] = [];
-      if (s.has("clippy.toml") || s.has(".clippy.toml")) ev.push("clippy config");
-      if (s.corpus(/clippy/)) ev.push("clippy");
+      if (s.corpus(/-D\s*warnings|--deny[ =]warnings/)) ev.push("-D warnings");
+      if (s.lintsTable) ev.push("Cargo.toml [lints]");
       return ev;
     },
   },
@@ -803,7 +911,11 @@ type SwiftGuardrailId = Exclude<
 interface SwiftScan extends FileScan {
   dir: string;
   corpus: (re: RegExp) => boolean;
+  /** Text of every root's `.swiftlint.yml`/`.swiftlint.yaml`, capped and joined. */
+  swiftlintConfig: string;
 }
+
+const SWIFTLINT_CONFIGS = [".swiftlint.yml", ".swiftlint.yaml"];
 
 function findSwiftRoots(dir: string, deep: boolean): Promise<string[]> {
   return findManifestRoots(dir, "Package.swift", (n) => n !== "node_modules" && n !== "Pods", deep);
@@ -812,12 +924,25 @@ function findSwiftRoots(dir: string, deep: boolean): Promise<string[]> {
 async function buildSwiftContext(dir: string, packageRoots: string[]): Promise<SwiftScan> {
   const probes = await probeSurface(dir, packageRoots);
   const { has, glob, roots } = probes;
-  const chunks = await Promise.all(
-    roots.map((root) => commandCorpus(join(dir, root), (sub) => probes.ls(root, sub))),
+  const swiftlintFiles = roots.flatMap((root) =>
+    SWIFTLINT_CONFIGS.filter((f) => probes.hasIn(root, f)).map((f) => join(dir, root, f)),
   );
+  const [chunks, swiftlint] = await Promise.all([
+    Promise.all(roots.map((root) => commandCorpus(join(dir, root), (sub) => probes.ls(root, sub)))),
+    Promise.all(swiftlintFiles.map((f) => readRegular(f, READ_CAP))),
+  ]);
   const text = chunks.flat().join("\n");
-  return { dir, has, glob, corpus: (re) => re.test(text) };
+  const swiftlintConfig = swiftlint.filter((t): t is string => t !== null).join("\n");
+  return { dir, has, glob, corpus: (re) => re.test(text), swiftlintConfig };
 }
+
+const detectSwiftLinter = (s: SwiftScan): string[] => {
+  const ev: string[] = [];
+  if (SWIFTLINT_CONFIGS.some((f) => s.has(f))) ev.push("swiftlint config");
+  if (s.corpus(/swiftlint/)) ev.push("swiftlint");
+  if (s.corpus(/swift[- ]format lint/)) ev.push("swift-format lint");
+  return ev;
+};
 
 /** Swift guardrails. Weights match the other profiles for the same ids, so scores are comparable. */
 export const SWIFT_GUARDRAILS: GuardrailDef<SwiftScan>[] = [
@@ -848,11 +973,19 @@ export const SWIFT_GUARDRAILS: GuardrailDef<SwiftScan>[] = [
   {
     id: "linter",
     weight: 8,
+    detect: detectSwiftLinter,
+  },
+  {
+    // #4153: warnings must fail the lint run — SwiftLint `strict: true`/`--strict`, or swift-format's `--strict`.
+    id: "lint_strictness",
+    weight: 5,
+    applies: (s) => detectSwiftLinter(s).length > 0,
     detect: (s) => {
       const ev: string[] = [];
-      if (s.has(".swiftlint.yml") || s.has(".swiftlint.yaml")) ev.push("swiftlint config");
-      if (s.corpus(/swiftlint/)) ev.push("swiftlint");
-      if (s.corpus(/swift[- ]format lint/)) ev.push("swift-format lint");
+      if (/^\s*strict:\s*true\b/m.test(s.swiftlintConfig)) ev.push("swiftlint strict: true");
+      if (s.corpus(/swiftlint\b[^\n]{0,200}--strict/)) ev.push("swiftlint --strict");
+      if (s.corpus(/swift[- ]format lint\b[^\n]{0,200}--strict/))
+        ev.push("swift-format lint --strict");
       return ev;
     },
   },
@@ -1217,11 +1350,16 @@ const emptyScan = { dir: "", has: () => false, glob: () => [] };
  */
 export function bootstrapGuardrailChecklist(ecosystem: Ecosystem, pm: PackageManager): string {
   if (ecosystem === "swift") {
-    const ctx: SwiftScan = { ...emptyScan, corpus: () => false };
+    const ctx: SwiftScan = { ...emptyScan, corpus: () => false, swiftlintConfig: "" };
     return SWIFT_GUARDRAILS.map((g) => adoptLine(swiftProfile, ctx, g.id)).join("\n");
   }
   if (ecosystem === "rust") {
-    const ctx: RustScan = { ...emptyScan, corpus: () => false, devDeps: new Set() };
+    const ctx: RustScan = {
+      ...emptyScan,
+      corpus: () => false,
+      devDeps: new Set(),
+      lintsTable: false,
+    };
     return RUST_GUARDRAILS.map((g) => adoptLine(rustProfile, ctx, g.id)).join("\n");
   }
   const ctx: RepoScan = {
@@ -1232,6 +1370,7 @@ export function bootstrapGuardrailChecklist(ecosystem: Ecosystem, pm: PackageMan
     pins: [],
     readText: () => [],
     tsconfigs: [],
+    commandText: "",
   };
   return GUARDRAILS.map((g) => adoptLine(jsProfile, ctx, g.id)).join("\n");
 }
@@ -1292,6 +1431,7 @@ const TOOLING_LABEL: Record<GuardrailId, string> = {
   type_checker: "A type-checker (tsc/mypy) in the hook",
   ts_strict: 'TypeScript strict mode (`"strict": true` in tsconfig.json)',
   linter: "A linter (eslint/ruff)",
+  lint_strictness: "Strict lint: warnings fail the gate + house-specific rules",
   formatter: "A formatter (prettier/ruff fmt) + lint-staged",
   test_runner: "A test runner wired into the hook",
   agent_instructions: "A CLAUDE.md/AGENTS.md house-rules file",
@@ -1315,6 +1455,8 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
   ts_strict:
     "without it implicit any and unchecked null pass the type-checker, and you catch them in review.",
   linter: "without it you flag lint nits by hand instead of letting the gate do it.",
+  lint_strictness:
+    "without it agents scroll past warnings and house conventions live only in review comments; every bug class a rule bans is one the critic never has to catch.",
   formatter: "without it you hand-fix style in review; adopt prettier + lint-staged.",
   test_runner:
     "without tests in the hook, regressions reach you instead of failing the agent first.",
@@ -1362,6 +1504,13 @@ const SWALLOWED_ERRORS_NOTE = [
   "Selectors can't read comments: allowing a deliberate swallow behind a `// best-effort: <why>` marker needs a small local rule.",
 ];
 
+/** The `lint_strictness` guidance: both halves the detector requires (warnings fail + house rules). */
+const LINT_STRICTNESS_NOTE = [
+  "Detected by text-matching the lint scripts, hooks and ESLint config; it needs BOTH halves below.",
+  "Make warnings fail: add `--max-warnings 0` to the lint script and hook, and set rules to `error`, not `warn`.",
+  "Encode house conventions as rules: `no-restricted-syntax` / `no-restricted-imports` entries or a small local rule — or adopt typescript-eslint's `recommendedTypeChecked`.",
+];
+
 /**
  * Extra prose guidance lines per guardrail, rendered under the adopt line (no `$ `
  * prefix — guidance, not shell commands). Only for guardrails whose bootstrap is
@@ -1402,6 +1551,7 @@ const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>>
     "Run `varlock audit` in the pre-push hook and in CI so an undeclared (or stale) env var fails the push.",
   ],
   swallowed_errors: () => SWALLOWED_ERRORS_NOTE,
+  lint_strictness: () => LINT_STRICTNESS_NOTE,
 };
 
 /**
@@ -1417,6 +1567,7 @@ export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string 
   type_checker: (v) => [`${v.add} typescript`, `${v.exec} tsc --init`],
   ts_strict: () => [],
   linter: (v) => [`${v.add} eslint @eslint/js`],
+  lint_strictness: () => [],
   formatter: (v) => [`${v.add} prettier`],
   test_runner: (v) => [`${v.add} vitest`],
   lint_staged: (v) => [`${v.add} lint-staged`],
@@ -1437,6 +1588,7 @@ const RUST_TOOLING_LABEL: Record<RustGuardrailId, string> = {
   pre_push_ci: "A pre-push hook that mirrors CI (fmt + clippy + test)",
   git_hooks: "A git-hook manager (core.hooksPath/.githooks)",
   linter: "A linter (clippy) with -D warnings",
+  lint_strictness: "Strict clippy (-D warnings or a [lints] table)",
   formatter: "A formatter (rustfmt)",
   test_runner: "cargo test wired into the hook",
   agent_instructions: "A CLAUDE.md/AGENTS.md house-rules file",
@@ -1453,6 +1605,8 @@ const RUST_CHURN_PLAIN: Record<RustGuardrailId, string> = {
     "without it the agent pushes red and waits on a human CI round-trip to learn what broke.",
   git_hooks: "without a hook manager, none of the checks below run automatically before a push.",
   linter: "without it you flag clippy lints by hand instead of letting the gate do it.",
+  lint_strictness:
+    "without it clippy warnings scroll past the agent and land in your review; every lint you deny is one the critic never has to catch.",
   formatter: "without it you hand-fix style in review; adopt rustfmt.",
   test_runner:
     "without tests in the hook, regressions reach you instead of failing the agent first.",
@@ -1487,6 +1641,9 @@ const RUST_PRESCRIPTION_NOTE: Partial<Record<RustGuardrailId, () => string[]>> =
   dependency_automation: () => [
     'Create `.github/dependabot.yml` with `package-ecosystem: "cargo"` — Dependabot then updates Cargo.toml/Cargo.lock.',
   ],
+  lint_strictness: () => [
+    "Run `cargo clippy --all-targets -- -D warnings` in the hook and CI, or declare lint levels in a `[lints]` table (`[workspace.lints]` + `lints.workspace = true` in a workspace).",
+  ],
   dead_code_audit: () => [
     "Run `cargo machete` in CI/the hook to catch unused dependencies (alternative: `cargo +nightly udeps`).",
   ],
@@ -1500,6 +1657,7 @@ const RUST_PRESCRIPTION_NOTE: Partial<Record<RustGuardrailId, () => string[]>> =
  */
 const RUST_INSTALL_STEPS: Record<RustGuardrailId, () => string[]> = {
   linter: () => ["rustup component add clippy"],
+  lint_strictness: () => [],
   formatter: () => ["rustup component add rustfmt"],
   dead_code_audit: () => ["cargo install cargo-machete"],
   commit_lint: () => ["cargo install cocogitto"],
@@ -1519,6 +1677,7 @@ const SWIFT_TOOLING_LABEL: Record<SwiftGuardrailId, string> = {
   pre_push_ci: "A pre-push hook that mirrors CI (format lint + build + test)",
   git_hooks: "A git-hook manager (core.hooksPath/.githooks)",
   linter: "A linter (swift format lint or SwiftLint)",
+  lint_strictness: "Strict lint (warnings fail the gate)",
   formatter: "A formatter (swift format)",
   test_runner: "swift test wired into the hook",
   agent_instructions: "A CLAUDE.md/AGENTS.md house-rules file",
@@ -1535,6 +1694,8 @@ const SWIFT_CHURN_PLAIN: Record<SwiftGuardrailId, string> = {
     "without it the agent pushes red and waits on a human CI round-trip to learn what broke.",
   git_hooks: "without a hook manager, none of the checks below run automatically before a push.",
   linter: "without it you flag lint nits by hand instead of letting the gate do it.",
+  lint_strictness:
+    "without it lint warnings scroll past the agent and land in your review; every rule that fails the gate is one the critic never has to catch.",
   formatter: "without it you hand-fix style in review; adopt swift format.",
   test_runner:
     "without tests in the hook, regressions reach you instead of failing the agent first.",
@@ -1560,6 +1721,9 @@ const SWIFT_PRESCRIPTION_NOTE: Partial<Record<SwiftGuardrailId, () => string[]>>
   linter: () => [
     "`swift format lint --strict -r Sources Tests` ships in the toolchain since Swift 6; run it in the hook and CI.",
   ],
+  lint_strictness: () => [
+    "Set `strict: true` in `.swiftlint.yml`, or run `swiftlint --strict` / `swift format lint --strict` in the hook and CI.",
+  ],
   formatter: () => [
     "`swift format` ships in the toolchain since Swift 6; commit a `.swift-format`.",
   ],
@@ -1583,6 +1747,7 @@ const SWIFT_PRESCRIPTION_NOTE: Partial<Record<SwiftGuardrailId, () => string[]>>
  *  (empty array — the prose note carries the guidance). Exhaustive over the Swift subset. */
 const SWIFT_INSTALL_STEPS: Record<SwiftGuardrailId, () => string[]> = {
   linter: () => [],
+  lint_strictness: () => [],
   formatter: () => ["swift format dump-configuration > .swift-format"],
   dead_code_audit: () => ["brew install periphery"],
   commit_lint: () => [],

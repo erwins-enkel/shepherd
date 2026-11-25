@@ -126,6 +126,7 @@ export default defineConfig({
             // Imported from docs/machines.md by scripts/sync-docs.mjs.
             { label: "Run tasks on another machine", slug: "machines" },
             { label: "Shared repository rules", slug: "repo-config" },
+            { label: "Claude Ship", slug: "claude-ship" },
             { label: "Authoring an epic", slug: "authoring-epics" },
             { label: "Hands-off epics", slug: "hands-off-epics" },
             { label: "Capture extension", slug: "capture-extension" },

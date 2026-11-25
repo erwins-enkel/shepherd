@@ -26,7 +26,9 @@ const SCOPE_BIN = "systemd-run";
 
 /** The argv every agent spawn is prefixed with while the gate is open. `OOMPolicy=continue`: a
  *  kernel OOM kill of one process (a dev server, a test) must not stop the scope and with it the
- *  whole session. */
+ *  whole session. `--expand-environment=no`: systemd-run otherwise expands `${VAR}` in every
+ *  argument (ExecStart= rules), blanking shell parameter expansions (the agent-secrets launcher) and
+ *  prompt text alike. Needs systemd v254+; an older one fails the probe and the gate stays shut. */
 export function agentScopePrefix(): string[] {
   return [SCOPE_BIN, ...scopeArgs()];
 }
@@ -37,6 +39,7 @@ function scopeArgs(): string[] {
     "--scope",
     "--quiet",
     "--collect",
+    "--expand-environment=no",
     `--slice=${AGENT_SLICE}`,
     "-p",
     "OOMPolicy=continue",

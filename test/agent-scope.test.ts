@@ -52,6 +52,12 @@ describe("refreshAgentScope (#3128)", () => {
     expect(calls.slice(0, -1).every((c) => c[0] === "systemctl")).toBe(true);
   });
 
+  test("prefix disables systemd-run's ${VAR} argument expansion", () => {
+    const prefix = agentScopePrefix();
+    expect(prefix.indexOf("--expand-environment=no")).toBeGreaterThan(0);
+    expect(prefix.indexOf("--expand-environment=no")).toBeLessThan(prefix.indexOf("--"));
+  });
+
   test("non-Linux ⇒ closed, nothing probed", async () => {
     const calls: string[][] = [];
     expect(await refreshAgentScope({ platform: "darwin", run: fakeRun(PROVISIONED, calls) })).toBe(

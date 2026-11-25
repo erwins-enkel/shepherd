@@ -1129,6 +1129,23 @@ test("ingest reads the review-feedback mode and bots; absent means autopilot and
   expect(repoConfig.reviewFeedbackModeFor("/w-rf")).toBe("always");
 });
 
+// #4139: resolving addressed review threads is opt-in — an older server's absent field reads as off.
+test("ingest reads review-feedback resolve; absent means off; the setter PUTs the flag", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc({ reviewFeedbackResolve: true }));
+  await repoConfig.ensure("/w-rfr");
+  expect(repoConfig.reviewFeedbackResolveFor("/w-rfr")).toBe(true);
+
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc());
+  await repoConfig.ensure("/w-rfr-old");
+  expect(repoConfig.reviewFeedbackResolveFor("/w-rfr-old")).toBe(false);
+  expect(repoConfig.reviewFeedbackResolveFor("/w-rfr-unloaded")).toBe(false);
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ reviewFeedbackResolve: false }));
+  await repoConfig.setReviewFeedbackResolve("/w-rfr", false);
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-rfr", { reviewFeedbackResolve: false });
+  expect(repoConfig.reviewFeedbackResolveFor("/w-rfr")).toBe(false);
+});
+
 test("the list setters PUT the whole list and overlay it optimistically", async () => {
   let resolve!: (v: RepoConfig) => void;
   vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));

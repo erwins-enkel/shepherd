@@ -434,6 +434,7 @@ const OVERLAY_MAPS = {
   priorityLabels: "priorityLabels",
   reviewFeedbackMode: "reviewFeedbackMode",
   reviewFeedbackBots: "reviewFeedbackBots",
+  reviewFeedbackResolve: "reviewFeedbackResolve",
   usageCeilingPct: "usageCeiling",
   automationConfirmed: "confirmed",
 } as const satisfies Partial<Record<keyof RepoConfigPatch, keyof RepoConfigStore>>;
@@ -484,6 +485,7 @@ export class RepoConfigStore {
   priorityLabels = $state<Record<string, string[]>>({}); // labels drained first, besides shepherd:priority (#3446)
   reviewFeedbackMode = $state<Record<string, ReviewFeedbackMode>>({}); // PR review feedback → agent (default "autopilot", #4126)
   reviewFeedbackBots = $state<Record<string, string[]>>({}); // review bots whose feedback counts (default preset, #4126)
+  reviewFeedbackResolve = $state<Record<string, boolean>>({}); // reply + resolve addressed inline threads (default off, #4139)
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
   confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
   rowExists = $state<Record<string, boolean>>({}); // a repo_config row exists server-side
@@ -569,6 +571,10 @@ export class RepoConfigStore {
     this.reviewFeedbackBots = {
       ...this.reviewFeedbackBots,
       [repoPath]: c.reviewFeedbackBots ?? [...REVIEW_FEEDBACK_PRESET_BOTS],
+    };
+    this.reviewFeedbackResolve = {
+      ...this.reviewFeedbackResolve,
+      [repoPath]: c.reviewFeedbackResolve ?? false,
     };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     this.ingestOptional(repoPath, c);
@@ -921,6 +927,10 @@ export class RepoConfigStore {
     await this.write(repoPath, { reviewFeedbackBots: bots });
   }
 
+  async setReviewFeedbackResolve(repoPath: string, on: boolean) {
+    await this.write(repoPath, { reviewFeedbackResolve: on });
+  }
+
   async setUsageCeiling(repoPath: string, n: number) {
     await this.write(repoPath, { usageCeilingPct: n });
   }
@@ -1125,6 +1135,11 @@ export class RepoConfigStore {
   /** The review bots whose feedback counts; the preset until loaded. */
   reviewFeedbackBotsFor(repoPath: string): string[] {
     return this.reviewFeedbackBots[repoPath] ?? [...REVIEW_FEEDBACK_PRESET_BOTS];
+  }
+
+  /** Whether addressed inline review threads get a reply and are resolved; off until loaded. */
+  reviewFeedbackResolveFor(repoPath: string): boolean {
+    return this.reviewFeedbackResolve[repoPath] ?? false;
   }
 
   usageCeilingFor(repoPath: string): number {

@@ -296,6 +296,34 @@ describe("RepoSettingsWindow — every section saves through /api/repo-config", 
       .not.toBeInTheDocument();
   });
 
+  it("review: resolve addressed threads, locked while feedback is off (#4139)", async () => {
+    const api = mockApi();
+    await open({ section: "review" });
+    const resolve = sw(m.reposettings_review_resolve_name());
+    await expect.element(resolve).not.toBeChecked();
+    await resolve.click();
+    await vi.waitFor(() => expect(api.puts).toContainEqual({ reviewFeedbackResolve: true }));
+    await expect.element(resolve).toBeChecked();
+    await page
+      .getByRole("combobox", { name: m.reposettings_review_feedback_name() })
+      .selectOptions("off");
+    await vi.waitFor(() => expect(api.puts).toContainEqual({ reviewFeedbackMode: "off" }));
+    // the stored opt-in survives, but nothing is read, so the switch reads off and is locked
+    await expect.element(resolve).toBeDisabled();
+    await expect.element(resolve).not.toBeChecked();
+    await expect
+      .element(page.getByText(m.reposettings_review_resolve_needs_feedback()))
+      .toBeVisible();
+  });
+
+  it("review: a local-only repo locks resolve addressed threads (#4139)", async () => {
+    mockApi({ repoMode: "lightweight", reviewFeedbackResolve: true });
+    await open({ section: "review" });
+    const resolve = sw(m.reposettings_review_resolve_name());
+    await expect.element(resolve).toBeDisabled();
+    await expect.element(resolve).not.toBeChecked();
+  });
+
   it("review: the review bots, their default and the reset (#4126)", async () => {
     const preset = ["coderabbitai", "copilot-pull-request-reviewer", "copilot", "claude"];
     const api = mockApi({ reviewFeedbackBots: preset });

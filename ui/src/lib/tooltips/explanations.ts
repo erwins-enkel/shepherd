@@ -1390,6 +1390,21 @@ export function reviewFeedbackBotsExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings → Review → "Resolve addressed threads" (#4139): what Shepherd posts, when, under
+ *  whose name, and why a running session needs a resume first. */
+export function reviewFeedbackResolveExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_review_resolve_title(),
+    summary: m.tooltip_review_resolve_summary(),
+    sections: [
+      { label: m.tooltip_review_resolve_what(), text: m.tooltip_review_resolve_what_body() },
+      { label: m.tooltip_review_resolve_when(), text: m.tooltip_review_resolve_when_body() },
+      { label: m.tooltip_review_resolve_cost(), text: m.tooltip_review_resolve_cost_body() },
+      { label: m.tooltip_review_resolve_resume(), text: m.tooltip_review_resolve_resume_body() },
+    ],
+  };
+}
+
 /** The Herd card's / git rail's "N review comments" chip (#4126): whose comments wait, why, and —
  *  when the rolling cap hit — that automatic sending paused. */
 export function reviewFeedbackBadgeExplanation(

@@ -3505,6 +3505,7 @@ export type RepoConfigPatch = Partial<
     | "previewOpenMode"
     | "reviewFeedbackMode"
     | "reviewFeedbackBots"
+    | "reviewFeedbackResolve"
   >
 > & { automationConfirmed?: boolean; leitrechner?: string | null };
 

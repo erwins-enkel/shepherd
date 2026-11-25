@@ -1519,6 +1519,9 @@ export interface RepoConfig {
   reviewFeedbackMode?: ReviewFeedbackMode;
   /** Review-bot logins whose feedback counts (#4126), normalized; absent from older servers. */
   reviewFeedbackBots?: string[];
+  /** Reply on and resolve an inline review thread once the agent declares it addressed after a
+   *  push (#4139); absent from older servers, which read as off. */
+  reviewFeedbackResolve?: boolean;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */

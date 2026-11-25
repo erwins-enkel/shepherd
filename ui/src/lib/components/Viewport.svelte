@@ -3457,6 +3457,7 @@
         <GitRail
           bind:empty={railEmpty}
           sessionId={session.id}
+          repoPath={session.repoPath}
           planPhase={session.planPhase}
           {drain}
           issueNumber={session.issueNumber}

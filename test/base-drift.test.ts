@@ -43,6 +43,7 @@ function harness(
   let now = 1_000_000;
   const total = opts.total ?? 2;
   const owned = new Set<string>();
+  const steward = new Set<string>();
   const prStates = new Map<string, "open" | "merged" | "closed">();
   const refreshed: string[] = [];
   const deps: BaseDriftDeps = {
@@ -72,6 +73,7 @@ function harness(
       return opts.delivered ?? true;
     },
     rebaseOwned: (s) => owned.has(s.id),
+    stewardDefers: (s) => steward.has(s.id),
     prState: (id) => prStates.get(id),
     refreshPr: async (id) => {
       refreshed.push(id);
@@ -86,6 +88,7 @@ function harness(
     fetches,
     missingCalls,
     owned,
+    steward,
     prStates,
     refreshed,
     advance: (ms: number) => (now += ms),
@@ -211,4 +214,23 @@ test("a session that starts a turn or is archived while the log is read is not s
   const gone = harness([a], { onMissing: () => (a.status = "archived") });
   await gone.svc.sweep();
   expect(gone.steers).toHaveLength(0);
+});
+
+test("#4146: a PR Steward owns gets no base-moved notice; once it stops, the notice goes out", async () => {
+  const h = harness([session()]);
+  h.steward.add("s1");
+  await h.svc.sweep();
+  expect(h.steers).toHaveLength(0);
+  h.steward.delete("s1");
+  await h.svc.sweep();
+  expect(h.steers).toHaveLength(1);
+});
+
+test("#4146: Steward starting to watch while the log is read → the pre-steer re-check skips", async () => {
+  const h: ReturnType<typeof harness> = harness([session()], {
+    onMissing: () => h.steward.add("s1"),
+  });
+  await h.svc.sweep();
+  expect(h.steers).toHaveLength(0);
+  expect(h.notices.get("s1")).toBeUndefined();
 });

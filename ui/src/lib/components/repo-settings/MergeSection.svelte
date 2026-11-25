@@ -11,8 +11,8 @@
   import "../automation-settings/automation-fields.css";
 
   // Merge (#3443): how a finished PR gets in — one choice of you merge / draft until sign-off /
-  // full-auto merge (#3444), with or without CI — plus the manual-steps issue and who reviews and
-  // merges.
+  // full-auto merge (#3444), with or without CI — plus the manual-steps issue, the Claude Ship
+  // Steward defer (#4146) and who reviews and merges.
   let { repoPath, armCoachmarks = false }: { repoPath: string; armCoachmarks?: boolean } = $props();
 
   const groupName = $props.id();
@@ -153,6 +153,15 @@
   locked={lightweight ? unavailable : undefined}
   checked={repoConfig.manualStepsIssueOn(repoPath) && !lightweight}
   ontoggle={() => repoConfig.toggleManualStepsIssue(repoPath)}
+/>
+<RepoSettingRow
+  field="claudeShipStewardDefer"
+  glyph="⇄"
+  name={m.automation_claude_ship_steward_defer_name()}
+  desc={m.automation_claude_ship_steward_defer_desc()}
+  locked={lightweight ? unavailable : undefined}
+  checked={repoConfig.claudeShipStewardDeferOn(repoPath) && !lightweight}
+  ontoggle={() => repoConfig.toggleClaudeShipStewardDefer(repoPath)}
 />
 {#if layer !== "repo"}{#if layer}<p class="note">
       {m.automation_layers_roles()}

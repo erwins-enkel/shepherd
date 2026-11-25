@@ -2480,6 +2480,24 @@ test("PUT /api/repo-config rejects non-boolean epicClaimAutoRelease", async () =
   expect(res.status).toBe(400);
 });
 
+// ── claudeShipStewardDefer repo-config (#4146) ──────────────────────────────
+
+test("PUT /api/repo-config accepts claudeShipStewardDefer (default off) and persists it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).claudeShipStewardDefer).toBe(false);
+  const res = await putRepoConfig(app, validRepo, { claudeShipStewardDefer: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).claudeShipStewardDefer).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean claudeShipStewardDefer", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { claudeShipStewardDefer: "yes" });
+  expect(res.status).toBe(400);
+});
+
 // ── mergeWithoutCi repo-config (#3104) ──────────────────────────────────────
 
 test("PUT /api/repo-config accepts mergeWithoutCi true → 200 and persists it", async () => {

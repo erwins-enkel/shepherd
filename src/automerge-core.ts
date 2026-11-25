@@ -63,6 +63,11 @@ export interface MergeSessionView {
    *  `codeReviewGate`). Present ⇒ it replaces the critic-verdict gate: pending holds as
    *  `code_review_pending`, failure as `code_review_failed`. Absent = the critic gates. */
   codeReviewGate?: ChecksState;
+  /** The repo defers to Claude Ship's PR Steward and Steward watches this PR (#4146,
+   *  `stewardDefers`): the train never rebases it. A conflict / red-CI gate reads
+   *  `steward_watching` (Steward fixes those itself); behind-only reads `steward_behind`. Absent =
+   *  false. */
+  stewardDefers?: boolean;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
   /** GitHub branch-protection merge state; absent on forges that do not supply it. */
@@ -179,6 +184,7 @@ function readyExceptManualSteps(
  *  - Shepherd resolves it on its own: `critic_pending` (a verdict for the current head is still
  *    due), `checks_pending`/`checks_failed` (CI running / autopilot steers the fix), `behind`/
  *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing mergeability),
+ *    `steward_watching` (Claude's PR Steward fixes the conflict / red CI itself, #4146),
  *    `queued` (in the base's merge queue; GitHub lands it once the queue's CI passes),
  *    `changes_requested` (auto-address — or the operator — answers the critic),
  *    `code_review_pending`/`code_review_failed` (#4147: Claude Code Review stands in for the
@@ -187,7 +193,8 @@ function readyExceptManualSteps(
  *    `stacked`, `migrations`, `signoff`, `checks_absent` (a CI repo's PR has had no checks for
  *    10 minutes while mergeable — CI evidently skips it, #3221), `protection_blocked` (branch protection holds a green PR — typically a
  *    required human approval, which Shepherd never gives), `approval_pending` (the Claude
- *    Approvals check waits on a human, #4145), `no_ci` (a GitHub repo with zero
+ *    Approvals check waits on a human, #4145), `steward_behind` (behind its base while PR Steward
+ *    owns it — Shepherd won't rebase it and Steward doesn't, #4146), `no_ci` (a GitHub repo with zero
  *    workflows and no `mergeWithoutCi` opt-in, #3104). */
 export type MergeWaitCode =
   | "merge_backoff"
@@ -199,6 +206,8 @@ export type MergeWaitCode =
   | "approval_pending"
   | "code_review_pending"
   | "code_review_failed"
+  | "steward_watching"
+  | "steward_behind"
   | "behind"
   | "rebase_cap"
   | "signoff"
@@ -286,6 +295,30 @@ const REBASE_PATH_CODES: ReadonlySet<MergeWaitCode> = new Set([
   "not_mergeable",
 ]);
 
+/** Gate codes Shepherd answers with no steer under `stewardDefers` (#4146): the rebase path plus
+ *  red CI. */
+const STEWARD_CODES: ReadonlySet<MergeWaitCode> = new Set([...REBASE_PATH_CODES, "checks_failed"]);
+
+/** A behind or conflicting PR is rebased before anything else, whatever CI says (rebaseUrgent):
+ *  report that rebase — or what blocks it — rather than the CI it is about to re-run. */
+function reportedGate(s: MergeSessionView, gate: MergeWaitCode | null): MergeWaitCode | null {
+  if (gate === "merge_backoff" || !rebaseUrgent(s)) return gate;
+  return isDefiniteConflict(s) ? "conflict" : "behind";
+}
+
+/** #4146: the wait while PR Steward owns this PR and the train won't rebase it. A conflict or
+ *  red CI is Steward's to fix (`steward_watching`); a PR that is only behind is fixed by no one,
+ *  so it is the operator's move (`steward_behind`). Null when the gate is none of these. */
+function stewardWait(
+  s: MergeSessionView,
+  gate: MergeWaitCode | null,
+): "steward_watching" | "steward_behind" | null {
+  if (!s.stewardDefers || gate === null || !STEWARD_CODES.has(gate)) return null;
+  if (s.checks === "failure" || s.mergeable === false || isDefiniteConflict(s))
+    return "steward_watching";
+  return gate === "behind" ? "steward_behind" : null;
+}
+
 /** Why the train will NOT rebase a PR whose gate asks for one, or null when it will. Mirrors
  *  rebaseEligible's refusals in its own order (its open/checks clauses are already settled for a
  *  rebase-path gate): a stack layer is restacked, never rebased; an unsigned draft is left alone;
@@ -329,14 +362,9 @@ export function mergeWaitReason(
     return "rebase_cap";
   const gate = readyGateFailure(s, criticEnabled, draftMode, signoffAuthority);
   if (gate === "not_open") return null;
-  // A behind or conflicting PR is rebased before anything else, whatever CI says (rebaseUrgent):
-  // report that rebase — or what blocks it — rather than the CI it is about to re-run.
-  const rebaseGate =
-    gate !== "merge_backoff" && rebaseUrgent(s)
-      ? isDefiniteConflict(s)
-        ? "conflict"
-        : "behind"
-      : gate;
+  const rebaseGate = reportedGate(s, gate);
+  const steward = stewardWait(s, rebaseGate);
+  if (steward) return steward;
   if (rebaseGate && REBASE_PATH_CODES.has(rebaseGate))
     return rebaseBlocker(s, criticEnabled, draftMode, signoffAuthority) ?? rebaseGate;
   if (gate) return gate;
@@ -387,6 +415,8 @@ function rebaseEligible(
   if (s.state !== "open" || !s.number) return false;
   // #3223: a queued PR is the queue's — GitHub retests it against the latest base itself.
   if (s.queued) return false;
+  // #4146: PR Steward fixes conflicts itself; a rebase + force-push would discard its commits.
+  if (s.stewardDefers) return false;
   // #2059: a stack layer is RESTACKED (its base is the layer below), never rebased onto the
   // default branch. Steering the agent to `git rebase origin/main` would be actively wrong, and
   // the train can't land it anyway — so it warrants no rebase either.

@@ -3590,6 +3590,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
   "epicClaimAutoRelease",
+  "claudeShipStewardDefer",
   "mergeWithoutCi",
   "epicStacksEnabled",
   "sharedBrowserEnabled",
@@ -3614,6 +3615,7 @@ type RepoCfgBody = {
   manualStepsIssueEnabled?: unknown;
   preWarmEpicLandingCi?: unknown;
   epicClaimAutoRelease?: unknown;
+  claudeShipStewardDefer?: unknown;
   mergeWithoutCi?: unknown;
   epicStacksEnabled?: unknown;
   sharedBrowserEnabled?: unknown;
@@ -3776,6 +3778,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       manualStepsIssueEnabled?: boolean;
       preWarmEpicLandingCi?: boolean;
       epicClaimAutoRelease?: boolean;
+      claudeShipStewardDefer?: boolean;
       mergeWithoutCi?: boolean;
       epicStacksEnabled?: boolean;
       sharedBrowserEnabled?: boolean;
@@ -3876,6 +3879,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
     epicClaimAutoRelease: body.epicClaimAutoRelease as boolean | undefined,
+    claudeShipStewardDefer: body.claudeShipStewardDefer as boolean | undefined,
     mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,

@@ -43,6 +43,7 @@ pub fn repo_config_json() -> Value {
         "epicClaimAutoRelease",
         "mergeWithoutCi",
         "epicStacksEnabled",
+        "claudeShipStewardDefer",
         "sharedBrowserEnabled",
         "claudeAiConnectorsEnabled",
         "hidden",

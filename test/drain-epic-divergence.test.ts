@@ -95,6 +95,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }, frozen?: ()
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

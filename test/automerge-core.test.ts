@@ -874,6 +874,42 @@ test("computeMerge: Code Review gate never gates a rebase; current-head findings
   expect(mergeWaitReason(findings, state([], on))).toBe("changes_requested");
 });
 
+test("computeMerge: never rebases while PR Steward owns the PR (#4146)", () => {
+  // conflict and behind both rebase without the defer…
+  expect(computeMerge(state([dirty()])).kind).toBe("rebase");
+  expect(computeMerge(state([sess({ behind: true })])).kind).toBe("rebase");
+  // …and with it the train neither rebases nor reports an exhausted budget
+  expect(computeMerge(state([dirty({ stewardDefers: true })])).kind).toBe("hold");
+  expect(computeMerge(state([sess({ behind: true, stewardDefers: true })])).kind).toBe("hold");
+  expect(computeMerge(state([dirty({ stewardDefers: true, rebaseCount: 9 })]))).not.toMatchObject({
+    reason: { code: "rebase_cap" },
+  });
+  // a green, mergeable, current PR still merges
+  expect(computeMerge(state([sess({ stewardDefers: true })])).kind).toBe("merge");
+});
+
+test("mergeWaitReason: Steward-owned conflict / red CI → steward_watching, behind-only → steward_behind (#4146)", () => {
+  const clean = { reviewDecision: "commented" as const, reviewHeadSha: "h1", stewardDefers: true };
+  const conflict = {
+    mergeable: false,
+    mergeStateStatus: "dirty" as const,
+    checks: "none" as const,
+  };
+  expect(wait({ ...clean, ...conflict })).toBe("steward_watching");
+  // behind-only: neither Shepherd nor Steward rebases it → the operator's move
+  expect(wait({ ...clean, behind: true })).toBe("steward_behind");
+  expect(wait({ ...clean, behind: true, checks: "failure" })).toBe("steward_watching");
+  expect(wait({ ...clean, checks: "failure" })).toBe("steward_watching");
+  expect(wait({ ...clean, mergeable: false })).toBe("steward_watching");
+  // gates Steward does not own read as before
+  expect(wait({ ...clean, checks: "pending" })).toBe("checks_pending");
+  expect(wait({ ...clean, claudeApprovals: "pending" })).toBe("approval_pending");
+  expect(wait(clean)).toBeNull();
+  // without the defer: unchanged
+  expect(wait({ ...clean, stewardDefers: false, checks: "failure" })).toBe("checks_failed");
+  expect(wait({ ...clean, stewardDefers: false, ...conflict })).toBe("conflict");
+});
+
 test("mergeWaitReason: behind base", () => {
   expect(wait({ behind: true })).toBe("behind");
   expect(wait({ behind: null })).toBe("behind");

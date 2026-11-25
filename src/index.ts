@@ -167,6 +167,7 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
+import { stewardDefers } from "./forge/claude-ship";
 import { ReviewFeedbackService } from "./review-feedback";
 import { attachMergeSteer } from "./merge-steer";
 import { CiRestartHolds } from "./ci-restart-hold";
@@ -2298,7 +2299,8 @@ const reviewService = new ReviewService({
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
   // Hold the critic on a behind PR only when a rebase actor will steer it (autopilot is built
   // below; this is only called at runtime).
-  rebasesWhenBehind: (s): boolean => autopilot.rebasesWhenBehind(s),
+  // #4146: under PR Steward no Shepherd rebase comes, so the critic keeps reviewing a behind PR.
+  rebasesWhenBehind: (s): boolean => autopilot.holdsCriticWhenBehind(s),
   // #1944: clamp/refusal sidecar. A SEPARATE channel from `onChange` on purpose — those carry a
   // verdict, and a clamped or refused spawn must never synthesize one.
   onSpawnNotice: (id) =>
@@ -2685,6 +2687,8 @@ const ciSteer = attachCiSteer(events, store, {
   criticReviewing: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
   ciRestartHeld: (id) => ciRestartHolds.held(id),
   onRestartRelease: (cb) => ciRestartHolds.onRelease(cb),
+  // #4146: PR Steward fixes CI itself on a PR it watches.
+  stewardDefers: (s, git) => stewardDefers(store.getRepoConfig(s.repoPath), git),
 });
 // #4126: steer PR review feedback from people with write access / allowlisted bots to the agent.
 const reviewFeedback = new ReviewFeedbackService({
@@ -3906,6 +3910,7 @@ const baseDrift = new BaseDriftService({
   rebaseOwned: (s) =>
     s.mergingSince !== null ||
     (prPoller.get(s.id)?.state === "open" && autopilot.rebasesWhenBehind(s)),
+  stewardDefers: (s) => stewardDefers(store.getRepoConfig(s.repoPath), prPoller.get(s.id)),
   prState: (id) => prPoller.get(id)?.state,
   refreshPr: (id) => prPoller.pollNow(id),
 });

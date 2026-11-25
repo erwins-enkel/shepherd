@@ -1563,6 +1563,8 @@ components:
           approval_pending,
           code_review_pending,
           code_review_failed,
+          steward_watching,
+          steward_behind,
           behind,
           rebase_cap,
           signoff,
@@ -7788,6 +7790,7 @@ components:
         - epicClaimAutoRelease
         - mergeWithoutCi
         - epicStacksEnabled
+        - claudeShipStewardDefer
         - sharedBrowserEnabled
         - claudeAiConnectorsEnabled
         - hidden
@@ -7893,6 +7896,10 @@ components:
             Derived, read-only (responses only): the repo is on GitHub and none of its workflows runs on pull requests, so its PRs carry no checks.
         epicStacksEnabled:
           type: boolean
+        claudeShipStewardDefer:
+          type: boolean
+          description: >-
+            While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
         sharedBrowserEnabled:
           type: boolean
           description: >-
@@ -8134,6 +8141,10 @@ components:
             Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code.
         epicStacksEnabled:
           type: boolean
+        claudeShipStewardDefer:
+          type: boolean
+          description: >-
+            While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
         sharedBrowserEnabled:
           type: boolean
           description: >-
@@ -9274,6 +9285,7 @@ components:
         - manualStepsIssueEnabled
         - preWarmEpicLandingCi
         - epicStacksEnabled
+        - claudeShipStewardDefer
         - autoLabel
         - defaultModel
         - defaultEffort
@@ -9309,6 +9321,10 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        claudeShipStewardDefer:
+          type: boolean
+          description: >-
+            While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
         autoLabel:
           type: string
         defaultModel:
@@ -9350,6 +9366,10 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        claudeShipStewardDefer:
+          type: boolean
+          description: >-
+            While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
         autoLabel:
           type: string
         defaultModel:
@@ -9532,6 +9552,10 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        claudeShipStewardDefer:
+          type: boolean
+          description: >-
+            While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
         autoLabel:
           type: string
         defaultModel:

@@ -12,7 +12,7 @@ struct RepoSettingsFormTests {
             "autoDrainEnabled": false, "autoMergeEnabled": false, "buildQueueEnabled": false,
             "draftMode": false, "manualStepsIssueEnabled": false, "preWarmEpicLandingCi": false,
             "epicClaimAutoRelease": false,
-            "mergeWithoutCi": false, "epicStacksEnabled": false, "sharedBrowserEnabled": false,
+            "mergeWithoutCi": false, "epicStacksEnabled": false, "claudeShipStewardDefer": false, "sharedBrowserEnabled": false,
             "claudeAiConnectorsEnabled": false, "hidden": false, "pinned": false,
             "signoffAuthority": "either", "maxAuto": 1, "autoLabel": "shepherd", "usageCeilingPct": 90,
             "sandboxProfile": "inherit", "defaultModel": "inherit", "defaultEffort": "inherit",

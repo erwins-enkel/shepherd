@@ -124,7 +124,7 @@ private final class RepoResolutionTransport: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "repo-resolution.fixture.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let rules = #"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":false,"buildQueueEnabled":false,"draftMode":false,"signoffAuthority":"human","manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"epicStacksEnabled":false,"autoLabel":"auto","defaultModel":"inherit","defaultEffort":"inherit"}"#
+        let rules = #"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":false,"buildQueueEnabled":false,"draftMode":false,"signoffAuthority":"human","manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"epicStacksEnabled":false,"claudeShipStewardDefer":false,"autoLabel":"auto","defaultModel":"inherit","defaultEffort":"inherit"}"#
         let config = String(rules.dropLast()) + #", "fieldSources":{},"repoConfigCommit":"old","epicClaimAutoRelease":false,"mergeWithoutCi":false,"sharedBrowserEnabled":false,"claudeAiConnectorsEnabled":false,"hidden":false,"pinned":false,"maxAuto":1,"usageCeilingPct":90,"sandboxProfile":"inherit","egressExtraHosts":[],"browserAllowedHosts":[],"repoMode":"github","previewOpenMode":"ask"}"#
         let json: String
         if request.httpMethod == "PUT" {

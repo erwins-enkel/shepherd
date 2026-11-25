@@ -381,3 +381,53 @@ describe("attachCiSteer during an operator CI restart (#2863)", () => {
     expect(h.sent[0]).toContain("all checks passed");
   });
 });
+
+describe("attachCiSteer while PR Steward owns the PR (#4146)", () => {
+  const steward = () => {
+    const events = new EventHub();
+    const sent: string[] = [];
+    attachCiSteer(events, { get: () => session() } as never, {
+      reply: async (_id, text) => {
+        sent.push(text);
+        return true;
+      },
+      autopilotOn: () => false,
+      stewardDefers: (_s, g) => g.claudeShip?.stewardWatching === true,
+    });
+    const emit = (g: GitState) => events.emit("session:git", { id: "s1", git: g });
+    return { sent, emit };
+  };
+  const watched = { claudeShip: { stewardWatching: true } };
+
+  it("holds a red result and announces it once Steward stops watching the same head", () => {
+    const h = steward();
+    h.emit(git("pending", "abcdef1234", watched));
+    h.emit(git("failure", "abcdef1234", watched));
+    expect(h.sent).toHaveLength(0);
+    h.emit(git("failure", "abcdef1234", watched)); // resample, still watched
+    expect(h.sent).toHaveLength(0);
+    h.emit(git("failure")); // label removed
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("failed");
+    h.emit(git("failure"));
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("drops the held red once the pair moves on", () => {
+    const h = steward();
+    h.emit(git("pending", "abcdef1234", watched));
+    h.emit(git("failure", "abcdef1234", watched));
+    h.emit(git("pending", "next", watched)); // Steward pushed a fix
+    h.emit(git("success", "next")); // …which went green, label gone
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("all checks passed");
+  });
+
+  it("still announces green while Steward watches", () => {
+    const h = steward();
+    h.emit(git("pending", "abcdef1234", watched));
+    h.emit(git("success", "abcdef1234", watched));
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("all checks passed");
+  });
+});

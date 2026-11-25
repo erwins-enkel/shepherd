@@ -60,6 +60,7 @@ const REPO: RepoConfig = {
   usageCeilingPct: 80,
   repoMode: "forge",
   manualStepsIssueEnabled: false,
+  claudeShipStewardDefer: false,
   preWarmEpicLandingCi: false,
   epicClaimAutoRelease: false,
   mergeWithoutCi: false,

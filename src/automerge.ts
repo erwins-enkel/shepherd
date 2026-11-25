@@ -26,6 +26,7 @@ import {
   settleMergedSession,
 } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
+import { stewardDefers } from "./forge/claude-ship";
 import { detectMigrationPaths } from "./epic-migrations";
 import {
   EPIC_STACK_COMPOSE_TTL_MS,
@@ -344,7 +345,10 @@ export class AutoMergeService {
   private async toView(
     s: Session,
     git: GitState | null,
-    cfg: Pick<RepoConfig, "mergeWithoutCi" | "criticEnabled" | "claudeReviewSkipsCritic">,
+    cfg: Pick<
+      RepoConfig,
+      "mergeWithoutCi" | "criticEnabled" | "claudeReviewSkipsCritic" | "claudeShipStewardDefer"
+    >,
     reconcile: boolean,
   ): Promise<MergeSessionView> {
     const pr = AutoMergeService.prFields(git, cfg);
@@ -366,6 +370,7 @@ export class AutoMergeService {
       desig: s.desig,
       ...pr,
       noCiHold: pr.noCi && !cfg.mergeWithoutCi,
+      stewardDefers: stewardDefers(cfg, git),
       checksAbsent: this.checksAbsent(s.id, pr),
       behind,
       queued: reconcile
@@ -833,6 +838,9 @@ export class AutoMergeService {
     const s = this.deps.store.get(sessionId);
     if (!s || isUsagePaused(s)) return;
     if (this.deps.capacity && !(await this.deps.capacity(s))) return;
+    // #4146: PR Steward may have started watching during the capacity wait — never race its push.
+    const live = this.deps.prCache.snapshot()[sessionId];
+    if (stewardDefers(this.deps.store.getRepoConfig(s.repoPath), live)) return;
     this.deps.emitStatus(this.status(repoPath, true, "rebasing", s.desig, s.id));
 
     // CONFLICT PATH ONLY: record the attempt (count + head + the dedup/ownership stamp) BEFORE

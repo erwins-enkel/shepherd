@@ -8,17 +8,27 @@
   // A read-only readout on the Herd card (`card`) or a chip in the git rail (`rail`); hover/focus
   // explains what it is doing and that its checks are review gates, not CI. Amber while the
   // Approvals check waits on a human; muted otherwise. Renders nothing without a signal.
+  // `deferring` (#4146): the repo's Steward-defer rule is on and Steward watches this PR, so
+  // Shepherd sends it no rebase or CI-fix steer. Waiting on approvals keeps the label's priority.
   let {
     git,
     variant = "card",
+    deferring = false,
   }: {
     git?: GitState | null;
     variant?: "card" | "rail";
+    deferring?: boolean;
   } = $props();
 
   const signal = $derived(git?.state === "open" ? git.claudeShip : undefined);
   const waiting = $derived(signal?.approvals === "pending" || signal?.approvals === "failure");
-  const label = $derived(waiting ? m.claude_ship_badge_waiting() : m.claude_ship_badge());
+  const label = $derived(
+    waiting
+      ? m.claude_ship_badge_waiting()
+      : deferring
+        ? m.claude_ship_badge_deferring()
+        : m.claude_ship_badge(),
+  );
 </script>
 
 {#if signal}
@@ -27,7 +37,7 @@
     class:waiting
     role="img"
     aria-label={label}
-    use:statusTip={{ text: claudeShipExplanation(signal) }}
+    use:statusTip={{ text: claudeShipExplanation(signal, deferring) }}
   >
     {label}
   </span>

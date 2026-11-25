@@ -29,6 +29,10 @@ export interface CiSteerDeps {
   /** Registers the release callback (CiRestartHolds.onRelease). `running`: the re-run is underway,
    *  so the held sample is dropped; `expired`/`failed`: it is announced if still the latest pair. */
   onRestartRelease?: (cb: (id: string, reason: "running" | "expired" | "failed") => void) => void;
+  /** #4146: the repo defers to Claude Ship's PR Steward and Steward watches this PR. A red sample
+   *  is held — Steward fixes CI itself — and announced once Steward stops watching the same pair.
+   *  Omitted → never held. */
+  stewardDefers?: (s: Session, git: GitState) => boolean;
 }
 
 /** The handle attachCiSteer returns. */
@@ -132,12 +136,18 @@ export function attachCiSteer(
   const criticSteered = new Map<string, string>();
   // Latest red sample seen during an operator CI restart (#2863), settled on release.
   const restartDeferred = new Map<string, GitState>();
+  // Red sample held while PR Steward owns the PR (#4146), announced when it stops watching.
+  const stewardHeld = new Map<string, GitState>();
 
   const announce = (id: string, git: GitState, key: string) => {
     const s = store.get(id);
     if (!steerable(s, git)) return;
     if (git.checks === "failure") {
       if (deps.autopilotOn(s)) return;
+      if (deps.stewardDefers?.(s, git)) {
+        stewardHeld.set(id, git);
+        return;
+      }
       if (deps.ciRestartHeld?.(id)) {
         restartDeferred.set(id, git);
         return;
@@ -163,6 +173,7 @@ export function attachCiSteer(
     deferred.delete(id);
     criticSteered.delete(id);
     restartDeferred.delete(id);
+    stewardHeld.delete(id);
   };
 
   // An operator CI restart lifted: drop the held red if the re-run superseded it, else announce it.
@@ -184,6 +195,24 @@ export function attachCiSteer(
     if (steered.get(id) !== key) announce(id, held, key);
   };
 
+  // #4146: a Steward-held red sample is dropped once its pair moves on, and announced once
+  // Steward stops watching the same pair (the pair key ignores labels, so the edge below won't).
+  // True when it announced.
+  const releaseSteward = (id: string, git: GitState, key: string): boolean => {
+    const held = stewardHeld.get(id);
+    if (!held) return false;
+    if (pairKey(held) !== key) {
+      stewardHeld.delete(id);
+      return false;
+    }
+    const s = store.get(id);
+    if (!s || deps.stewardDefers?.(s, git)) return false;
+    stewardHeld.delete(id);
+    if (steered.get(id) === key) return false;
+    announce(id, git, key);
+    return true;
+  };
+
   const onGit = (id: string, git: GitState) => {
     const running = inFlight(git);
     const key = pairKey(git);
@@ -199,6 +228,7 @@ export function attachCiSteer(
     // Jobs seen running again are a real new attempt (a rerun on the same head): forget the last
     // announcement so a repeat red is announced. Samples without job data keep the suppression.
     if (running) steered.delete(id);
+    if (releaseSteward(id, git, key)) return;
     if (prev === undefined || prev === key || steered.get(id) === key) return;
     if (!finished(git.checks) || running || !git.headSha) return;
     announce(id, git, key);

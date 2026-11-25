@@ -7,7 +7,7 @@ struct ShepherdClientRepoProjectTests {
         try ShepherdClient(profile: .init(name: "coordinator", baseURL: server.baseURL, mode: .local),
             credentials: InMemoryCredentialStore(), urlSession: server.urlSession())
     }
-    static let rules = #"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":false,"buildQueueEnabled":false,"draftMode":false,"signoffAuthority":"either","manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"epicStacksEnabled":false,"autoLabel":"shepherd","defaultModel":"inherit","defaultEffort":"inherit"}"#
+    static let rules = #"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":false,"buildQueueEnabled":false,"draftMode":false,"signoffAuthority":"either","manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"epicStacksEnabled":false,"claudeShipStewardDefer":false,"autoLabel":"shepherd","defaultModel":"inherit","defaultEffort":"inherit"}"#
 
     @Test(.timeLimit(.minutes(1))) func projectReadUsesRemoteIdentityAndKeepsOfflineMachines() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }

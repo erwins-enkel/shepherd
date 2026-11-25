@@ -77,6 +77,7 @@ function cfg(): RepoConfig & { automationConfirmed: boolean; automationRowExists
     defaultEffort: "inherit",
     repoMode: "forge",
     manualStepsIssueEnabled: false,
+    claudeShipStewardDefer: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
     mergeWithoutCi: false,

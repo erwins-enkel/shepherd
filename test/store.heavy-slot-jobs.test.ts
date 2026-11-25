@@ -58,3 +58,23 @@ test("lastHeavySlotResults: newest exited job per session, only with a captured 
     .sort();
   expect(got).toEqual(["lingering", "new"]);
 });
+
+// GET /api/heavy-slot runs this synchronously on the event loop. As a correlated subquery over the
+// unindexed table it was O(N²): 3.5s per call at the 14-day retention's ~6000 rows, and the UI
+// polls it, which pinned the loop at 100% and stalled every terminal and chat.
+test("lastHeavySlotResults: stays fast at full retention size", () => {
+  const s = new SessionStore(":memory:");
+  const sessions = 700;
+  const perSession = 9;
+  for (let i = 0; i < sessions * perSession; i++) {
+    const sid = `s${i % sessions}`;
+    s.upsertHeavySlotJob(job(`j${i}`, { sessionId: sid, finishedAt: 10 + i }));
+  }
+  const t0 = performance.now();
+  const got = s.lastHeavySlotResults();
+  const ms = performance.now() - t0;
+  expect(got).toHaveLength(sessions);
+  const newest = got.find((j) => j.sessionId === "s3");
+  expect(newest?.id).toBe(`j${3 + sessions * (perSession - 1)}`);
+  expect(ms).toBeLessThan(250);
+});

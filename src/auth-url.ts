@@ -112,17 +112,6 @@ function userAuthEffect(content: unknown): { clear: boolean; url: string | null 
   return { clear: false, url };
 }
 
-/**
- * Return the authorization URL the agent is *currently* waiting on the operator to open,
- * or null. Walks the transcript oldest→newest and tracks the pending URL:
- *
- *  - an assistant `text` block or a `tool_result` block carrying an authorize URL SETS it;
- *  - a plain operator input (a `role:"user"` message with no tool_result — a string or a
- *    typed `text` turn) CLEARS it, because the operator has responded to the prompt.
- *
- * So a prior, already-answered auth URL still sitting in the tail is not resurfaced when the
- * agent later blocks for an unrelated reason. Malformed/blank lines are skipped.
- */
 /** The pending-URL transition a single record implies: SET (assistant text / tool_result
  *  carrying an authorize URL), CLEAR (plain operator input), or NONE (everything else). */
 type AuthEffect = { kind: "set"; url: string } | { kind: "clear" } | { kind: "none" };
@@ -140,6 +129,17 @@ function recAuthEffect(rec: Rec): AuthEffect {
   return { kind: "none" }; // system / other roles: ignored
 }
 
+/**
+ * Return the authorization URL the agent is *currently* waiting on the operator to open,
+ * or null. Walks the transcript oldest→newest and tracks the pending URL:
+ *
+ *  - an assistant `text` block or a `tool_result` block carrying an authorize URL SETS it;
+ *  - a plain operator input (a `role:"user"` message with no tool_result — a string or a
+ *    typed `text` turn) CLEARS it, because the operator has responded to the prompt.
+ *
+ * So a prior, already-answered auth URL still sitting in the tail is not resurfaced when the
+ * agent later blocks for an unrelated reason. Malformed/blank lines are skipped.
+ */
 export function detectAuthUrl(rawJsonl: string): string | null {
   let pending: string | null = null;
   for (const o of eachJsonlObject(rawJsonl)) {

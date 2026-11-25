@@ -272,18 +272,6 @@ export function nextCandidate(
   return state.candidates.find((c) => !state.mappedIssueNumbers.has(c.number));
 }
 
-/** True when this session's PR is ready to be retired / handed off for a human to merge.
- *
- *  Basic gate (both modes): open, CI green, host-mergeable, has a PR number.
- *
- *  draftMode: sign-off by the configured `authority` REPLACES the critic sub-gate — the
- *  authority IS the gate, not the repo critic flag. This closes the born-ready retire race:
- *  an unsigned green PR (draft OR briefly-flipped-ready) cannot retire until signed off.
- *
- *  non-draftMode: the original behavior — changes_requested/error blocks; with the critic
- *  ENABLED we additionally require a clean verdict for the CURRENT head, so a PR can't be
- *  retired when CI goes green before the critic (started on push, #3426 — or by that same
- *  CI-green tick, its backstop trigger) has posted a verdict for that head. */
 /** Sign-off view for a draft-mode gate, projected off the flat AutoSessionView (head from
  *  the cached PR snapshot). Mirrors automerge-core's `signoffView` so the two cores read
  *  identically and the literal lives in one place per core. */
@@ -297,6 +285,18 @@ function signoffView(s: RetireView): SignoffView {
   };
 }
 
+/** True when this session's PR is ready to be retired / handed off for a human to merge.
+ *
+ *  Basic gate (both modes): open, CI green, host-mergeable, has a PR number.
+ *
+ *  draftMode: sign-off by the configured `authority` REPLACES the critic sub-gate — the
+ *  authority IS the gate, not the repo critic flag. This closes the born-ready retire race:
+ *  an unsigned green PR (draft OR briefly-flipped-ready) cannot retire until signed off.
+ *
+ *  non-draftMode: the original behavior — changes_requested/error blocks; with the critic
+ *  ENABLED we additionally require a clean verdict for the CURRENT head, so a PR can't be
+ *  retired when CI goes green before the critic (started on push, #3426 — or by that same
+ *  CI-green tick, its backstop trigger) has posted a verdict for that head. */
 export function readyToRetire(
   s: RetireView,
   criticEnabled: boolean,

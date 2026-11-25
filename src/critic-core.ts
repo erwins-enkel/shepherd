@@ -521,16 +521,6 @@ export function prReviewPrompt(
   return lines.join("\n");
 }
 
-/** The SCOPE rules + verdict-output contract shared verbatim by {@link reviewPrompt} and
- *  {@link prReviewPrompt}, so the two prompts can never drift on the parts the server-side scope
- *  backstop and verdict parser depend on. `judgeClause` is the single prompt-specific line that
- *  precedes the output contract (task-satisfaction vs. bug/quality review). `opts.scopeCreep`
- *  (#1812 finding B) adds the SCOPE-CREEP lens for the SESSION critic only — it sits ABOVE the
- *  verdict-output contract (which stays shared verbatim), so the parts the backstop/parser key off
- *  never diverge; prReviewPrompt omits it and stays byte-identical. Returns the tail lines the
- *  caller appends to its own preamble. Keeping reviewPrompt's default output byte-identical: the
- *  contract lines below are moved verbatim out of its old `lines.push(...)`, with only the judge
- *  clause lifted to a parameter. */
 /** The enumeration half of the epic block: the precomputed delta when we have it, else the commands
  *  that reproduce it. Both listings are FENCED — the commit subjects (and path names) originate on
  *  the integration branch, i.e. they are agent-authored strings derived from untrusted issue text,
@@ -848,6 +838,16 @@ function reviewPolicyBlock(policy: string | null | undefined): string[] {
   ];
 }
 
+/** The SCOPE rules + verdict-output contract shared verbatim by {@link reviewPrompt} and
+ *  {@link prReviewPrompt}, so the two prompts can never drift on the parts the server-side scope
+ *  backstop and verdict parser depend on. `judgeClause` is the single prompt-specific line that
+ *  precedes the output contract (task-satisfaction vs. bug/quality review). `opts.scopeCreep`
+ *  (#1812 finding B) adds the SCOPE-CREEP lens for the SESSION critic only — it sits ABOVE the
+ *  verdict-output contract (which stays shared verbatim), so the parts the backstop/parser key off
+ *  never diverge; prReviewPrompt omits it and stays byte-identical. Returns the tail lines the
+ *  caller appends to its own preamble. Keeping reviewPrompt's default output byte-identical: the
+ *  contract lines below are moved verbatim out of its old `lines.push(...)`, with only the judge
+ *  clause lifted to a parameter. */
 function scopeAndOutputTail(
   diffBase: string,
   judgeClause: string,

@@ -518,8 +518,8 @@ export interface PluginContext {
    *  guard with `typeof ctx.agents?.runReadonly === "function"`. */
   agents: PluginAgents;
   /** Forge CI runs on a repo's default branch (#2539). Additive — guard with
-   *  `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`. */
-  /** Open security alerts (additive — guard with
+   *  `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`.
+   *  Open security alerts (additive — guard with
    *  `typeof ctx.forge?.security?.listCodeScanningAlerts === "function"`). */
   forge: { runs: PluginForgeRuns; security: PluginForgeSecurity };
   /** The decision-model judge (#2541). Additive — guard with

@@ -645,10 +645,6 @@ function handleSettingsMutation(method: string, path: string, body: unknown): Re
   return json(demoState.patchSettings(patch[0], patch[1]));
 }
 
-/** Settings → Decision model writes (#3071). The demo has no backend to check a key against, so a
- *  key save answers honestly that it could not be checked and nothing was stored; every other
- *  write answers the unchanged status — a correctly-shaped JudgeConnectionStatus, never the
- *  generic success stub, which the panel would adopt and then dereference. */
 /** PUT /api/settings-source (#3967): clearing answers the unchanged `{source:null}`; naming a
  *  machine answers what the server says for one it doesn't know, since the demo connects none. */
 function handleSettingsSourceMutation(
@@ -660,6 +656,10 @@ function handleSettingsSourceMutation(
   return str(body, "instanceId") ? json({ error: "not found" }, 404) : json({ source: null });
 }
 
+/** Settings → Decision model writes (#3071). The demo has no backend to check a key against, so a
+ *  key save answers honestly that it could not be checked and nothing was stored; every other
+ *  write answers the unchanged status — a correctly-shaped JudgeConnectionStatus, never the
+ *  generic success stub, which the panel would adopt and then dereference. */
 function handleJudgeConnectionMutation(
   method: string,
   path: string,

@@ -66,16 +66,6 @@ export async function resolveDefaultBranch(
   return null;
 }
 
-/**
- * Fast-forward the local default-branch checkout in `dir` to `origin/<branch>`.
- * Fails closed and NEVER throws — any error maps to `{ ok:false }`:
- *   - HEAD not on `branch`           → wrong_branch (normal for a feature checkout)
- *   - working tree dirty             → dirty
- *   - `merge --ff-only` non-zero     → diverged
- *   - any other throw/timeout        → error
- * Every git step is async so neither the network fetch nor a slow local
- * status/merge on a large repo can block the single-threaded event loop.
- */
 /** The remote tip of `branch` after a fresh fetch (#3411); null when the fetch or lookup fails. */
 export async function fetchRemoteHead(dir: string, branch: string): Promise<string | null> {
   try {
@@ -86,6 +76,16 @@ export async function fetchRemoteHead(dir: string, branch: string): Promise<stri
   }
 }
 
+/**
+ * Fast-forward the local default-branch checkout in `dir` to `origin/<branch>`.
+ * Fails closed and NEVER throws — any error maps to `{ ok:false }`:
+ *   - HEAD not on `branch`           → wrong_branch (normal for a feature checkout)
+ *   - working tree dirty             → dirty
+ *   - `merge --ff-only` non-zero     → diverged
+ *   - any other throw/timeout        → error
+ * Every git step is async so neither the network fetch nor a slow local
+ * status/merge on a large repo can block the single-threaded event loop.
+ */
 export async function fastForwardDefaultBranch(dir: string, branch: string): Promise<PullResult> {
   try {
     const current = await git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);

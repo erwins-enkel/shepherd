@@ -310,13 +310,13 @@ export async function removeSessionSecretDir(baseDir: string, sessionId: string)
   await rm(sessionSecretDir(baseDir, sessionId), { recursive: true, force: true }).catch(() => {}); // best-effort: a leftover dir is swept at next boot
 }
 
-/** Remove every `<id>.secrets` dir under `baseDir` whose session `keep` rejects. Returns the
- *  count removed; a missing `baseDir` is fine. */
 /** Dirs younger than this are never swept: a create writes its dir at the start of prepareSpawn,
  *  but its session row lands only after herdr.start returns (up to the 30s spawn deadline), so a
  *  fresh dir with no row yet is an in-flight spawn, not an orphan. */
 export const SECRET_DIR_SWEEP_GRACE_MS = 10 * 60 * 1000;
 
+/** Remove every `<id>.secrets` dir under `baseDir` whose session `keep` rejects. Returns the
+ *  count removed; a missing `baseDir` is fine. */
 export async function sweepOrphanSecretDirs(
   baseDir: string,
   keep: (sessionId: string) => boolean,

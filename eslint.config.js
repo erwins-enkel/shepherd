@@ -2,7 +2,15 @@ import js from "@eslint/js";
 import ts from "typescript-eslint";
 import svelte from "eslint-plugin-svelte";
 import globals from "globals";
+import jsdoc from "eslint-plugin-jsdoc";
 import noSilentCatch from "./scripts/eslint-rules/no-silent-catch.mjs";
+import noDetachedJsdoc from "./scripts/eslint-rules/no-detached-jsdoc.mjs";
+
+// One object for the local rules: flat config rejects redefining a plugin key with another object.
+const shepherd = {
+  rules: { "no-silent-catch": noSilentCatch, "no-detached-jsdoc": noDetachedJsdoc },
+};
+
 export default [
   js.configs.recommended,
   ...ts.configs.recommended,
@@ -30,7 +38,7 @@ export default [
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
-    plugins: { shepherd: { rules: { "no-silent-catch": noSilentCatch } } },
+    plugins: { shepherd },
     rules: {
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
@@ -38,6 +46,19 @@ export default [
       // empty-literal fallbacks like `.catch(() => [])` (#4097).
       // A deliberate swallow needs a `best-effort: <why>` comment.
       "shepherd/no-silent-catch": "error",
+    },
+  },
+  // Stale docs (#4130): a JSDoc block directly above another documents nothing (only the last
+  // attaches), and a `@param` naming no real parameter misleads. Partial `@param` lists stay legal.
+  // Remaining hits are recorded in eslint-suppressions.json, so the count can only go down.
+  {
+    plugins: { shepherd, jsdoc },
+    rules: {
+      "shepherd/no-detached-jsdoc": "error",
+      "jsdoc/check-param-names": [
+        "error",
+        { disableMissingParamChecks: true, checkDestructured: false },
+      ],
     },
   },
   // Test code legitimately uses `any` for mocks / `as any` casts on test doubles; keep the

@@ -603,10 +603,6 @@ function isDangerousPressure(f: HostCapacityFacts): boolean {
   return swapSaturated && p.memory !== null && p.memory >= HOST_PSI_MEMORY_AVG10_CORROBORATED;
 }
 
-/** Map host facts → check. Precedence: dangerous pressure (error, any inspectable host) beats the
- *  guardrail verdict. Uninspectable (non-systemd / non-Linux / limits unreadable) is `optional`
- *  — a deliberate divergence from the issue's `warning` so local `bun run` boxes don't pin a
- *  permanent yellow health pip; genuine pressure still errors on those hosts. */
 /**
  * Classify the `preview_probes` check (#1912) from BOTH the standalone backend
  * probe AND the live snapshot-cell health. A `warning` is never `error` — previews
@@ -648,6 +644,10 @@ export function classifyPreviewProbes(
   return { id, state: "ok", hintKey: "diagnostics_hint_preview_probes_ok" };
 }
 
+/** Map host facts → check. Precedence: dangerous pressure (error, any inspectable host) beats the
+ *  guardrail verdict. Uninspectable (non-systemd / non-Linux / limits unreadable) is `optional`
+ *  — a deliberate divergence from the issue's `warning` so local `bun run` boxes don't pin a
+ *  permanent yellow health pip; genuine pressure still errors on those hosts. */
 export function classifyHostCapacity(f: HostCapacityFacts): DiagnosticCheck {
   const id = "host_capacity";
   if (isDangerousPressure(f)) {
@@ -1089,9 +1089,6 @@ async function defaultRunTmpSweep(): Promise<void> {
   await sweepClaudeTmp({ thresholdPct: 0 });
 }
 
-/** Resolve both tmp_inodes deps in one place, mirroring `resolveClaudeTrustDeps`. Grouping them
- *  keeps the already-long `DiagnosticsService` constructor from growing another two branches — the
- *  complexity gate is measured on that constructor, and a per-dep `??` there is what pushes it. */
 /** Resolve the two `preview_probes` inputs (#1912) with their defaults, keeping the
  *  constructor flat — same idiom as `resolveTmpSweepDeps` / `resolveClaudeTrustDeps`.
  *  `probeHealth` defaults to `"fresh"`, correct for linux (live `/proc`) and for an
@@ -1106,6 +1103,9 @@ function resolvePreviewProbeDeps(deps: DiagnosticsDeps): {
   };
 }
 
+/** Resolve both tmp_inodes deps in one place, mirroring `resolveClaudeTrustDeps`. Grouping them
+ *  keeps the already-long `DiagnosticsService` constructor from growing another two branches — the
+ *  complexity gate is measured on that constructor, and a per-dep `??` there is what pushes it. */
 function resolveTmpSweepDeps(deps: DiagnosticsDeps): {
   readTmpInodes: () => Promise<TmpInodeFacts>;
   runTmpSweep: () => Promise<void>;

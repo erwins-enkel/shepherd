@@ -33,6 +33,12 @@ export function isStrandedLiveness(liveness?: LivenessState): boolean {
   return liveness === "stranded";
 }
 
+/** The EXACT clean-terminal create payload — `{repoPath, terminal: true}` and nothing else.
+ *  Single source of the wire shape so the handler and its payload-pin test cannot drift. */
+export function cleanTerminalCreateInput(repoPath: string): TerminalCreateInput {
+  return { repoPath, terminal: true };
+}
+
 /**
  * Whether to offer Relaunch for a session. Relaunch redoes a task from scratch with
  * corrected spawn-immutable settings and then decommissions the original — so it only
@@ -46,12 +52,6 @@ export function isStrandedLiveness(liveness?: LivenessState): boolean {
  * operator may legitimately redo it. The server independently 409s an already-archived
  * original; this gate is the UI affordance.
  */
-/** The EXACT clean-terminal create payload — `{repoPath, terminal: true}` and nothing else.
- *  Single source of the wire shape so the handler and its payload-pin test cannot drift. */
-export function cleanTerminalCreateInput(repoPath: string): TerminalCreateInput {
-  return { repoPath, terminal: true };
-}
-
 export function canRelaunch(s: Session, git?: GitState, now: number = Date.now()): boolean {
   if (s.terminal) return false; // relaunch/variant/replace are agent verbs (server fences them)
   if (s.readyToMerge || s.autopilotComplete) return false;

@@ -9,6 +9,7 @@
  * so each has its own walker over the same rule (Codex's lives in src/codex-activity.ts, beside
  * its rollout parser).
  */
+
 /** This many CI polls in a row reads as polling (one check after a push is fine). */
 const CI_POLL_MIN = 3;
 

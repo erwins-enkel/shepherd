@@ -1,0 +1,17 @@
+{
+  "src/poller.ts": {
+    "shepherd/no-detached-jsdoc": {
+      "count": 4
+    }
+  },
+  "src/review.ts": {
+    "shepherd/no-detached-jsdoc": {
+      "count": 1
+    }
+  },
+  "src/service.ts": {
+    "shepherd/no-detached-jsdoc": {
+      "count": 5
+    }
+  }
+}

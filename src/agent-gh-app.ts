@@ -408,13 +408,6 @@ export interface AgentGhAppDeps {
   githubRepo?: (repoPath: string) => GithubRepo | null;
 }
 
-/**
- * The App-mode agent token source. Its result is null when App mode is not configured (neither
- * env var set); otherwise an installation token scoped to `repoPath`'s GitHub repo — or it throws
- * (fail closed): {@link GithubAppConfigError} for one var missing, a non-numeric App ID, a
- * non-GitHub repo or an unusable App, a plain Error for a transient minter failure. The closure
- * owns its minter, so its caches live as long as the closure does.
- */
 /** An App-mode token source ({@link makeAgentGhAppToken}): mint for a repo (optionally widened
  *  for one session), and revoke a session's widened tokens. */
 export type AgentGhAppTokenSource = ((
@@ -424,6 +417,13 @@ export type AgentGhAppTokenSource = ((
   releaseSession: (sessionId: string) => Promise<ReleaseSessionResult>;
 };
 
+/**
+ * The App-mode agent token source. Its result is null when App mode is not configured (neither
+ * env var set); otherwise an installation token scoped to `repoPath`'s GitHub repo — or it throws
+ * (fail closed): {@link GithubAppConfigError} for one var missing, a non-numeric App ID, a
+ * non-GitHub repo or an unusable App, a plain Error for a transient minter failure. The closure
+ * owns its minter, so its caches live as long as the closure does.
+ */
 export function makeAgentGhAppToken(deps: AgentGhAppDeps = {}): AgentGhAppTokenSource {
   let current: { appId: string; keyFile: string; minter: GithubAppTokenMinter } | null = null;
   /** Minters an App-config change replaced: their widened tokens are still revocable (a revoke

@@ -1227,11 +1227,6 @@ export class HerdrDriver implements IHerdrDriver {
     throw new Error(`herdr: agent start exhausted retries for ${name}`);
   }
 
-  /**
-   * Spawn an agent (issue #1553: `async` — non-blocking via `asyncRunner`). Serialized so
-   * concurrent spawns can't race the workspace/tab orchestration (the async yield points
-   * removed the implicit mutual exclusion the blocking sync path had).
-   */
   /** See IHerdrDriver.startShellTab. Rides the same start serializer as agent spawns — tab
    *  orchestration on the shared workspace must not interleave (issue #1553). */
   async startShellTab(
@@ -1273,6 +1268,11 @@ export class HerdrDriver implements IHerdrDriver {
     return { tabId, paneId, terminalId, cwd: pane.cwd ?? "" };
   }
 
+  /**
+   * Spawn an agent (issue #1553: `async` — non-blocking via `asyncRunner`). Serialized so
+   * concurrent spawns can't race the workspace/tab orchestration (the async yield points
+   * removed the implicit mutual exclusion the blocking sync path had).
+   */
   async start(
     name: string,
     cwd: string,

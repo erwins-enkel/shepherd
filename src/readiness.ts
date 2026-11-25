@@ -1342,14 +1342,6 @@ export const PM_VERBS: Record<PackageManager, { add: string; exec: string }> = {
   npm: { add: "npm i -D", exec: "npx" },
 };
 
-/**
- * Extra prose guidance lines per guardrail, rendered under the adopt line (no `$ `
- * prefix — guidance, not shell commands). Only for guardrails whose bootstrap is
- * file-creation the agent would otherwise guess wrong: dependency_automation must
- * name the Dependabot ecosystem, because agents default to `npm`, which never
- * updates bun.lock on a bun repo (pnpm/yarn ARE served by the npm ecosystem —
- * only bun has a dedicated one).
- */
 /** Where the prescribed intent template goes. Shared verbatim by both profiles — the intake shape
  *  is stack-independent (issue #2158); the artifact itself rides on the report as `issueTemplate`. */
 const ISSUE_TEMPLATE_NOTE = [
@@ -1370,6 +1362,14 @@ const SWALLOWED_ERRORS_NOTE = [
   "Selectors can't read comments: allowing a deliberate swallow behind a `// best-effort: <why>` marker needs a small local rule.",
 ];
 
+/**
+ * Extra prose guidance lines per guardrail, rendered under the adopt line (no `$ `
+ * prefix — guidance, not shell commands). Only for guardrails whose bootstrap is
+ * file-creation the agent would otherwise guess wrong: dependency_automation must
+ * name the Dependabot ecosystem, because agents default to `npm`, which never
+ * updates bun.lock on a bun repo (pnpm/yarn ARE served by the npm ecosystem —
+ * only bun has a dedicated one).
+ */
 const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>> = {
   dependency_automation: (s) => {
     if (s.pm === "bun") {

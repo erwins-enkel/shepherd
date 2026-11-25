@@ -636,8 +636,6 @@ export interface FileTarget {
   type: "file" | "dir";
 }
 
-/** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the
- *  scratchpad root ("" = root); `parent` is null at the root. */
 /** A reported host file's text — `GET /api/sessions/:id/files/host` (#4017). */
 export interface HostFileText {
   path: string;
@@ -645,6 +643,8 @@ export interface HostFileText {
   text: string;
 }
 
+/** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the
+ *  scratchpad root ("" = root); `parent` is null at the root. */
 export interface ScratchListing {
   path: string;
   parent: string | null;

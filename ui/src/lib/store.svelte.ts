@@ -1195,9 +1195,6 @@ export class HerdStore {
     }
   }
 
-  /** Handle the app-global (non per-session-row) WS events: usage limits, the
-   *  self/herdr update channels, project icons, backlog + drain.
-   *  Split out of apply() so its dispatch switch stays under the complexity gate. */
   /** Singleton status/snapshot pushes (usage, self-update, diagnostics, plugins,
    *  star-prompt). Extracted from applyGlobalEvent to keep that dispatch under the
    *  complexity gate. Returns true when handled. */
@@ -1315,6 +1312,9 @@ export class HerdStore {
     }
   }
 
+  /** Handle the app-global (non per-session-row) WS events: usage limits, the
+   *  self/herdr update channels, project icons, backlog + drain.
+   *  Split out of apply() so its dispatch switch stays under the complexity gate. */
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applySettingsSourceEvent(ev)) return;
     if (this.applyHerdrUpdateEvent(ev)) return;

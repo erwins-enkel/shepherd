@@ -206,9 +206,6 @@ function stableJson(v: unknown): string {
   );
 }
 
-/** True when a freshly polled PR state differs from the cached one in any field
- *  the UI renders (status, CI/merge-eligibility, review, handoff) — i.e. worth
- *  pushing a session:git update. Exported for unit testing. */
 /** The review + responsibility half of {@link gitStateChanged}, split out so each comparison
  *  chain stays one readable screen. */
 function reviewStateChanged(prev: GitState, git: GitState): boolean {
@@ -236,6 +233,9 @@ export function withIssueUrl(
   return issueUrl ? { ...git, issueUrl } : git;
 }
 
+/** True when a freshly polled PR state differs from the cached one in any field
+ *  the UI renders (status, CI/merge-eligibility, review, handoff) — i.e. worth
+ *  pushing a session:git update. Exported for unit testing. */
 export function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
   return (
     !prev ||

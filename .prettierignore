@@ -10,6 +10,9 @@ docs-site
 # Generated changelog — leave its formatting alone
 CHANGELOG.md
 
+# ESLint bulk suppressions — written by `eslint --suppress-rule/--prune-suppressions` (no trailing newline)
+eslint-suppressions.json
+
 # Build outputs
 node_modules
 cli/target

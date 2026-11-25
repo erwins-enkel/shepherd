@@ -53,6 +53,7 @@ export interface AssembleInput {
   integrated: Set<number>;
   /** #645 divergence detection inputs (all pure — the drain reads forge/store and passes
    *  them in; assembleEpic does NO I/O). */
+
   /** The pinned canonical integration-branch name (`epic_run.integrationBranch`). Drives
    *  signals (a)/(b)/(c): a freshly-derived name, a child's recorded merge base, or a stray
    *  host branch is "divergent" iff it differs from this. Null for an incremental epic (#3191),

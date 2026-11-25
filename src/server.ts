@@ -2790,10 +2790,6 @@ async function handleUpNextPrBody(url: URL, deps: AppDeps): Promise<Response> {
 /** The steer text a fix may lead with — a Settings › Steers prompt, so bounded like one. */
 const MAX_FIX_STEER_CHARS = 20_000;
 
-/** POST /api/up-next/pr-fix — start a push-only repair session for a waiting PR whose next action
- *  is `fix`: a scratch branch cut from the PR's head that publishes by pushing back to it and opens
- *  no PR of its own (the `landingRepair` kind, src/service.ts). The PR must be in the current Up
- *  Next snapshot, so the server — not the client — decides that it needs a fix and what it is. */
 /** The waiting PR a fix request names — it must be in the current Up Next snapshot with `fix` as
  *  its action and no live session on it — or the response refusing the request. */
 async function resolveFixablePr(
@@ -5409,9 +5405,6 @@ export async function claimLinkedIssue(
   }
 }
 
-/** Map a service.create() error to the appropriate Response.
- *  SandboxAutoRefused → 403; missing base ref → 422; agent_name_taken → 409;
- *  anything else → 502. */
 /** 409 mappings for the clean-terminal fences (TerminalExistsError & friends, service.ts) and the
  *  Operator Assistant's verb fence, which mirrors them. `existingId` rides the singleton conflict
  *  so the UI can focus the already-open terminal. */
@@ -5451,6 +5444,9 @@ function spawnFailureJson(e: unknown, fallback: string): Response {
   return json({ error: e instanceof Error ? e.message : fallback }, 502);
 }
 
+/** Map a service.create() error to the appropriate Response.
+ *  SandboxAutoRefused → 403; missing base ref → 422; agent_name_taken → 409;
+ *  anything else → 502. */
 function createErrorResponse(e: unknown): Response {
   if (isHerdrProtocolMismatch(e)) {
     console.warn("[herdr] task creation requires a server restart");
@@ -14279,29 +14275,6 @@ function handlePing({ req, parts }: Ctx): Response | null {
   return json({ ok: true });
 }
 
-// Public liveness probe (issue #1112) — DISTINCT from handlePing on purpose. `handlePing`
-// is a POST behind checkAuth + checkOrigin (CSRF): a probe for an already-logged-in client.
-// This is the opposite: an un-credentialed GET/HEAD that answers BEFORE login, so deploy/update.sh's
-// health check and the onboarding harness's boot poll can confirm the server serves HTTP
-// without a cookie/token (isPublicRequest exempts exactly this method+path). Discloses nothing.
-// Answers HEAD as well as GET — isPublicRequest exempts both, so a HEAD must not fall through
-// to the /api 404 (a liveness monitor probing with HEAD expects a bodyless 200).
-/** Server-side plugin routes (issue #1124):
- *  - `GET /api/plugins` → the status-panel listing (empty array when no registry / no
- *    plugins, so the UI hides the section; a fresh public clone behaves as today).
- *  - `/api/plugins/<id>/<sub…>` → a plugin-registered route (any method). Unknown
- *    plugin/route → null (falls through to the standard `/api` 404). All of these sit
- *    behind the operator auth gate in makeApp (checkAuth runs before ROUTE_HANDLERS). */
-/** Plugin MANAGEMENT routes (install-from-URL / uninstall / on-disk scan) — the
- *  Settings → Plugins manager. Reserved segment `manage` under `/api/plugins`, matched
- *  BEFORE `handlePluginRoutes` (registered ahead of it) so it can never be shadowed by, nor
- *  shadow, a plugin's own `/api/plugins/<id>/*` routes. `manage` is a reserved plugin id
- *  (install rejects it). All behind operator auth + the CSRF origin check (both run before
- *  ROUTE_HANDLERS). Falls through (null) when `pluginsDir` isn't wired (tests).
- *  - `GET    /api/plugins/manage/installed`          → `{ installed: InstalledPlugin[] }`
- *  - `POST   /api/plugins/manage/install`  `{ url }` → `{ plugin }` | 400 `{ error }`
- *  - `POST   /api/plugins/manage/activate` `{ folder }` → `{ plugin }` | 400/409 `{ error }`
- *  - `DELETE /api/plugins/manage/installed/<folder>` → `{ ok:true }` | 400/404 `{ error }` */
 /** POST /api/plugins/manage/install — validate + clone. Body errors → 400. */
 async function pluginInstall(
   req: Request,
@@ -14354,6 +14327,16 @@ function requireOperatorForPluginChanges({ req, parts }: Ctx): Response | null {
   return managed ? requireOperatorSession(req) : null;
 }
 
+/** Plugin MANAGEMENT routes (install-from-URL / uninstall / on-disk scan) — the
+ *  Settings → Plugins manager. Reserved segment `manage` under `/api/plugins`, matched
+ *  BEFORE `handlePluginRoutes` (registered ahead of it) so it can never be shadowed by, nor
+ *  shadow, a plugin's own `/api/plugins/<id>/*` routes. `manage` is a reserved plugin id
+ *  (install rejects it). All behind operator auth + the CSRF origin check (both run before
+ *  ROUTE_HANDLERS). Falls through (null) when `pluginsDir` isn't wired (tests).
+ *  - `GET    /api/plugins/manage/installed`          → `{ installed: InstalledPlugin[] }`
+ *  - `POST   /api/plugins/manage/install`  `{ url }` → `{ plugin }` | 400 `{ error }`
+ *  - `POST   /api/plugins/manage/activate` `{ folder }` → `{ plugin }` | 400/409 `{ error }`
+ *  - `DELETE /api/plugins/manage/installed/<folder>` → `{ ok:true }` | 400/404 `{ error }` */
 async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "plugins" || parts[2] !== "manage") return null;
   const pluginsDir = deps.pluginsDir;
@@ -14378,6 +14361,12 @@ async function handlePluginManagement({ req, parts, deps }: Ctx): Promise<Respon
   return null;
 }
 
+/** Server-side plugin routes (issue #1124):
+ *  - `GET /api/plugins` → the status-panel listing (empty array when no registry / no
+ *    plugins, so the UI hides the section; a fresh public clone behaves as today).
+ *  - `/api/plugins/<id>/<sub…>` → a plugin-registered route (any method). Unknown
+ *    plugin/route → null (falls through to the standard `/api` 404). All of these sit
+ *    behind the operator auth gate in makeApp (checkAuth runs before ROUTE_HANDLERS). */
 async function handlePluginRoutes({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "plugins") return null;
   if (!parts[2]) {
@@ -14391,6 +14380,13 @@ async function handlePluginRoutes({ req, parts, deps }: Ctx): Promise<Response |
   return registry.handleRoute(req.method, parts[2], subPath, req);
 }
 
+// Public liveness probe (issue #1112) — DISTINCT from handlePing on purpose. `handlePing`
+// is a POST behind checkAuth + checkOrigin (CSRF): a probe for an already-logged-in client.
+// This is the opposite: an un-credentialed GET/HEAD that answers BEFORE login, so deploy/update.sh's
+// health check and the onboarding harness's boot poll can confirm the server serves HTTP
+// without a cookie/token (isPublicRequest exempts exactly this method+path). Discloses nothing.
+// Answers HEAD as well as GET — isPublicRequest exempts both, so a HEAD must not fall through
+// to the /api 404 (a liveness monitor probing with HEAD expects a bodyless 200).
 function handleHealth({ req, parts }: Ctx): Response | null {
   if (
     (req.method !== "GET" && req.method !== "HEAD") ||

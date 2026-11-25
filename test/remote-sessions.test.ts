@@ -273,6 +273,24 @@ describe("session mirror", () => {
     ]);
   });
 
+  test("review feedback frames relay annotated and leave the held rows alone (#4139)", async () => {
+    const t = setup();
+    const socket = await t.live();
+    t.events.length = 0;
+    const pending = [{ id: "rc:1", kind: "rc", body: "fix" }];
+    send(socket, "session:review-feedback", { id: S1, pending, autoPaused: false });
+    const host = { instanceId: B, name: "MacBook", platform: "macos" };
+    const connection = { state: "connected" as const, since: 1_000 };
+    expect(t.events).toEqual([
+      ["session:review-feedback", { id: S1, pending, autoPaused: false, host, connection }],
+    ]);
+    expect(t.mirror.session(S1)).not.toHaveProperty("pending");
+    t.events.length = 0;
+    t.mirror.sync(B);
+    await flush();
+    expect(t.events).toHaveLength(0); // not a row change: the unchanged snapshot is not re-sent
+  });
+
   test("a session names its project when the machine's repo index knows its checkout", async () => {
     const t = setup({
       snapshot: () => [

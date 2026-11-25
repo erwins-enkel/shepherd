@@ -99,6 +99,9 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "GET preview",
   "POST preview/start",
   "POST preview/stop",
+  // Review feedback (#4139): the machine steers or dismisses its own session's pending items.
+  "POST review-feedback/send",
+  "POST review-feedback/dismiss",
 ]);
 
 /** The native session surfaces need these snapshots from the owning machine. This is not a
@@ -119,6 +122,8 @@ export const MACHINE_READS: ReadonlySet<string> = new Set([
   "/api/settings",
   // The chat composer's slash commands, read from the machine's repo and home (`repo` is its path).
   "/api/commands",
+  // Its sessions' pending PR review feedback (#4139); later changes ride `session:review-feedback`.
+  "/api/review-feedback/pending",
 ]);
 
 const SESSION_ANSWERS = new Set([

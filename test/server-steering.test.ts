@@ -87,7 +87,10 @@ test("steering routes drive the real service: 202, 409 while in flight, then the
   const body = (await (await get(h.app)).json()) as { running: boolean; report: SteeringReport };
   expect(body.running).toBe(false);
   expect(body.report).toMatchObject({ trigger: "manual", status: "empty", labels: null });
-  expect(h.events).toEqual([{ running: true }, { running: false, report: body.report }]);
+  expect(h.events).toEqual([
+    { running: true },
+    { running: false, id: body.report.id, status: body.report.status },
+  ]);
 });
 
 test("steering routes answer 503 when the service is unwired; other methods fall through", async () => {

@@ -60,8 +60,11 @@ const POLL_MS = 3000;
 /** Linux caps ONE argv element at 128 KiB regardless of the whole-argv budget (as recap.ts). */
 const ARG_ELEMENT_MAX = 128 * 1024 - 1;
 
-/** What the service pushes to listeners: start, then finish with the persisted report. */
-export type SteeringEvent = { running: true } | { running: false; report: SteeringReport };
+/** What the service pushes to listeners: a status signal only, never the report body. The `/events`
+ *  stream reaches read-scope tokens while GET /api/steering/report is full-scope, so findings and
+ *  rewrites must not ride the frame; clients re-GET the report on finish. */
+export type SteeringEvent =
+  { running: true } | { running: false; id: string; status: SteeringReport["status"] };
 
 export interface SteeringReportDeps {
   store: Pick<
@@ -184,7 +187,7 @@ export class SteeringReportService {
       console.warn(`[steering] could not persist report ${report.id}: ${errorText(err)}`);
     }
     this.running = false;
-    this.emit({ running: false, report });
+    this.emit({ running: false, id: report.id, status: report.status });
     return true;
   }
 

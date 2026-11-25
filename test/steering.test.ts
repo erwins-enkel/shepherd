@@ -135,7 +135,10 @@ describe("SteeringReportService", () => {
   it("emits running at start and the persisted report at the end", async () => {
     const h = harness(typed(6));
     await h.service.run("weekly");
-    expect(h.events).toEqual([{ running: true }, { running: false, report: h.inserted[0]! }]);
+    expect(h.events).toEqual([
+      { running: true },
+      { running: false, id: h.inserted[0]!.id, status: h.inserted[0]!.status },
+    ]);
   });
 
   it("drops findings on a thin sample but keeps tables and examples", async () => {
@@ -155,7 +158,11 @@ describe("SteeringReportService", () => {
     expect(h.inserted[0]?.status).toBe("empty");
     expect(h.inserted[0]?.model).toBeNull();
     expect(h.inserted[0]?.sample?.skipped.outOfWindow).toBe(1);
-    expect(h.events.at(-1)).toEqual({ running: false, report: h.inserted[0]! });
+    expect(h.events.at(-1)).toEqual({
+      running: false,
+      id: h.inserted[0]!.id,
+      status: h.inserted[0]!.status,
+    });
   });
 
   it("persists failed(unparseable) on junk output, reaping the helper", async () => {

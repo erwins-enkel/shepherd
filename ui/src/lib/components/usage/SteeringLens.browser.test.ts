@@ -214,7 +214,8 @@ describe("SteeringLens", () => {
     await vi.waitFor(() => expect(run.disabled).toBe(true));
     expect(run.textContent).toContain(m.usage_steering_running());
 
-    steeringReport.apply({ running: false, report: report() });
+    api.getSteeringReport.mockResolvedValue({ running: false, report: report() });
+    steeringReport.apply({ running: false, id: report().id, status: report().status });
     await vi.waitFor(() => expect(run.disabled).toBe(false));
     await expect.element(page.getByText(m.usage_steering_by_style())).toBeVisible();
   });

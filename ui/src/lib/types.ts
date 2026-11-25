@@ -3979,10 +3979,11 @@ export type WsEvent =
   | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "schedules:changed"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
-  /** #4175: a steering-report run started (`running: true`) or finished with its stored report. */
+  /** #4175: a steering-report run started (`running: true`) or finished. A status signal only:
+   *  the report body is GET-only (full scope), so the client re-fetches it on finish. */
   | {
       event: "steering:report";
-      data: { running: true } | { running: false; report: SteeringReport };
+      data: { running: true } | { running: false; id: string; status: SteeringReport["status"] };
     }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   /** #4126: the session's FULL pending review-feedback list, so `[]` is a genuine all-clear. */

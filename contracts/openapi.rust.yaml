@@ -3010,15 +3010,17 @@ components:
           type: string
     SteeringReportEvent:
       type: object
-      additionalProperties: true
-      description: "{running: true} when a run starts; {running: false, report} when it finished."
+      additionalProperties: false
+      description: "{running: true} when a run starts; {running: false, id, status} when it finished. A status signal only: the report body is never on the frame (the /events stream reaches read-scope tokens, the report is full-scope); clients re-GET /api/steering/report."
       required:
         - running
       properties:
         running:
           type: boolean
-        report:
-          $ref: "#/components/schemas/SteeringReport"
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/SteeringReportStatus"
     TerminalClientInfo:
       type: object
       additionalProperties: false
@@ -19165,7 +19167,7 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/RemoteDispatch"
   steering:report:
-    description: A steering report run started ({running:true}) or finished ({running:false, report}, the persisted report). Not in the EventName enum; natively it decodes as ServerEvent.unknown.
+    description: A steering report run started ({running:true}) or finished ({running:false, id, status}); the report itself is GET-only. Not in the EventName enum; natively it decodes as ServerEvent.unknown.
     schema:
       $ref: "#/components/schemas/SteeringReportEvent"
   terminal:owners:

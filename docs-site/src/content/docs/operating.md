@@ -900,8 +900,8 @@ opening prompt and your mid-session messages with the rework it took.
 
 A transient helper agent on the recap role's model only labels the prompts and writes the findings
 and rewrites. Shepherd computes every number in the tables itself. With fewer than 5 prompts you
-typed yourself in the window, the report shows its tables but no findings. With none, no helper
-runs at all. Reports are kept on the server (the newest 52). The `/prompt-retro` skill runs the
+typed yourself in the window, the report shows its tables but no findings. With no typed prompts
+and no steers of your own, no helper runs at all. Reports are kept on the server (the newest 52). The `/prompt-retro` skill runs the
 same retro inside a session.
 
 ## Operator Assistant

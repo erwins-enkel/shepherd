@@ -1748,8 +1748,8 @@ describe("steering report", () => {
   test("steering:report start and finish frames match the contract", async () => {
     const emits = [
       { running: true },
-      { running: false, report: fx.steeringReport },
-      { running: false, report: fx.steeringFailedReport },
+      { running: false, id: fx.steeringReport.id, status: fx.steeringReport.status },
+      { running: false, id: fx.steeringFailedReport.id, status: fx.steeringFailedReport.status },
     ];
     const frames = await collectEvents(s, token, async () => {
       for (const data of emits) s.deps.events.emit("steering:report", data);

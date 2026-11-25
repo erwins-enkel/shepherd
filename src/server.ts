@@ -2667,7 +2667,7 @@ function handleRecaps({ req, parts, deps }: Ctx): Response | null {
 // Steering report (#4175), operator-only (full scope; not in the token read/repo allowlists):
 //   GET  /api/steering/report     → 200 {running, report|null}
 //   POST /api/steering/report/run → 202 {running:true}; 409 while a run is in flight
-// The finished report arrives as a `steering:report` frame. 503 when the service is unwired.
+// A `steering:report` frame signals start/finish ({running, id, status}); the body is GET-only. 503 when the service is unwired.
 function handleSteeringReport({ req, parts, deps }: Ctx): Response | null {
   if (parts[0] !== "api" || parts[1] !== "steering" || parts[2] !== "report") return null;
   const run = parts[3] === "run" && !parts[4];

@@ -3,7 +3,7 @@ import { getSteeringReport, runSteeringReport } from "./api";
 
 /** Client state of the steering report (#4175): the latest stored report and whether a run is in
  *  flight. The Usage → Steering lens loads it on open; the `steering:report` WS event (applied in
- *  store.svelte.ts) keeps it live, so a run started on any client shows up everywhere. */
+ *  store.svelte.ts) keeps it live (a finished run re-GETs the report), so a run started on any client shows up everywhere. */
 class SteeringReportStore {
   running = $state(false);
   report = $state<SteeringReport | null>(null);
@@ -35,12 +35,11 @@ class SteeringReportStore {
     }
   }
 
-  apply(d: { running: true } | { running: false; report: SteeringReport }) {
+  /** The WS frame is a status signal (the report body is full-scope, the stream is not): a finished
+   *  run re-fetches the stored report. */
+  apply(d: { running: true } | { running: false; id: string; status: SteeringReport["status"] }) {
     this.running = d.running;
-    if (!d.running) {
-      this.report = d.report;
-      this.loaded = true;
-    }
+    if (!d.running) void this.load();
   }
 }
 

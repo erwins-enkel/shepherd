@@ -193,7 +193,7 @@ test.failing(
 // CE-4 (#4163; INV-NoLeakedSpawn): reapReviewer (PR auto-advance) drops a run that is mid-finalize;
 // a forced re-review then claims the slot; when the old finalize's tick() reaches its finally,
 // dropInflight deletes `inflight` by SESSION id — removing the new run, whose verdict is never read.
-test.failing("CE-4: a finishing finalize does not drop a newer run's inflight entry", async () => {
+test("CE-4: a finishing finalize does not drop a newer run's inflight entry", async () => {
   const stopping = Promise.withResolvers<void>();
   const w = world();
   w.deps.herdr.stop = (terminalId: string) =>
@@ -214,5 +214,34 @@ test.failing("CE-4: a finishing finalize does not drop a newer run's inflight en
   stopping.resolve();
   await ticking;
 
+  expect(w.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+// #4163 follow-on: the same race, parked one await earlier (captureRunUsage, before finalize's
+// `finally`). The old run's run-ended signal must not clear the NEW run's reviewing state.
+test("a finishing finalize does not signal run-ended over a newer run", async () => {
+  const usage = Promise.withResolvers<null>();
+  const events: [string, boolean][] = [];
+  let usageCalls = 0;
+  const w = world({
+    readUsage: () => (++usageCalls === 1 ? usage.promise : Promise.resolve(null)),
+    onReviewing: (id: string, reviewing: boolean) => events.push([id, reviewing]),
+  });
+  await w.svc.consider(w.session);
+  w.state.verdicts.set(w.state.spawns[0]!.worktreePath, APPROVE);
+  const ticking = w.svc.tick(); // approves PLAN A, then parks in captureRunUsage
+  await new Promise((r) => setTimeout(r, 0));
+  expect(usageCalls).toBe(1);
+
+  w.session.planPhase = "executing";
+  w.svc.reapReviewer(w.session.id);
+  w.state.plan = "PLAN B";
+  await w.svc.consider(w.session, { force: true });
+  expect(events.at(-1)).toEqual(["s1", true]);
+
+  usage.resolve(null);
+  await ticking;
+
+  expect(events.filter(([id]) => id === "s1").at(-1)).toEqual(["s1", true]);
   expect(w.svc.reviewingIds()).toEqual(["s1"]);
 });

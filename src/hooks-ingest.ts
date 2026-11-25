@@ -1,30 +1,27 @@
-// Hook ingest path for Claude Code push hooks (issues #704 / #709).
+// Hook ingest path for Claude Code push hooks (#704).
 //
 // The spawned agent's PostToolUse / PostToolUseFailure / Notification / SessionStart /
 // Stop / SessionEnd hooks POST here; we validate the untrusted body, normalize it, drop
 // it into a bounded per-session ring buffer, and log a structured line.
 //
-// Phase 1 (#704): when `hooksSignals` is on, matched events are forwarded to the poller
-// signal pipeline via `onSignal` (wired post-construction by setSink). PostToolUse feeds
-// activity signals; Notification(permission_prompt) feeds block detection.
-//
-// Phase 2 (#709): SessionStart is consumed to flip claude-liveness to true (fast-path
-// before the poller's liveness sweep).
-//
-// Phase 2b (#713): Stop now feeds a turn-complete-window *measurement* — the poller pairs
-// it against herdr's `done` flip to record the offset between the two (flag-gated,
-// observe-only; NO status consumption — polling stays authoritative). SessionEnd remains
-// observe-only by gated decision: its `reason` proved uninformative in the spike (n=6, all
-// `other`), so consuming it would add nothing; the validator + HookEvent fields are retained
-// for ongoing observability so a future terminal reason can revive it.
-//
-// Phase 3 (#710): SubagentStart / SubagentStop maintain a per-session sub-agent roster
-// (agentId → entry; live until a matching Stop). The roster is its own state — gated only
-// by `match !== false` (fail-closed on session mismatch), independent of the signal path.
-//
-// #3165: PreToolUse (matcher AskUserQuestion only) carries the dialog's questions as data so a
-// native panel can answer it; PostToolUse carries `tool_use_id` + the answers that landed.
-// #2779: the matcher also covers ExitPlanMode, whose PreToolUse carries the plan text.
+// What consumes each event (the "Phase N" labels below are #704's rollout phases; Phase 0 is
+// this ingest surface itself):
+//  - Phase 1, `hooksSignals` on: matched events are forwarded to the poller signal pipeline via
+//    `onSignal` (wired post-construction by setSink). PostToolUse feeds activity signals;
+//    Notification(permission_prompt) feeds block detection.
+//  - SessionStart flips claude-liveness to true (#709; fast path before the poller's sweep).
+//  - Stop feeds a turn-complete-window *measurement* (#713) — the poller pairs it against herdr's
+//    `done` flip to record the offset (flag-gated, observe-only; NO status consumption — polling
+//    stays authoritative).
+//  - SessionEnd stays observe-only by decision: its `reason` proved uninformative (all `other`),
+//    so consuming it would add nothing; the validator + HookEvent fields are retained for
+//    observability so a future terminal reason can revive it.
+//  - Phase 3: SubagentStart / SubagentStop maintain a per-session sub-agent roster (#710; agentId → entry,
+//    live until a matching Stop). The roster is its own state — gated only by `match !== false`
+//    (fail-closed on session mismatch), independent of the signal path.
+//  - PreToolUse (matcher AskUserQuestion + ExitPlanMode only, #3165) carries the dialog's
+//    questions or the plan text as data so a native panel can answer it; PostToolUse carries
+//    `tool_use_id` + the answers that landed.
 //
 // Anything unrecognized is recorded and flagged loudly rather than silently dropped.
 

@@ -96,37 +96,16 @@ export interface PluginUpdateDeps {
 }
 
 /**
- * Detects whether installed Shepherd plugins have a newer version available and,
- * on request, applies it ON DISK. Detection is badge-first and READ-ONLY, modelled
- * on {@link CodexUpdateService}; {@link apply} is the one mutating path — a
- * deliberately narrow, re-verified fetch-and-swap (never a background auto-update),
- * so surfacing a badge still never touches a folder on its own.
- *
- * A plugin is only checkable when a source can be resolved. Either way the check
- * reads the CANDIDATE `plugin.json` (version + apiVersion), so both paths run the
- * same classification — no path over-claims installability:
- *  - a declared `repository` in its `plugin.json` (the explicit, supply-chain-
- *    conscious path — works for the primary `cp -r` install that has no `.git`):
- *    the highest semver tag is found via `git ls-remote --tags`, then that tag's
- *    `plugin.json` is read via a shallow, checkout-less fetch into a scratch dir, or
- *  - the folder being a git work tree with an upstream (every UI install is one, plus
- *    the documented symlink-to-checkout dev workflow): the upstream `plugin.json` is
- *    read after a `git fetch` that only moves remote-tracking refs, never the working
- *    tree.
- * The two are not exclusive: a declared repository that publishes NO version tags falls
- * back to the checkout rather than reporting a dead end — plenty of plugins ship from
- * their default branch and never cut a release. Everything else reports `no-source`.
- *
- * The installed manifest `version` is the source of truth for "what we're on", and an
- * update exists for either of two reasons: the candidate is strictly newer by a real
- * semver comparison, or the checkout is BEHIND its upstream while the version stayed put
- * (the upstream shipped code without a version bump). Drift is deliberately ignored for a
- * SYMLINKED install — that source tree is the operator's to manage and {@link apply}
- * refuses it anyway. Whichever reason applies, the candidate is then apiVersion-gated
- * once: one that bumps apiVersion beyond what this Shepherd supports (and would be
- * silently disabled at load) is `incompatible` rather than `update-available`. Fail-safe
- * throughout: any git/parse error yields a per-plugin `error`/`no-source` state, never a
- * spurious badge.
+ * Detects whether installed Shepherd plugins have a newer version available and, on request,
+ * applies it ON DISK. Detection is badge-first and READ-ONLY, modelled on
+ * {@link CodexUpdateService}; {@link apply} is the one mutating path — a narrow, re-verified
+ * fetch-and-swap (never a background auto-update), so a badge never touches a folder on its own.
+ *  - Both sources (declared `repository` tags; a git checkout's upstream, which a tag-less
+ *    repository falls back to) read the CANDIDATE `plugin.json` and share one classification.
+ *  - Fetches never move the working tree; the installed manifest `version` is "what we're on".
+ *  - Behind-upstream drift is ignored for a SYMLINKED install; the candidate is apiVersion-gated
+ *    once (`incompatible`). Fail-safe: any git/parse error is a per-plugin `error`/`no-source`,
+ *    never a spurious badge. Full rules: docs/plugins.md#updates--in-place-one-click
  */
 export class PluginUpdateService {
   private pluginsDir: string;
@@ -170,29 +149,6 @@ export class PluginUpdateService {
     return names;
   }
 
-  /**
-   * Apply an available update to the plugin with the given `id`, ON DISK. The one
-   * mutating operation on this service, and deliberately narrow:
-   *  1. Locate the installed folder for `id` (null → `not_installed`).
-   *  2. Refuse a SYMLINKED install (`symlinked_source`): the dev "run from a checkout"
-   *     workflow points at a source tree outside the plugins dir that is the operator's
-   *     to update — never clobber it from the UI.
-   *  3. RE-VERIFY freshly via {@link checkOne} that the plugin is genuinely
-   *     `update-available` right now — never trust a stale snapshot. Any other state
-   *     maps to a stable error (`already_up_to_date`/`incompatible`/`no_source`/`check_failed`)
-   *     so a race (someone else updated, or the remote moved) can't force a bad swap.
-   *  4. Bring the folder to the candidate version by the source the check RESOLVED (which
-   *     is not always the one declared — a tag-less repository resolves through its
-   *     checkout): a `git` checkout with an upstream fast-forwards in place (untracked
-   *     `config.json` preserved); a `repository` install clones the latest tag into a
-   *     scratch dir beside it, carries
-   *     `config.json` over, and swaps it in behind a backup so a mid-swap failure restores
-   *     the original folder rather than leaving it half-written.
-   * On success the snapshot is recomputed so the badge/list reflect the new on-disk
-   * version, and `folder` is returned so the caller can re-activate it in-process.
-   * Loading the NEW code into a plugin that is already running still needs a restart —
-   * that's the caller's concern; this only owns the bytes on disk.
-   */
   /** Find the installed folder whose `plugin.json` declares `id`. Null when the plugins
    *  dir is unreadable or no folder matches. Factored out of {@link apply} so its control
    *  flow stays flat. */
@@ -231,6 +187,29 @@ export class PluginUpdateService {
     }
   }
 
+  /**
+   * Apply an available update to the plugin with the given `id`, ON DISK. The one
+   * mutating operation on this service, and deliberately narrow:
+   *  1. Locate the installed folder for `id` (null → `not_installed`).
+   *  2. Refuse a SYMLINKED install (`symlinked_source`): the dev "run from a checkout"
+   *     workflow points at a source tree outside the plugins dir that is the operator's
+   *     to update — never clobber it from the UI.
+   *  3. RE-VERIFY freshly via {@link checkOne} that the plugin is genuinely
+   *     `update-available` right now — never trust a stale snapshot. Any other state
+   *     maps to a stable error (`already_up_to_date`/`incompatible`/`no_source`/`check_failed`)
+   *     so a race (someone else updated, or the remote moved) can't force a bad swap.
+   *  4. Bring the folder to the candidate version by the source the check RESOLVED (which
+   *     is not always the one declared — a tag-less repository resolves through its
+   *     checkout): a `git` checkout with an upstream fast-forwards in place (untracked
+   *     `config.json` preserved); a `repository` install clones the latest tag into a
+   *     scratch dir beside it, carries
+   *     `config.json` over, and swaps it in behind a backup so a mid-swap failure restores
+   *     the original folder rather than leaving it half-written.
+   * On success the snapshot is recomputed so the badge/list reflect the new on-disk
+   * version, and `folder` is returned so the caller can re-activate it in-process.
+   * Loading the NEW code into a plugin that is already running still needs a restart —
+   * that's the caller's concern; this only owns the bytes on disk.
+   */
   async apply(id: string, now: number): Promise<PluginApplyResult> {
     // 1. locate the installed folder whose manifest declares this id
     const match = await this.locate(id);

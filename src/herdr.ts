@@ -560,8 +560,7 @@ export const HERDR_AGENT_NAME_MAX = 32;
  * A VERSION SWITCH, not a fall-through: which surface herdr populates decides which one is read.
  *  1. ANY record carries `name` → this herdr populates the field, so its name space is
  *     authoritative and is used EXCLUSIVELY — strict equality, labels never read. A record without
- *     `name` in such a list genuinely holds no name. ≤0.7.4 always lands here, so its eviction is
- *     byte-identical to before.
+ *     `name` in such a list genuinely holds no name. ≤0.7.4 always lands here.
  *  2. NO record carries `name` (0.7.5+, which emits it for nobody) → the TAB label, compared in
  *     herdr's own name space (`sanitize` on both sides): `tab create --label` carries the RAW name
  *     while the register call binds the SANITIZED one, so sanitized equality is what makes the two
@@ -569,12 +568,12 @@ export const HERDR_AGENT_NAME_MAX = 32;
  *     (`"claude"`) for trusted auto-detected agents, so matching it would both alias the kind and
  *     miss an auto-detected squatter, which reports the kind rather than its name.
  *
- * The switch is load-bearing, and an earlier revision of this function got it wrong. Branch 2's
- * comparison is necessarily COARSER than herdr's ≤0.7.4 space: `sanitize` is lossy, so two
- * genuinely different live sessions (`fix login`, `fix-login`) share one sanitized label. Letting
- * branch 2 run as a mere fallback wherever branch 1 found nothing would let a raw-name collision
- * evict the unrelated live session that merely sanitizes alike. Where herdr tells us the names, we
- * believe it and evict nothing rather than guess from a coarser surface.
+ * The switch is load-bearing: branch 2's comparison is necessarily COARSER than herdr's ≤0.7.4
+ * space. `sanitize` is lossy, so two genuinely different live sessions (`fix login`, `fix-login`)
+ * share one sanitized label. Letting branch 2 run as a mere fallback wherever branch 1 found nothing
+ * would let a raw-name collision evict the unrelated live session that merely sanitizes alike.
+ * Where herdr tells us the names, we believe it and evict nothing rather than guess from a coarser
+ * surface.
  *
  * No labels available (a herdr read failed, or the caller has no source) → empty set, never a
  * broader match: a failed read must not widen what gets closed.
@@ -661,9 +660,9 @@ export { posixShellJoin };
  * `start` spawns a byte-identical process to the CLI path. Wraps argv (always
  * `["claude", …]`) in a coreutils `env` shim that pins the V8 compile cache to a disk-backed
  * dir. `env` execvp's straight into claude (no extra process layer), so herdr's PTY/agent
- * detection is unaffected — but NODE_COMPILE_CACHE now lands on disk instead of
- * `$TMPDIR/node-compile-cache` on the tmpfs, where it accreted unbounded and exhausted
- * inodes (#560). Caller-supplied `env` vars (e.g. CLAUDE_CONFIG_DIR for api-key auth mode)
+ * detection is unaffected — but NODE_COMPILE_CACHE lands on disk, not in the tmpfs
+ * `$TMPDIR/node-compile-cache`, where it accretes unbounded and exhausts inodes (#560).
+ * Caller-supplied `env` vars (e.g. CLAUDE_CONFIG_DIR for api-key auth mode)
  * are injected as additional KEY=VALUE tokens after NODE_COMPILE_CACHE, in sorted-key order
  * for stability.
  *
@@ -689,8 +688,8 @@ export { posixShellJoin };
  * `~/.local/share/claude` + `~/.local/bin/claude`, which shadows the mise-managed copy; the two then
  * diverge and `mise upgrade claude` moves only the one nothing runs. Gated on the host fact
  * (`claudeSpawnPinned()`, refreshed on a slow cadence) so a NON-mise host is never stranded on an
- * old build — there the agent keeps self-updating exactly as before, and the argv stays
- * byte-identical. Codex spawns never get the token. Sandboxed spawns don't need it: the membrane
+ * old build — there the agent keeps self-updating and the argv omits the token. Codex spawns
+ * never get the token. Sandboxed spawns don't need it: the membrane
  * binds `~/.local/share/claude` and `~/.local/bin` read-only under a `--tmpfs $HOME`, so an
  * in-sandbox updater cannot plant on the host in the first place.
  *
@@ -1735,7 +1734,7 @@ export class HerdrDriver implements IHerdrDriver {
    *    drivers, and `ReviewService.reapOrphans`, whose own comment is "free the name AND kill the
    *    still-alive claude process". Eviction is the only thing that changes state between retry
    *    attempts, so a declined close turns the retry into a no-op loop and the spawn fails named;
-   *    for the reviewer that is the sticky `agent_name_taken` class fixed in #751/#508.
+   *    for the reviewer that is the sticky `agent_name_taken` class (#751).
    *  - ROLLBACK of a tab we ourselves just created — the agent-spawn rollback in both drivers,
    *    `startShellTabImpl`'s half-created tab, and the clean-terminal session-row rollback in
    *    `SessionService`. Undoing our own creation must leave nothing, not a permanent orphan.

@@ -1830,12 +1830,11 @@ export class GithubForge implements GitForge {
    * REST call 403s. So a failure on the preferred transport always tries the
    * other one before giving up.
    *
-   * Two deliberate widenings over the previous one-way (GraphQL→REST) fallback:
-   *  - ANY error retries on the other transport, not only `isRateLimitError`.
-   *    The old narrowing left a REST 403 raised *during* a GraphQL backoff with
-   *    no recovery at all: the operator saw "couldn't load issues" while
-   *    `gh issue list` would have answered. The cost is one extra doomed call on
-   *    a genuinely broken setup (gh missing, repo unresolvable) — error path only.
+   * Two deliberate widenings:
+   *  - ANY error retries on the other transport, not only `isRateLimitError`:
+   *    narrowing to rate-limit errors strands failures (e.g. a REST 403) that
+   *    `gh issue list` would answer. The cost is one extra doomed call on a
+   *    genuinely broken setup (gh missing, repo unresolvable) — error path only.
    *  - The REST→CLI direction knowingly issues a GraphQL call inside an active
    *    backoff window. REST has just proved unusable, the backoff is only a
    *    heuristic, and a real GraphQL rate-limit error re-extends the window by

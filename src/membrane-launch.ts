@@ -7,14 +7,15 @@
  * stay separate: a `null` backend means RUN UNCONFINED, so folding a launcher fault into it would
  * silently strip the sandbox from around untrusted plan text on exactly the hosts that can sandbox.
  *
- * Which is how #2110 hid: a mise-managed launcher rebuilt `shims/` under the read-only bind, hit
- * EROFS and exited non-zero, so every wrapped role — plan gate, PR critic, doc agent, standalone
- * critic — died at launch while the backend self-test stayed green. Nothing observed it; each role
- * waited out its whole timeout, recorded `no-verdict`, and respawned into the same wall.
+ * A launcher fault (#2110: a mise launcher hitting EROFS under the read-only bind) kills every
+ * wrapped role — plan gate, PR critic, doc agent, standalone critic — at launch while the backend
+ * self-test stays green; unobserved, each role waits out its timeout, records `no-verdict`, and
+ * respawns into the same wall.
  *
  * So this probe is a SECOND, orthogonal signal. Its failure is loud (a `sandbox_membrane` DIAGNOSE
  * row) and blocking (`resolveAuxPatch` refuses the spawn with a stated reason) — never a change to
- * whether the membrane is applied.
+ * whether the membrane is applied. See
+ * docs/sandbox-security.md#launch-probe--the-membrane-is-proven-the-launcher-is-not-2111.
  *
  * Self-contained + dependency-injectable, like sandbox.ts: it imports NO store/service/server, and
  * every host touch is an injectable dep so tests never spawn bwrap.

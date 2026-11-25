@@ -1550,7 +1550,7 @@ export class StatusPoller {
   }
 
   /**
-   * Phase-1 push block-trigger (issue #704): a Notification reported an awaiting-input
+   * Push block-trigger (#704): a Notification reported an awaiting-input
    * edge. Classify THIS tick even if herdr hasn't latched "blocked" yet, so the block
    * surfaces ≤ ~1 tick after the agent asks — independent of herdr's latchy status +
    * the PTY-regex *detection* heuristics. classifyBlocked still supplies the menu/yes-no
@@ -1561,7 +1561,7 @@ export class StatusPoller {
    * returns true): if its reclassifyMs throttle skips this tick, we KEEP the marker and
    * retry next tick — still faster/more reliable than waiting on herdr's latchy
    * "blocked" fallback. When the type never arrives (the common skip-permissions case),
-   * this is dormant and detection stays on the herdr-blocked fallback — no regression.
+   * this is dormant and detection stays on the herdr-blocked fallback.
    *
    * Returns true when it announced an awaiting-input/menu/yes-no block (lastSig set to a
    * non-stall reason) → the caller must short-circuit: running the normal running/idle
@@ -1895,15 +1895,14 @@ export class StatusPoller {
 
   /**
    * Unified per-tick probe for a *running* agent: a SINGLE read+parse of its
-   * transcript feeds BOTH the activity signal and the stall decision, replacing
-   * the two redundant whole-file reads we used to do per poll. Throttled to
+   * transcript feeds BOTH the activity signal and the stall decision. Throttled to
    * `probeCheckMs` per session via one `lastProbeAt` map; best-effort (a throwing
    * probe is logged and skipped until the next cadence).
    *
    * Delegates the transcript-vs-interim liveness routing + both liveness diffs +
    * the interim heat-strip to this session's `SessionLiveness` instance (see
    * `src/session-liveness.ts`) — the module returns a verdict (`step`), which
-   * `applyOutcome` maps onto the poller's unchanged fire/clear emitters. The
+   * `applyOutcome` maps onto the poller's fire/clear emitters. The
    * transcript path resolves synchronously ({outcome}); the interim path returns
    * a module-owned Promise ({pending}) resolved fire-and-forget.
    *

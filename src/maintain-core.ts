@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the maintain loop (#2157, from #2151 R5) — no I/O, no DB, no spawn.
+ * Pure helpers for the maintain loop (#2157) — no I/O, no DB, no spawn.
  * Mirrors `critic-core.ts`: thresholds, evaluation, prompt, parse + clamp.
  *
  * Shepherd's Stage-6 machinery notifies and stops. This closes the loop with tiered thresholds on
@@ -51,27 +51,20 @@ const FIRST_PASS_WINDOW_DAYS = 30;
  * install:
  *
  * - `reply` is the operator's steer stream.
- * - `block` is an agent asking the operator a question (#2242). Every payload in the breach that
- *   filed that issue was a healthy planning dialog — which ruleset to use, how far a fix should go.
- *   Deduping the repaint noise alone does NOT rescue this band: measured on a live install, one
- *   row per episode still left 52–78 occurrences across 32 sessions against a 25/5 tier-2
- *   threshold, so the band would simply re-file.
+ * - `block` is an agent asking the operator a question (#2242) — typically a healthy planning
+ *   dialog (which ruleset to use, how far a fix should go). Deduping the repaint noise alone does
+ *   NOT rescue this band: one row per episode still clears the 25/5 tier-2 threshold on a live
+ *   install, so the band would simply re-file.
  * - `critic` is a `changes_requested` verdict on an open PR (#2319) — the auto-address loop's
- *   designed normal outcome, which the loop then exists to iterate on. Measured weekly on a live
- *   install: 20, 66, 24, 57, 7, 19, 7, 30, 27 occurrences, so the 27 that filed #2319 sat BELOW
- *   the series mean; the band was reading its own steady state. Like `block`, per-session dedup
- *   does not rescue it (the same weeks collapse to 9, 36, 13, 33, 4, 13, 5, 13, 17 — two of them
- *   still clear 25/5 on their own). It rises with throughput because `incidentTier` counts
- *   occurrences with no denominator; the DENOMINATED view of this identical event is
- *   `first_pass_collapse`, which scores the `changes_requested` spawn outcome as a rate. One event
- *   scored by two bands, one of them without a denominator, is what made this a false alarm.
+ *   designed normal outcome, which the loop then exists to iterate on, so the band reads its own
+ *   steady state. Like `block`, per-session dedup does not rescue it. It rises with throughput
+ *   because `incidentTier` counts occurrences with no denominator; the DENOMINATED view of this
+ *   identical event is `first_pass_collapse`, which scores the `changes_requested` spawn outcome as
+ *   a rate. One event scored by two bands, one of them without a denominator, is a false alarm.
  * - `egress_drop` is the firewall blocking a DNS lookup (#3432), so it records the control working.
  *   Healthy sandboxed agents cause it: `ANTHROPIC_EGRESS_HOSTS` documents background probes that are
- *   left blocked on purpose. Measured on a live install at 1-10 distinct hosts per session (mean
- *   about 4, nine sessions), so roughly seven sessions in a week reach tier 2. Unlike the kinds
- *   above it breaches only in weeks with that much autonomous use. The 33 occurrences that filed
- *   #3432 came from two audit probe repos on one day. Each distinct blocked host is still recorded
- *   and toasted once per session, up to `EGRESS_DROP_CAP`.
+ *   left blocked on purpose, so a week of heavy autonomous use alone reaches tier 2. Each distinct
+ *   blocked host is still recorded and toasted once per session, up to `EGRESS_DROP_CAP`.
  *
  * `update_call` (#3623) is an audit trail of self-updates: operation, not a fault.
  *

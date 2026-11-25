@@ -603,88 +603,15 @@ export interface PluginGearItem {
   action: PluginGearAction;
 }
 
-/** One node in a plugin-authored declarative UI descriptor (issue #1185). `type` must
- *  match a host registry key, else the UI renders a fallback tile. `props` are
- *  JSON-serializable only; string props render VERBATIM (plugin-authored DATA, never an
- *  i18n key — consistent with the verbatim-data rule for tool-use summaries / PR titles).
- *
- *  Graphical node types (issue #1189) the host renders from `PLUGIN_UI_REGISTRY`, in
- *  addition to the flat primitives. All props are JSON-serializable; string props render
- *  VERBATIM (plugin-authored data). Tones reuse the vocabulary `neutral | ok | warn | error | info`.
- *
- *  - `gauge`        — radial snapshot of one value.
- *                     props: { label: string; value: number; max: number; tone?: Tone; caption?: string }
- *  - `sparkline`    — inline mini-trend from a short history.
- *                     props: { label?: string; points: number[]; tone?: Tone; caption?: string }
- *  - `time-series`  — line/area chart of a value over time.
- *                     props: { series: { label: string; tone?: Tone; points: number[] }[]; yMax?: number; kind?: "line" | "area"; caption?: string }
- *  - `bar-chart`    — categorical distribution.
- *                     props: { bars: { label: string; value: number; tone?: Tone }[]; max?: number; orientation?: "horizontal" | "vertical" }
- *  - `timeline`     — recent discrete events.
- *                     props: { events: { at: string; label: string; caption?: string; tone?: Tone }[] }
- *
- *  Interactive node (issue #1209) — the first non-display node:
- *
- *  - `action-button` — a clickable control that POSTs a plugin-authored body to one of THIS
- *                      plugin's own routes (`/api/plugins/<thisPluginId>/<route.path>`). The
- *                      host resolves the path under the plugin's own namespace (never an
- *                      arbitrary URL) and validates it (no leading `/`, no `..`); `route.method`
- *                      MUST be `"POST"` (a GET fetch with a body throws). `body` is opaque
- *                      plugin-authored JSON sent VERBATIM. An optional `confirm` string gates
- *                      the POST behind a confirmation dialog. `label`/`confirm` are verbatim DATA.
- *                      Set `submit: true` to also send the view's input fields (below).
- *                      props: { label: string; tone?: Tone; route: { method: "POST"; path: string };
- *                               body?: unknown; confirm?: string; submit?: boolean }
- *
- *  Input nodes (issue #1961) — editable settings. These NEVER post on their own: each one
- *  contributes a NAMED FIELD to the body of a `submit: true` action-button, so "POST a
- *  plugin-authored body to your own route" stays the only network primitive and the
- *  action-button's namespace guard keeps applying unchanged. The field scope is the whole
- *  published view (one `publishUI` call), and on a key collision the FIELD wins over the
- *  button's static `body` — the input is the live value, the body is the constant.
- *
- *  Every input needs a `name` (`/^[A-Za-z0-9_.-]{1,64}$/`), unique across the view — two
- *  inputs sharing a name make the posted body non-deterministic, so the whole view is
- *  rejected. `label` is optional verbatim DATA; when absent, `name` becomes the accessible
- *  name. `value` seeds the field and re-seeds it ONLY when the published value actually
- *  changes, so a plugin that re-publishes its panel on a timer never clobbers what the
- *  operator is typing.
- *
- *  - `text-input`   — free text. `secret: true` renders a masked field; that is MASKING ONLY,
- *                     the value still travels as plaintext JSON to the plugin's own route.
- *                     A secret field is WRITE-ONLY: the host strips any seeded `value`, so it
- *                     always renders empty — treat an empty submitted string as "unchanged"
- *                     and persist the rest with `ctx.secrets.set`.
- *                     props: { name: string; label?: string; value?: string;
- *                              placeholder?: string; secret?: boolean }   → posts a string
- *  - `select`       — a choice among values the plugin enumerates. When `value` is absent or
- *                     not among `options`, the field seeds to the FIRST option, so the posted
- *                     value is always one the plugin offered.
- *                     `searchable: true` renders a filterable list for long option sets. It
- *                     does NOT seed the first option: it posts "" until the operator picks
- *                     one, and again if the picked option leaves `options`, so validate in
- *                     your route. `mono: true` sets option labels in the machine font.
- *                     props: { name: string; label?: string; value?: string;
- *                              searchable?: boolean; mono?: boolean;
- *                              options: { value: string; label?: string }[] } → posts a string
- *  - `multi-select` — a filterable checklist. Picks that leave `options` are dropped, so a
- *                     successful "add the picked ones" clears itself. Host keeps plugin order.
- *                     props: { name: string; label?: string; value?: string[]; mono?: boolean;
- *                              options: { value: string; label?: string }[] } → posts a string[]
- *  - `checkbox`     — a boolean toggle.
- *                     props: { name: string; label?: string; value?: boolean } → posts a boolean
- *  - `number`       — a numeric field. Posts `null` when empty or unparseable; the plugin
- *                     validates range in its own route handler (the host does not clamp).
- *                     props: { name: string; label?: string; value?: number;
- *                              placeholder?: string }   → posts a number or null
- *
- *  `action-list` is not an input: a filterable list whose row click POSTs `{ [param]: value }`
- *  to the node's route. One node however many rows, so a long list stays clear of the 256-node
- *  budget. An empty response body stays silent; non-empty text toasts.
- *  props: { label?: string; param: string; route: { method: "POST"; path: string };
- *           mono?: boolean;
- *           items: { value: string; label?: string; meta?: string; current?: boolean }[] }
- */
+/** One node in a plugin-authored declarative UI descriptor (#1185). Host-enforced contract:
+ *  - `type` must match a `PLUGIN_UI_REGISTRY` key, else the UI renders a fallback tile.
+ *  - `props` are JSON-serializable only; string props render VERBATIM (plugin data, never i18n).
+ *  - `action-button` POSTs (never GETs) a verbatim body, only to THIS plugin's own
+ *    `/api/plugins/<id>/<route.path>` (no leading `/`, no `..`).
+ *  - Input nodes never post on their own: each adds a NAMED field (unique across the view, else
+ *    the whole view is rejected) to a `submit: true` button's body; a field wins over `body`.
+ *  Per-node props and semantics (graphical, action, input, action-list nodes):
+ *  docs/plugins.md#declarative-ui-panel-publishui */
 export interface PluginUINode {
   type: string;
   props?: Record<string, unknown>;

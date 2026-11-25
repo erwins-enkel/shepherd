@@ -267,10 +267,10 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
  * every active session and prunes the cache. A faster `fastTick` (every
  * `fastIntervalMs`, default 15s) re-polls only sessions with an *open* PR — the
  * in-flight ones whose CI/merge/review state can still move. Without it the list
- * overview lagged the detail view (GitRail, which polls its open PR every 15s):
- * `checks: "pending"` is short-lived and the 120s sweep routinely sampled `none`
- * then `success` two sweeps later, never recording the running state, so the
- * list jumped straight to green and never showed the pulsing "CI running" dot.
+ * overview lags the detail view (GitRail, which polls its open PR every 15s):
+ * `checks: "pending"` is short-lived, so the 120s sweep can sample `none` then
+ * `success` and never record the running state — the list would jump straight to
+ * green and never show the pulsing "CI running" dot.
  * Each transient PR backs off on the fast cadence (15 s for 2 min after a push or new
  * head, then 30 s, then 60 s while CI runs, up to {@link CI_FAST_MAX_MS}; #2867), and while
  * the fast sweep covers a PR the full sweep leaves it alone. A due head pulls its repo's other

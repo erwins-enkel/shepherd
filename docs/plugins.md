@@ -81,19 +81,27 @@ source resolves one of two ways:
   install with no local `.git`) — the highest **semver tag** on that repo is the candidate,
   read without a full clone (`git ls-remote --tags` + a checkout-less fetch of the tag's
   `plugin.json`); or
-- its folder is a **git checkout with an upstream** (the symlink-to-checkout dev workflow) —
-  the upstream tip's `plugin.json` is the candidate, read after a `git fetch` that never
-  touches the working tree.
+- its folder is a **git checkout with an upstream** (every UI install, plus the
+  symlink-to-checkout dev workflow) — the upstream tip's `plugin.json` is the candidate, read
+  after a `git fetch` that only moves remote-tracking refs, never the working tree.
 
-The installed `version` is compared to the candidate by real semver; only a strictly-newer,
-`apiVersion`-compatible candidate is offered (a version bump that would be rejected at load is
-shown as **incompatible**, not update-available). Detection is read-only — it never mutates a
-folder on its own.
+The two are not exclusive: a declared `repository` that publishes **no version tags** falls back
+to the checkout instead of a dead end. Anything else reports **no source**.
+
+The installed `version` is what you are on. An update exists when the candidate is strictly newer
+by real semver, **or** when the checkout is **behind its upstream** while the version stayed put
+(code shipped without a version bump). That drift is ignored for a **symlinked** install — its
+source tree is yours to manage. Either way the candidate must be `apiVersion`-compatible: a
+version that would be rejected at load is shown as **incompatible**, not update-available.
+Detection is read-only and fail-safe — it never mutates a folder on its own, and a git or parse
+error shows as a per-plugin error or no-source state, never a spurious badge. There is no
+background auto-update.
 
 **Applying** (the modal's **Update** / **Update all** buttons, or
-`POST /api/plugin-update/apply` `{ id }`) is a re-verified fetch-and-swap on disk: a git
-checkout **fast-forwards** to its upstream (untracked `config.json` preserved); a `repository`
-install **clones the latest tag** into a scratch dir beside the folder, carries `config.json`
+`POST /api/plugin-update/apply` `{ id }`) is a re-verified fetch-and-swap on disk, by the source
+the check resolved (a tag-less `repository` resolves through its checkout): a git checkout
+**fast-forwards** to its upstream (untracked `config.json` preserved); a `repository` install
+**clones the latest tag** into a scratch dir beside the folder, carries `config.json`
 over, and swaps it in behind a backup (a mid-swap failure restores the original). A **symlinked**
 install is refused — its source lives outside the plugins dir and is yours to update. After the
 swap Shepherd re-activates the plugin: if it **wasn't loaded** it goes live immediately; if it
@@ -558,6 +566,36 @@ if (typeof ctx.publishUI === "function") {
 - Validation is **fail-open**: size-capped (64 KB), max depth 16, max 256 nodes, max 500
   children per node; array values in `props` are also capped at 500 entries. Invalid views
   are silently dropped; the prior view is kept.
+- Each node is `{ type, props?, children? }`. `type` must be a key of the host's node registry;
+  an unknown type renders a placeholder tile. `props` must be JSON-serializable.
+
+### Graphical nodes
+
+Besides the basic display nodes (`stack`, `text`, `badge`, `meter`, `table`, `key-value`,
+`callout`), the host renders five chart nodes. `Tone` is one of `neutral`, `ok`, `warn`, `error`
+or `info`.
+
+| Node          | Shows                              | Props                                                                                          |
+| ------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `gauge`       | a radial snapshot of one value     | `label`, `value: number`, `max: number`, `tone?`, `caption?`                                   |
+| `sparkline`   | an inline trend from short history | `label?`, `points: number[]`, `tone?`, `caption?`                                              |
+| `time-series` | a value over time                  | `series: { label, tone?, points: number[] }[]`, `yMax?`, `kind?: "line" \| "area"`, `caption?` |
+| `bar-chart`   | a categorical distribution         | `bars: { label, value: number, tone? }[]`, `max?`, `orientation?: "horizontal" \| "vertical"`  |
+| `timeline`    | recent discrete events             | `events: { at: string, label, caption?, tone? }[]`                                             |
+
+### Action button
+
+`action-button` POSTs a plugin-authored body to one of **this plugin's own routes**:
+`/api/plugins/<your-plugin-id>/<route.path>`. Props are `label`, `tone?`,
+`route: { method: "POST", path }`, `body?`, `confirm?` and `submit?`.
+
+- The host resolves `path` under your plugin's namespace, never as an arbitrary URL, and rejects
+  a leading `/` or a `..` segment (the whole view is dropped).
+- `route.method` must be `"POST"`: a GET request cannot carry a body.
+- `body` is opaque JSON, sent **verbatim**.
+- `confirm`, when set, puts the POST behind a confirmation dialog showing that text.
+- `label` and `confirm` are verbatim plugin data.
+- `submit: true` also sends the view's input fields — see below.
 
 ### Editable settings — input nodes + a submitting button
 
@@ -639,7 +677,7 @@ Contract details worth knowing before you build a panel:
 - **Filterable lists keep your order.** The host never sorts `options`, so sort by the label the
   operator reads. `mono: true` sets labels in the machine font, for repo names and other
   identifiers.
-- **`action-list` holds long lists in one node.** It is not an input: a row click POSTs
+- **`action-list` holds long lists in one filterable node.** It is not an input: a row click POSTs
   `{ [param]: value }` to `route`. Props are `label?`, `param`, `route`, `mono?` and
   `items: { value, label?, meta?, current? }[]`. An empty response stays silent; other text
   toasts. Use it when a row per node would exceed the 256-node limit.

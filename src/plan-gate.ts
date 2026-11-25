@@ -179,17 +179,16 @@ export const PLAN_BASELINE_FILE = ".shepherd-plan-previous.md";
  *
  *  Applied ONLY to the plan text embedded in {@link planReviewPrompt} — the plan file on disk, the
  *  UI's copy and the planning agent's own view are untouched, and so are `task` / `issueBody` /
- *  prior findings (see below). It exists because the planner and the reviewer historically read
- *  DIFFERENT trees, so a line number correct on one side was wrong on the other and the round was
- *  spent arguing about it. `planAnchorSha` now co-locates the two trees, which fixes the common
- *  case; this strip is the deterministic backstop for the case the anchor cannot reach — a plan
- *  reference into code the planner has itself committed this session, which the merge-base anchor
- *  deliberately excludes. The prompt FORBIDS line-number findings; this makes them unraisable.
+ *  prior findings (see below). `planAnchorSha` co-locates the planner's and reviewer's trees so a
+ *  line number correct on one side is correct on the other in the common case; this strip is the
+ *  deterministic backstop for the case the anchor cannot reach — a plan reference into code the
+ *  planner has itself committed this session, which the merge-base anchor deliberately excludes.
+ *  The prompt FORBIDS line-number findings; this makes them unraisable.
  *
  *  Deliberately NOT applied to:
  *  - `task` / `issueBody` — human-authored ground truth the reviewer judges the plan against,
- *    fixed across rounds. Stripping them cost the reviewer the ability to check the plan targets
- *    the location the operator actually named, and bought nothing: no round-over-round churn
+ *    fixed across rounds. Stripping them costs the reviewer the ability to check the plan targets
+ *    the location the operator actually named, and buys nothing: no round-over-round churn
  *    originates there.
  *  - prior findings — `planReviewPrompt` orders them re-raised VERBATIM. Mutating one turns
  *    "the ref `x.ts:12` points at the wrong function" into an un-addressable "the ref `x.ts`
@@ -407,19 +406,19 @@ export function planReviewPrompt(
 /**
  * FINDINGS ROUTING (#1948) — what may block a plan and what may not.
  *
- * The plan reviewer's only contract used to be "approve, or request-changes with at least one
- * finding". With no non-blocking channel, a wording preference had exactly one legal exit: a
- * blocking finding that costs a full rework round. The PR critic solved the same problem with named
- * non-blocking body sections (`critic-core.ts` → the scope-creep / smells / latent lenses), each
- * forbidden from `findings` because ANY entry there advances the streak, is steered back to the
- * agent, and is re-raised the next round. This is the plan-side counterpart.
+ * With only "approve, or request-changes with at least one finding" and no non-blocking channel, a
+ * wording preference has exactly one legal exit: a blocking finding that costs a full rework
+ * round. The PR critic solves the same problem with named non-blocking body sections
+ * (`critic-core.ts` → the scope-creep / smells / latent lenses), each forbidden from `findings`
+ * because ANY entry there advances the streak, is steered back to the agent, and is re-raised the
+ * next round. This is the plan-side counterpart.
  *
  * Three rules carry most of the weight, each aimed at an observed failure:
  *  - The enumerated blocking list replaces an open-ended "is it the best path" judgement.
  *  - The SCOPE-DEMAND rule stops findings that require the plan to grow beyond its task — the
- *    mechanism behind plans reaching 32 KB and 28 success criteria across a dozen rounds.
+ *    mechanism behind plans ballooning round over round.
  *  - The PROSE rule stops findings that ask for more argument about a decision already stated
- *    (observed verbatim: "Argue the rejection of X instead of listing it").
+ *    (e.g. "Argue the rejection of X instead of listing it").
  *
  * The cap is ADVISORY and worded so it can never lose information: unlike `scopeFindings` in
  * critic-core (which enforces a decidable predicate — is this path in the diff?), "is this finding
@@ -2814,10 +2813,10 @@ export interface PlanAnchorResolution {
  *    pre-seeded-verdict hole is separately closed by `scrubStaleVerdictArtifacts`; scrubbing one
  *    known filename does nothing about repo-level agent configuration.)
  *
- *  Falls back to the previous behaviour on any failure — `origin/<base>` → `<base>` → the bare ref
- *  name — flagged `anchored: false` so the prompt degrades honestly. The last rung is effectively
- *  an error path: `createDetached` validates `/^[0-9a-f]{7,40}$/` and throws on a branch name, and
- *  `begin()` turns that into `error-worktree`. It is kept as-is rather than removed.
+ *  Falls back on any failure — `origin/<base>` → `<base>` → the bare ref name — flagged
+ *  `anchored: false` so the prompt degrades honestly. The last rung is effectively an error path:
+ *  `createDetached` validates `/^[0-9a-f]{7,40}$/` and throws on a branch name, and `begin()` turns
+ *  that into `error-worktree`. It is kept as-is rather than removed.
  *
  *  Resolved BEFORE `createDetached`'s fetch, which is sound: a merge-base does not move when
  *  `origin/<base>` merely fast-forwards. Only the staleness DISTANCE needs the fresh ref — see

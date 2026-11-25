@@ -18,7 +18,7 @@
 //     herdr's ExecStopPost, which stops the agents slice, stops heavy runs too.
 //
 // Enabled only where agent scopes are (src/agent-scope.ts) and `busctl` runs. Everywhere else the
-// latch stays false and the runner path is unchanged.
+// latch stays false and the runner path is unchanged. Operator view: docs/cli.md#heavy-check-slot.
 
 import { readFile } from "node:fs/promises";
 import { agentScopeEnabled } from "./agent-scope";

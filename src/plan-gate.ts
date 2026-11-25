@@ -1426,6 +1426,10 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     }
     const aux = assembleAuxSpawn(patch, auxArgs, argvFor(fitted.prompt));
     const spawnedAt = this.now();
+    // Record the reviewed text BEFORE the spawn row: a restart can then always recover the text a
+    // persisted `reviewedPlanHash` names (#4160). A launch that fails below leaves a revision that
+    // never got a review — harmless, recordAgentPlanRevision dedups the retry on the same text.
+    this.recordReviewedRevision(session.id, planHash, plan);
     // Persist ownership before launch so a server restart during Herdr orchestration can adopt
     // this run and preserve the worktree that receives its verdict.
     try {
@@ -1438,6 +1442,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
         model: reviewerEnv.model,
         reviewerEffort,
         spawnedAt,
+        reviewedPlanHash: planHash,
       });
     } catch (err) {
       console.warn(`[plan-gate] ownership persistence failed for ${session.id}:`, err);
@@ -1475,7 +1480,6 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     console.log(
       `[plan-gate] plan-blocks captured session=${session.id} planHash=${planHash.slice(0, 8)} blocks=${blocks.length}`,
     );
-    this.recordReviewedRevision(session.id, planHash, plan);
     this.inflight.set(session.id, {
       sessionId: session.id,
       repoPath: session.repoPath,
@@ -1554,33 +1558,49 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
         await this.reapOrphanSpawn(sp);
         continue;
       }
-      const adopted = await this.buildAdoptedInflight(sp, s, prior);
-      this.inflight.set(id, adopted);
-      this.deps.onReviewing?.(id, true, {
-        provider: adopted.reviewerProvider,
-        model: adopted.reviewerModel,
-        effort: adopted.reviewerEffort,
-      });
+      await this.adoptOrphan(sp, s, prior);
     }
   }
 
+  /** Claim one restart-orphaned review into `inflight` — or reap it when the plan text its
+   *  reviewer read is gone (#4160): that verdict can't be stamped on anything a reviewer read, so
+   *  fail safe and close the run; a later settle edge re-reviews the current plan. */
+  private async adoptOrphan(
+    sp: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+    s: Session,
+    prior: PlanGate | null,
+  ): Promise<void> {
+    const adopted = await this.buildAdoptedInflight(sp, s, prior);
+    if (!adopted) {
+      console.warn(`[plan-gate] reviewed plan not recoverable for ${s.id}; reaping orphan`);
+      await this.reapOrphanSpawn(sp);
+      return;
+    }
+    this.inflight.set(s.id, adopted);
+    this.deps.onReviewing?.(s.id, true, {
+      provider: adopted.reviewerProvider,
+      model: adopted.reviewerModel,
+      effort: adopted.reviewerEffort,
+    });
+  }
+
   /** Rebuild an in-flight entry for a restart-orphaned plan review from its persisted spawn row.
-   *  Split out of adoptOrphans to keep that loop's cognitive complexity within the health bar. */
+   *  Split out of adoptOrphans to keep that loop's cognitive complexity within the health bar.
+   *  null when the plan text the reviewer read can't be recovered (see reviewedPlanFor). */
   private async buildAdoptedInflight(
     sp: ReturnType<SessionStore["listReviewerSpawns"]>[number],
     s: Session,
     prior: PlanGate | null,
-  ): Promise<PlanInFlight> {
-    const plan = (this.readPlan(s.worktreePath) ?? "").trim();
+  ): Promise<PlanInFlight | null> {
+    const reviewed = this.reviewedPlanFor(sp, s);
+    if (!reviewed) return null;
     return {
       sessionId: s.id,
       repoPath: s.repoPath,
       worktreePath: sp.worktreePath,
       terminalId: await this.resolveTerminal(sp.worktreePath),
       reviewerSessionId: sp.reviewerSessionId,
-      planHash: await PlanGateService.hashPlan(plan),
-      plan,
-      blocks: this.readPlanBlocks(s.worktreePath),
+      ...reviewed,
       reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider, sp.model),
       reviewerModel: sp.model,
       reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
@@ -1598,6 +1618,27 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       demotionActive: false,
       startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
     };
+  }
+
+  /** The plan an orphaned reviewer was given (#4160) — what its verdict must be stamped on, even if
+   *  the plan file changed while it ran. The text comes from the live file when it still matches,
+   *  else from the revision begin() recorded; the on-disk blocks sidecar then belongs to the newer
+   *  plan, so it is dropped. A legacy row (no `reviewedPlanHash`) adopts the live plan, as before.
+   *  null when no revision holds the reviewed hash. */
+  private reviewedPlanFor(
+    sp: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+    s: Session,
+  ): Pick<PlanInFlight, "planHash" | "plan" | "blocks"> | null {
+    const live = (this.readPlan(s.worktreePath) ?? "").trim();
+    const liveHash = planHashOf(live);
+    const reviewedHash = sp.reviewedPlanHash ?? liveHash;
+    if (reviewedHash === liveHash) {
+      return { planHash: liveHash, plan: live, blocks: this.readPlanBlocks(s.worktreePath) };
+    }
+    const revision = this.deps.store
+      .listPlanRevisions(s.id)
+      .findLast((r) => r.planHash === reviewedHash);
+    return revision ? { planHash: reviewedHash, plan: revision.plan, blocks: [] } : null;
   }
 
   /** Targeted reap of an orphaned plan-review spawn whose gate already landed `approved` — mirrors

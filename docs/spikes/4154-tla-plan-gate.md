@@ -42,7 +42,7 @@ states.
 | Property                  | Kind   | Statement                                                                                                                                               | Code as-is                |
 | ------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | `ExecApproved`            | action | Go / chat release → `executing` only with an approved gate. For Go, on the planHash snapshotted at Go start. PR auto-advance (#809) excluded by design. | holds                     |
-| `ApprovalMatchesReviewed` | state  | A reviewer's approval is stamped on the hash of the text that reviewer read.                                                                            | **violated** (CE-1)       |
+| `ApprovalMatchesReviewed` | state  | A reviewer's approval is stamped on the hash of the text that reviewer read.                                                                            | fixed (CE-1, #4160)       |
 | `NoStaleReviewer`         | state  | An approved gate plus a reviewer whose verdict is still pending means that reviewer is a re-review of a different plan.                                 | **violated** (CE-2)       |
 | `RegateSticks`            | state  | `approvedAt` set but not approved means the session is `planning`.                                                                                      | **violated** (CE-3)       |
 | `NoExecWhileRegated`      | action | No planning → executing step while the gate is re-gated.                                                                                                | holds                     |
@@ -65,6 +65,8 @@ Each trace below is the shortest TLC found with only that fix removed from `Plan
 - **Fix (`adoptPlan`):** adopt with the hash the reviewer read. That text is already recorded as a
   plan revision in `begin()`.
 - **Repro:** `test/plan-gate-tla-repro.test.ts` "CE-1".
+- **Status:** fixed (#4160). The spawn row stores `reviewedPlanHash`; adoption takes the text from
+  that revision and reaps the orphan when no revision holds it. The repro is now a plain `test`.
 
 ### CE-2: `consider()` races `adoptOrphans` at boot (confirmed, [#4161](https://github.com/erwins-enkel/shepherd/issues/4161))
 

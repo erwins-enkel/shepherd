@@ -1,7 +1,7 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PlanGateService, shouldConsiderOnSettle } from "../src/plan-gate";
+import { PlanGateService, planHashOf, shouldConsiderOnSettle } from "../src/plan-gate";
 import { CodexRolloutResolver } from "../src/codex-activity";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -1742,6 +1742,79 @@ test("adoptOrphans re-adopts an orphaned review; next tick finalizes it from the
   expect(h.store.gate.round).toBe(2); // priorRound (1) advanced once the steer landed
   expect(replied).toEqual(["s1"]); // findings steered back to the planning agent
   expect(h.removed).toContain("/wt-detached"); // reviewer worktree reaped
+});
+
+// #4160: an adopted orphan's verdict lands on the plan its reviewer READ, not the post-restart file.
+const BLOCK = { type: "callout", id: "b1", tone: "info", markdown: "x" };
+function editedPlanOrphan(revisions: any[]) {
+  return harness({
+    now: () => 1000,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [orphanSpawn({ reviewedPlanHash: planHashOf("PLAN A") })],
+      listPlanRevisions: () => revisions,
+    },
+    readPlan: () => "PLAN B", // edited while the review ran
+    readPlanBlocks: () => [BLOCK],
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+}
+
+test("adoptOrphans stamps the approval on the reviewed plan's revision when the plan changed", async () => {
+  const h = editedPlanOrphan([
+    { revision: 1, planHash: planHashOf("PLAN A"), plan: "PLAN A" },
+    { revision: 2, planHash: planHashOf("PLAN Z"), plan: "PLAN Z" },
+  ]);
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    approved: true,
+    planHash: planHashOf("PLAN A"),
+    plan: "PLAN A",
+    blocks: [], // the on-disk sidecar belongs to PLAN B
+  });
+});
+
+test("adoptOrphans reaps an orphan whose reviewed plan text is unrecoverable", async () => {
+  const h = editedPlanOrphan([]);
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual([]);
+  expect(h.completedSpawns.map((c: any) => c.id)).toEqual(["rev-1"]);
+  expect((h.store as any).gate).toBeUndefined(); // no verdict stamped on anything
+});
+
+test("adoptOrphans keeps the live text and blocks when the plan is unchanged", async () => {
+  const h = harness({
+    now: () => 1000,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      listReviewerSpawns: () => [orphanSpawn({ reviewedPlanHash: planHashOf("PLAN A") })],
+    },
+    readPlan: () => "PLAN A\n",
+    readPlanBlocks: () => [BLOCK],
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.adoptOrphans();
+  await h.svc.tick();
+  expect(h.store.gate).toMatchObject({
+    approved: true,
+    planHash: planHashOf("PLAN A"),
+    plan: "PLAN A",
+    blocks: [BLOCK],
+  });
+});
+
+test("begin records the reviewed revision before the spawn row, which carries its hash", async () => {
+  const order: string[] = [];
+  const h = harness({
+    store: {
+      recordAgentPlanRevision: () => order.push("revision"),
+      recordReviewerSpawn: (r: any) => order.push(`spawn:${r.reviewedPlanHash}`),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(order).toEqual(["revision", `spawn:${planHashOf("PLAN TEXT")}`]);
 });
 
 test("adoptOrphans restores durable reviewer environment metadata", async () => {

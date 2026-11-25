@@ -1344,6 +1344,9 @@ export interface ReviewerSpawnRow {
    *  — not only on `reviews` — because `archive()` drops the review row, and the delivery metrics
    *  read exclusively archive-decoupled tables. */
   planDrift: PlanDrift | null;
+  /** `plan_gate` only: hash of the plan text the reviewer was given (#4160). Restart adoption
+   *  stamps the verdict on this, not on the live plan. NULL for other kinds and legacy rows. */
+  reviewedPlanHash?: string | null;
 }
 
 /** Terminal state of one reviewer run. `review` kinds resolve to clean/changes_requested/error;

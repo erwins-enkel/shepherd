@@ -18,6 +18,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "install the shepherd capture browser extension and turn any page into a task or session. install from the chrome web store point it at your core what a capture includes open the popup for developers",
   },
   {
+    title: "Running Shepherd alongside Claude Ship",
+    path: "/claude-ship/",
+    keywords:
+      "turn on anthropic's claude ship for a repo shepherd drains without the two pushing over each other or paying for review twice. use github app credential mode what shepherd detects the badge claude checks are review gates, not ci the merge train waits on claude approvals per-repo settings leave fixes to claude's pr steward claude code review replaces the critic start claude approvals in observe mode",
+  },
+  {
     title: "Getting started",
     path: "/getting-started/",
     keywords:

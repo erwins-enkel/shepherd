@@ -2799,6 +2799,9 @@ components:
         parentReviewId:
           type: string
           description: Kind rc only — review:<databaseId> of the review the comment belongs to.
+        threadId:
+          type: string
+          description: Kind rc only — node id of the review thread the comment sits in; Shepherd replies on and resolves it when the agent declares the comment addressed (#4139).
         status:
           anyOf:
             - type: string
@@ -10792,6 +10795,9 @@ components:
           items:
             type: string
           description: Review-bot logins (lowercase, no [bot] suffix) whose PR feedback counts without a write-access check. Only real bot accounts match. Default coderabbitai, copilot-pull-request-reviewer, copilot, claude; [] trusts no bot.
+        reviewFeedbackResolve:
+          type: boolean
+          description: Default false. When on (forge repos only), a task agent that pushed the fix for a steered inline review comment can declare it addressed; Shepherd then replies on the thread with the agent's note and the fixing commit and resolves it. Sessions pick up the tool at their next spawn or resume.
         automationConfirmed:
           type: boolean
         automationRowExists:
@@ -11008,6 +11014,9 @@ components:
           items:
             type: string
           description: Review-bot logins. PUT lowercases them, strips a trailing [bot], drops empties and deduplicates; at most 20, each a GitHub login after normalization, else 400. [] trusts no bot.
+        reviewFeedbackResolve:
+          type: boolean
+          description: Resolve addressed review threads (see RepoConfig.reviewFeedbackResolve). A non-boolean is 400.
         automationConfirmed:
           type: boolean
     RepoRoles:

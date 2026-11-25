@@ -247,6 +247,7 @@ export const reviewFeedbackItems: ReviewFeedbackRow[] = [
     path: "src/a.ts",
     line: null,
     parentReviewId: "review:1",
+    threadId: "PRRT_fixture2",
     status: "pending",
     sentAt: null,
     sentBy: null,

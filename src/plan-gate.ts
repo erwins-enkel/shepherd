@@ -1944,19 +1944,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     // that makes a real re-gate stick does not apply. It gets the pre-#2224 behaviour: findings
     // steered, phase untouched.
     //
-    // ORDER IS LOAD-BEARING TOO: this method's own write is at the tail, and regatePlanGate's guard
-    // reads the STORE — so the revoking verdict is persisted FIRST, here. The provisional write
-    // carries this run's `round` (the tail write settles it once delivery is known) and, being
-    // `approved: false` on a gate with `approvedAt` stamped, it engages advanceToExecutionOnPr's
-    // suppression at the same instant the phase flips, closing the git-poll race.
-    if (prior?.approved && this.deps.store.get(f.sessionId)?.planPhase === "executing") {
-      this.deps.store.putPlanGate(gate);
-      try {
-        await this.deps.regate(f.sessionId);
-      } catch (err) {
-        console.warn(`[plan-gate] regate failed for ${f.sessionId}:`, err);
-      }
-    }
+    // ORDER IS LOAD-BEARING TOO — see withdrawApprovalFirst.
+    if (prior?.approved) await this.withdrawApprovalFirst(f.sessionId, gate);
     let delivered = false;
     if (priorRound < this.cap) {
       try {
@@ -1983,6 +1972,29 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     this.escalateStallIfNeeded(f, gate, delivered);
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
+  }
+
+  /** Persist a re-review's revoking verdict over an APPROVED gate BEFORE applyChangesRequested awaits
+   *  its findings steer, then re-gate the session if it is executing.
+   *
+   *  The write comes first in EVERY phase (#4162). applyChangesRequested's own write is at the tail,
+   *  after the steer await; a planning session left `approved: true` across that await could be
+   *  released by Go (releasePlanGateInner) or the chat release (releasePlanOnOperatorReply) — both
+   *  guard on the STORE's `approved` — and the tail write would then land a withdrawn approval on
+   *  an executing session that nothing re-gates. regatePlanGate's guard reads the store too.
+   *
+   *  The provisional write carries this run's `round` (the tail write settles it once delivery is
+   *  known) and, being `approved: false` on a gate with `approvedAt` stamped, it engages
+   *  advanceToExecutionOnPr's suppression at the same instant the phase flips, closing the git-poll
+   *  race. Split out of applyChangesRequested to keep its cognitive complexity within the health bar. */
+  private async withdrawApprovalFirst(sessionId: string, gate: PlanGate): Promise<void> {
+    this.deps.store.putPlanGate(gate);
+    if (this.deps.store.get(sessionId)?.planPhase !== "executing") return;
+    try {
+      await this.deps.regate(sessionId);
+    } catch (err) {
+      console.warn(`[plan-gate] regate failed for ${sessionId}:`, err);
+    }
   }
 
   /** Emit the `stall` signal when a changes-requested round can't progress on its own —

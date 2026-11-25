@@ -31,6 +31,7 @@
   import GithubLens from "#lib/components/usage/GithubLens.svelte";
   import TimelineLens from "#lib/components/usage/TimelineLens.svelte";
   import DeliveryLens from "#lib/components/usage/DeliveryLens.svelte";
+  import SteeringLens from "#lib/components/usage/SteeringLens.svelte";
 
   import ModelsLens from "#lib/components/usage/ModelsLens.svelte";
 
@@ -42,7 +43,15 @@
   const cardSwipe = swipeBack({ onback: () => onclose?.(), onoffset: (px) => (cardX = px) });
 
   type Tab =
-    "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "models" | "limits" | "github";
+    | "spend"
+    | "overhead"
+    | "prompt"
+    | "timeline"
+    | "delivery"
+    | "steering"
+    | "models"
+    | "limits"
+    | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
@@ -250,9 +259,9 @@
   >
     <div class="chead">
       <span class="micro">{m.usage_page_title()}</span>
-      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-        >✕</button
-      >
+      <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}>
+        ✕
+      </button>
     </div>
 
     <!-- Tab switcher -->
@@ -262,59 +271,85 @@
         class="seg-btn"
         class:seg-active={tab === "spend"}
         aria-pressed={tab === "spend"}
-        onclick={() => (tab = "spend")}>{m.usage_spend_tab()}</button
+        onclick={() => (tab = "spend")}
       >
+        {m.usage_spend_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "overhead"}
         aria-pressed={tab === "overhead"}
-        onclick={() => (tab = "overhead")}>{m.usage_overhead_tab()}</button
+        onclick={() => (tab = "overhead")}
       >
+        {m.usage_overhead_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "prompt"}
         aria-pressed={tab === "prompt"}
         use:coachTarget={"usage-prompt-tab"}
-        onclick={() => (tab = "prompt")}>{m.usage_prompt_tab()}</button
+        onclick={() => (tab = "prompt")}
       >
+        {m.usage_prompt_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "timeline"}
         aria-pressed={tab === "timeline"}
-        onclick={() => (tab = "timeline")}>{m.usage_timeline_tab()}</button
+        onclick={() => (tab = "timeline")}
       >
+        {m.usage_timeline_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "delivery"}
         aria-pressed={tab === "delivery"}
         use:coachTarget={"usage-delivery-tab"}
-        onclick={() => (tab = "delivery")}>{m.usage_tab_delivery()}</button
+        onclick={() => (tab = "delivery")}
       >
+        {m.usage_tab_delivery()}
+      </button>
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={tab === "steering"}
+        aria-pressed={tab === "steering"}
+        use:coachTarget={"steering-report"}
+        onclick={() => (tab = "steering")}
+      >
+        {m.usage_steering_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "models"}
         aria-pressed={tab === "models"}
-        onclick={() => (tab = "models")}>{m.usage_models_tab()}</button
+        onclick={() => (tab = "models")}
       >
+        {m.usage_models_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "limits"}
         aria-pressed={tab === "limits"}
-        onclick={() => (tab = "limits")}>{m.usage_limits_tab()}</button
+        onclick={() => (tab = "limits")}
       >
+        {m.usage_limits_tab()}
+      </button>
       <button
         type="button"
         class="seg-btn"
         class:seg-active={tab === "github"}
         aria-pressed={tab === "github"}
-        onclick={() => (tab = "github")}>{m.usage_github_tab()}</button
+        onclick={() => (tab = "github")}
       >
+        {m.usage_github_tab()}
+      </button>
     </div>
 
     <!-- Range selector for every range-backed lens -->
@@ -325,29 +360,37 @@
           class="seg-btn"
           class:seg-active={range === "24h"}
           aria-pressed={range === "24h"}
-          onclick={() => (range = "24h")}>{m.usage_range_24h()}</button
+          onclick={() => (range = "24h")}
         >
+          {m.usage_range_24h()}
+        </button>
         <button
           type="button"
           class="seg-btn"
           class:seg-active={range === "7d"}
           aria-pressed={range === "7d"}
-          onclick={() => (range = "7d")}>{m.usage_range_7d()}</button
+          onclick={() => (range = "7d")}
         >
+          {m.usage_range_7d()}
+        </button>
         <button
           type="button"
           class="seg-btn"
           class:seg-active={range === "30d"}
           aria-pressed={range === "30d"}
-          onclick={() => (range = "30d")}>{m.usage_range_30d()}</button
+          onclick={() => (range = "30d")}
         >
+          {m.usage_range_30d()}
+        </button>
         <button
           type="button"
           class="seg-btn"
           class:seg-active={range === "all"}
           aria-pressed={range === "all"}
-          onclick={() => (range = "all")}>{m.usage_range_all()}</button
+          onclick={() => (range = "all")}
         >
+          {m.usage_range_all()}
+        </button>
       </div>
     {/if}
 
@@ -377,9 +420,9 @@
       {#if showBreakdownError || showTimelineError || showPromptsError || showDeliveryError}
         <div class="usage-error-banner" role="alert">
           <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
-          <button type="button" class="gbtn gbtn-secondary" onclick={retry}
-            >{m.common_retry()}</button
-          >
+          <button type="button" class="gbtn gbtn-secondary" onclick={retry}>
+            {m.common_retry()}
+          </button>
         </div>
       {/if}
 
@@ -393,6 +436,9 @@
         <TimelineLens {timeline} />
       {:else if tab === "delivery" && delivery}
         <DeliveryLens metrics={delivery} />
+      {:else if tab === "steering"}
+        <!-- Self-loading: fetches the latest report on open, then follows the WS event. -->
+        <SteeringLens />
       {:else if tab === "models" && breakdown}
         <ModelsLens models={breakdown.models} />
       {:else if tab === "limits" && limits}
@@ -401,8 +447,9 @@
         <GithubLens data={github} />
       {:else if bodyError}
         <p class="usage-status-line usage-error">{m.usage_load_error()}</p>
-        <button type="button" class="gbtn gbtn-secondary" onclick={retry}>{m.common_retry()}</button
-        >
+        <button type="button" class="gbtn gbtn-secondary" onclick={retry}>
+          {m.common_retry()}
+        </button>
       {:else if bodyLoading}
         <p class="usage-status-line">{m.common_loading()}</p>
       {/if}

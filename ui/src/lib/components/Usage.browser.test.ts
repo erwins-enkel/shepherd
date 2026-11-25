@@ -143,6 +143,8 @@ vi.mock("#lib/api.js", async () => {
     ),
     getPromptBudgets: vi.fn(() => Promise.resolve(inlinePromptBudgets)),
     getDeliveryMetrics: vi.fn((range: UsageRange) => Promise.resolve({ ...inlineDelivery, range })),
+    getSteeringReport: vi.fn(() => Promise.resolve({ running: false, report: null })),
+    runSteeringReport: vi.fn(),
   };
 });
 
@@ -194,6 +196,19 @@ describe("Usage modal component", () => {
     await expect.element(page.getByText("engineering-posture")).toBeInTheDocument();
     // The range selector belongs to the ranged lenses only.
     expect(document.querySelector(".range-row"), "no range row on the Prompt tab").toBeNull();
+  });
+
+  it("clicking the Steering tab loads the report lens without a range selector", async () => {
+    render(Usage, { onclose: vi.fn() });
+
+    const steeringBtn = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent?.trim() === m.usage_steering_tab(),
+    );
+    expect(steeringBtn, "Steering tab button exists").not.toBeNull();
+    steeringBtn!.click();
+
+    await expect.element(page.getByText(m.usage_steering_none())).toBeInTheDocument();
+    expect(document.querySelector(".range-row"), "no range row on the Steering tab").toBeNull();
   });
 
   it("clicking the Limits tab swaps to Limits lens and hides range selector", async () => {

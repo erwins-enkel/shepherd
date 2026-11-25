@@ -13,6 +13,7 @@ import { PROBE_NAME } from "../src/usage-probe";
 import { DOC_AGENT_LABEL } from "../src/doc-agent";
 import { MAINTAIN_AGENT_LABEL } from "../src/maintain";
 import { PLUGIN_AGENT_LABEL } from "../src/plugin-agents";
+import { STEERING_LABEL } from "../src/steering";
 import type { HerdrPane, HerdrTab } from "../src/herdr";
 import { SessionStore } from "../src/store";
 
@@ -850,6 +851,8 @@ describe("isShepherdHelperLabel", () => {
     ["recommend TASK-09", "prompt recommender"],
     // #2158: New Task shaping round — no session yet, so the label carries a random suffix
     ["shape a1b2c3d4", "New Task shaping round"],
+    // #4175: steering report labeller — no session, random suffix
+    [`${STEERING_LABEL}a1b2c3d4`, "steering report labeller"],
     // #2773: New Task requirements reader — no session yet either
     ["requirements a1b2c3d4", "New Task requirements reader"],
     // #2157: maintain-loop diagnosis — same class; unregistered, a restart mid-diagnosis left an
@@ -877,6 +880,7 @@ describe("isShepherdHelperLabel", () => {
     ["name-my-thing", "hyphen instead of space — not a namer helper"],
     ["recommend-tweaks", "hyphen instead of space — not a recommender helper"],
     ["shape-the-intake", "hyphen instead of space — not a shaping helper"],
+    ["steering-fix", "hyphen instead of space — not a steering helper"],
     ["maintain", "slug form of MAINTAIN_AGENT_LABEL — must NOT be reaped"],
   ];
 

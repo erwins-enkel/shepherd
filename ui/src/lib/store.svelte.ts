@@ -52,6 +52,7 @@ import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
 import { reviews, planGates, spawnNotices, repoConfig } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
+import { steeringReport } from "./steering-report.svelte";
 import { amendments } from "./amendments.svelte";
 import { reviewFeedback } from "./review-feedback.svelte";
 import { upNext } from "./up-next.svelte";
@@ -1240,6 +1241,9 @@ export class HerdStore {
         return true;
       case "star-prompt:status":
         this.starPrompt = ev.data;
+        return true;
+      case "steering:report":
+        steeringReport.apply(ev.data);
         return true;
       case "plugin-update:status":
         this.pluginUpdates = ev.data;

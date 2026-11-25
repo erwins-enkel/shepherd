@@ -13,6 +13,7 @@ import { TOKEN_SCOPES } from "../../src/token-scopes";
 import { AGENT_PROVIDERS, DISPATCH_STATES, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
 import { CiRestartHolds } from "../../src/ci-restart-hold";
+import type { SteeringReport } from "../../src/steering-core";
 import type {
   RemoteCancelResult,
   RemoteDispatchView,
@@ -1679,6 +1680,83 @@ describe("usage snapshots", () => {
     for (const limits of invalid) {
       expect(() => validateEvent("usage:limits", limits)).toThrow("violates contract");
     }
+  });
+});
+
+describe("steering report", () => {
+  const wire = (report: SteeringReport | null) => {
+    let running = false;
+    s.deps.steering = {
+      snapshot: () => ({ running, report }),
+      start: () => (running ? false : (running = true)),
+    };
+  };
+  afterAll(() => {
+    delete s.deps.steering;
+  });
+
+  test("GET /api/steering/report: none, ok and failed reports; 503 when unwired", async () => {
+    const get = () => fetch(`${s.baseUrl}/api/steering/report`, { headers: bearer(token) });
+    for (const report of [null, fx.steeringReport, fx.steeringFailedReport]) {
+      wire(report);
+      const res = await get();
+      expect(res.status).toBe(200);
+      expect(await validateResponse("GET", "/api/steering/report", res)).toEqual({
+        running: false,
+        report,
+      });
+    }
+    delete s.deps.steering;
+    const unwired = await get();
+    expect(unwired.status).toBe(503);
+    await validateResponse("GET", "/api/steering/report", unwired);
+  });
+
+  test("POST /api/steering/report/run: 202, then 409 while running; 503 when unwired", async () => {
+    const run = () =>
+      fetch(`${s.baseUrl}/api/steering/report/run`, { method: "POST", headers: bearer(token) });
+    wire(null);
+    const started = await run();
+    expect(started.status).toBe(202);
+    expect(await validateResponse("POST", "/api/steering/report/run", started)).toEqual({
+      running: true,
+    });
+    const busy = await run();
+    expect(busy.status).toBe(409);
+    expect(await validateResponse("POST", "/api/steering/report/run", busy)).toEqual({
+      error: "already running",
+      running: true,
+    });
+    delete s.deps.steering;
+    const unwired = await run();
+    expect(unwired.status).toBe(503);
+    await validateResponse("POST", "/api/steering/report/run", unwired);
+  });
+
+  test("a read-scope token is refused (operator-only)", async () => {
+    const minted = await fetch(`${s.baseUrl}/api/access-tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "steering read", expiresInDays: null, scope: "read" }),
+    });
+    const { token: read } = (await minted.json()) as { token: string };
+    wire(null);
+    const res = await fetch(`${s.baseUrl}/api/steering/report`, { headers: bearer(read) });
+    expect(res.status).toBe(403);
+  });
+
+  test("steering:report start and finish frames match the contract", async () => {
+    const emits = [
+      { running: true },
+      { running: false, id: fx.steeringReport.id, status: fx.steeringReport.status },
+      { running: false, id: fx.steeringFailedReport.id, status: fx.steeringFailedReport.status },
+    ];
+    const frames = await collectEvents(s, token, async () => {
+      for (const data of emits) s.deps.events.emit("steering:report", data);
+    });
+    const seen = frames.filter((f) => f.event === "steering:report");
+    expect(seen.map((f) => f.data)).toEqual(emits);
+    for (const f of seen) validateEvent("steering:report", f.data);
   });
 });
 

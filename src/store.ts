@@ -66,6 +66,7 @@ import type {
   EffortSwitchError,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
+import type { SteeringReport } from "./steering-core";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
@@ -1778,6 +1779,44 @@ const HEAVY_SLOT_JOB_COLUMNS = `id, sessionId, command, cwd, etaKey, state, enqu
 const REMOTE_DISPATCH_COLUMNS = `id, clientKey, instanceId, payloadHash, wireBody, state, sessionId,
   heldId, reason, code, httpStatus, createdAt, updatedAt, uploads, project`;
 
+/** Steering reports kept: a year of weekly runs (#4175). */
+const STEERING_REPORTS_KEPT = 52;
+
+interface SteeringReportRow {
+  id: string;
+  createdAt: number;
+  windowStart: number;
+  windowEnd: number;
+  trigger: SteeringReport["trigger"];
+  status: SteeringReport["status"];
+  error: string | null;
+  model: string | null;
+  report: string | null;
+}
+
+function hydrateSteeringReport(row: SteeringReportRow): SteeringReport {
+  let body: Partial<Pick<SteeringReport, "sample" | "sessions" | "labels" | "tables">> = {};
+  try {
+    body = row.report ? (JSON.parse(row.report) as typeof body) : {};
+  } catch {
+    // best-effort: a corrupt body still yields the scalar columns
+  }
+  return {
+    id: row.id,
+    createdAt: row.createdAt,
+    windowStart: row.windowStart,
+    windowEnd: row.windowEnd,
+    trigger: row.trigger,
+    status: row.status,
+    error: row.error,
+    model: row.model,
+    sample: body.sample ?? null,
+    sessions: body.sessions ?? [],
+    labels: body.labels ?? null,
+    tables: body.tables ?? null,
+  };
+}
+
 /**
  * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
  * isolation — running this ALONE (without migrateReviewerSpawnColumns) must already yield every
@@ -2244,6 +2283,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // daily sweep's `pruneReadiness` age bound is the only thing that removes one.
     this.db.run(`CREATE TABLE IF NOT EXISTS up_next_readiness (
       hash TEXT PRIMARY KEY, p REAL NOT NULL, model TEXT NOT NULL, scoredAt INTEGER NOT NULL)`);
+    // Steering reports (#4175). `report` is the JSON body (sample, sessions, labels, tables);
+    // the scalar columns are what a listing needs without parsing it. Bounded by
+    // insertSteeringReport, which keeps the newest STEERING_REPORTS_KEPT rows.
+    this.db.run(`CREATE TABLE IF NOT EXISTS steering_reports (
+      id TEXT PRIMARY KEY, createdAt INTEGER NOT NULL, windowStart INTEGER NOT NULL,
+      windowEnd INTEGER NOT NULL, trigger TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
+      model TEXT, report TEXT)`);
     // PK is composite (sessionId, id): step ids are scoped to a session so an agent may own a
     // short stable id (e.g. "s1") that survives a re-PUT, without colliding with the same id in
     // another session. Every build_queue_steps query is already session-scoped.
@@ -7718,6 +7764,40 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       key: bandKey,
       belowMinSample: belowMinSample === 1,
     }));
+  }
+
+  /** Persist a steering report, then drop all but the newest {@link STEERING_REPORTS_KEPT}. */
+  insertSteeringReport(r: SteeringReport): void {
+    const body = { sample: r.sample, sessions: r.sessions, labels: r.labels, tables: r.tables };
+    this.db.run(
+      `INSERT OR REPLACE INTO steering_reports
+         (id, createdAt, windowStart, windowEnd, trigger, status, error, model, report)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [
+        r.id,
+        r.createdAt,
+        r.windowStart,
+        r.windowEnd,
+        r.trigger,
+        r.status,
+        r.error,
+        r.model,
+        JSON.stringify(body),
+      ],
+    );
+    this.db.run(
+      `DELETE FROM steering_reports WHERE id NOT IN
+         (SELECT id FROM steering_reports ORDER BY createdAt DESC, rowid DESC LIMIT ?)`,
+      [STEERING_REPORTS_KEPT],
+    );
+  }
+
+  /** The newest steering report, or null when none was ever generated. */
+  latestSteeringReport(): SteeringReport | null {
+    const row = this.db
+      .query(`SELECT * FROM steering_reports ORDER BY createdAt DESC, rowid DESC LIMIT 1`)
+      .get() as SteeringReportRow | null;
+    return row ? hydrateSteeringReport(row) : null;
   }
 
   insertMaintainRun(run: MaintainRun): void {

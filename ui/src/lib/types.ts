@@ -2876,6 +2876,95 @@ export interface UsageJudgeSpend {
  *  `--append-system-prompt`, Codex inline on the prompt (it has no such flag). */
 export type PromptBudgetDelivery = "append-system-prompt" | "inline-prompt";
 
+// ── steering report (#4175) — mirrors src/steering-core.ts ──────────────────────────────────
+
+export type SteeringOrigin = "typed" | "issue" | "auto" | "schedule" | "repair" | "template";
+export type SteeringPromptStyle = "prescribing" | "describing";
+export type SteeringIntent = "correction" | "scope" | "clarification" | "approval";
+export type SteeringReportStatus = "ok" | "thin" | "empty" | "failed";
+
+export interface SteeringReportSession {
+  desig: string;
+  repo: string;
+  origin: SteeringOrigin;
+  outcome: string | null;
+  durationMin: number | null;
+  operatorSteerCount: number;
+  shepherdSteers: Record<string, number>;
+}
+
+export interface SteeringLabels {
+  prompts: { desig: string; type: string; style: SteeringPromptStyle }[];
+  steers: { desig: string; index: number; intent: SteeringIntent }[];
+  findings: { text: string; desigs: string[] }[];
+  examples: { desig: string; quote: string; evidence: string; rewrite: string }[];
+}
+
+/** One table row; every number is server-computed from the digest, never by the helper. */
+export interface SteeringRow {
+  key: string;
+  n: number;
+  /** Fewer than 3 sessions: read as an anecdote, not a pattern. */
+  thin: boolean;
+  /** 0..1 */
+  mergedShare: number;
+  medianOperatorSteers: number;
+  medianReview: number;
+  medianCi: number;
+  medianPlanReview: number;
+  medianDurationMin: number | null;
+}
+
+export interface SteeringIntentRow {
+  intent: SteeringIntent;
+  start: number;
+  mid: number;
+  end: number;
+}
+
+export interface SteeringTables {
+  byType: SteeringRow[];
+  byStyle: SteeringRow[];
+  intents: SteeringIntentRow[];
+}
+
+export interface SteeringSample {
+  windowStart: number;
+  windowEnd: number;
+  considered: number;
+  capped: boolean;
+  skipped: {
+    unarchived: number;
+    terminal: number;
+    relaunch: number;
+    noop: number;
+    outOfWindow: number;
+  };
+}
+
+/** A stored steering report (`GET /api/steering/report`). `labels`/`tables` are null for
+ *  `empty` and `failed`; `sample` is null only when a run failed before its digest existed. */
+export interface SteeringReport {
+  id: string;
+  createdAt: number;
+  windowStart: number;
+  windowEnd: number;
+  trigger: "manual" | "weekly";
+  status: SteeringReportStatus;
+  /** `unavailable` | `oversized` | `timeout` | `unparseable` | `spawn-failed: <msg>` | other text. */
+  error: string | null;
+  model: string | null;
+  sample: SteeringSample | null;
+  sessions: SteeringReportSession[];
+  labels: SteeringLabels | null;
+  tables: SteeringTables | null;
+}
+
+export interface SteeringReportSnapshot {
+  running: boolean;
+  report: SteeringReport | null;
+}
+
 /** What one named block of the spawn prompt cost. `tokens` is an ESTIMATE (chars/4), never a
  *  tokenizer measurement — every surface that shows it must say so. */
 export interface PromptBlockMeasure {
@@ -3890,6 +3979,12 @@ export type WsEvent =
   | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "schedules:changed"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
+  /** #4175: a steering-report run started (`running: true`) or finished. A status signal only:
+   *  the report body is GET-only (full scope), so the client re-fetches it on finish. */
+  | {
+      event: "steering:report";
+      data: { running: true } | { running: false; id: string; status: SteeringReport["status"] };
+    }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   /** #4126: the session's FULL pending review-feedback list, so `[]` is a genuine all-clear. */
   | {

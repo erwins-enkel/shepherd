@@ -5,6 +5,7 @@ import { reapTransientByLabel } from "../src/transient-tab-reaper";
 import { AUTOPILOT_LABEL } from "../src/autopilot";
 import { NAMER_LABEL } from "../src/namer";
 import { RECOMMEND_LABEL } from "../src/prompt-recommend";
+import { STEERING_LABEL } from "../src/steering";
 import { VERIFY_KEY_LABEL } from "../src/verify-key";
 import type { HerdrAgent, HerdrTab } from "../src/herdr";
 import type { HerdrState } from "../src/types";
@@ -159,6 +160,8 @@ const SYNC_HELPERS = [
   // #1852: prompt-recommend previously had NO reconcile coverage at all — not in this
   // boot reap, not in isShepherdHelperLabel — so a restart mid-run leaked its tab forever.
   { label: RECOMMEND_LABEL, ident: "RECOMMEND_LABEL" },
+  // #4175: steering report labeller.
+  { label: STEERING_LABEL, ident: "STEERING_LABEL" },
 ] as const;
 
 // One behavioral case per label, deliberately NOT a restatement of `closes ALL unowned prefix

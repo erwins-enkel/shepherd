@@ -325,6 +325,8 @@ const usageGetRoutes: Record<string, GetHandler> = {
   "/api/usage/github": () => json(demoState.githubRateLimit()),
   "/api/usage/github-actions": () => json(demoState.githubActionsBilling()),
   "/api/prompt-budget": () => json(demoState.promptBudgets()),
+  // Steering report (#4175): the demo has no archived history to retro, so no report exists.
+  "/api/steering/report": () => json({ running: false, report: null }),
 };
 
 // ── ambient reads (#2295) ────────────────────────────────────────────────────
@@ -713,8 +715,16 @@ function handleRepoBootstrapMutation(method: string, path: string): Response | n
   return write ? json(DEMO_BOOTSTRAP) : null;
 }
 
+/** The demo spawns no helper, so a steering run answers the server's own "unavailable" refusal
+ *  (the lens shows its retry hint) rather than the success stub, which would spin forever. */
+function handleSteeringMutation(method: string, path: string): Response | null {
+  if (path !== "/api/steering/report/run" || method !== "POST") return null;
+  return json({ error: "steering report unavailable" }, 503);
+}
+
 function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
   return (
+    handleSteeringMutation(method, path) ??
     handleSettingsMutation(method, path, body) ??
     handleSettingsSourceMutation(method, path, body) ??
     handleJudgeConnectionMutation(method, path, body) ??

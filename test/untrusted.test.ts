@@ -16,6 +16,7 @@ import { buildRecapPrompt } from "../src/recap-core";
 import { prReviewPrompt, reviewPrompt } from "../src/critic-core";
 import { planReviewPrompt } from "../src/plan-gate";
 import { buildDiagnosisPrompt } from "../src/maintain-core";
+import { buildSteeringPrompt } from "../src/steering-core";
 
 describe("isTrustedAssociation", () => {
   it("trusts OWNER/MEMBER/COLLABORATOR", () => {
@@ -124,6 +125,19 @@ describe("#2002 fence ⇒ directive invariant", () => {
     ["reviewPrompt", reviewPrompt("origin/main", "task", [], [], "issue text")],
     ["prReviewPrompt", prReviewPrompt("origin/main", "title", "body")],
     ["planReviewPrompt", planReviewPrompt("task", "plan text", [], "issue text")],
+    [
+      "buildSteeringPrompt",
+      buildSteeringPrompt({
+        sample: {
+          windowStart: 0,
+          windowEnd: 1,
+          considered: 0,
+          capped: false,
+          skipped: { unarchived: 0, terminal: 0, relaunch: 0, noop: 0, outOfWindow: 0 },
+        },
+        sessions: [],
+      }),
+    ],
     [
       "buildDiagnosisPrompt",
       buildDiagnosisPrompt({

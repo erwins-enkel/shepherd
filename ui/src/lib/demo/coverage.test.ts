@@ -251,6 +251,8 @@ const INVENTORY: readonly Entry[] = [
   get("/api/usage/github"),
   get("/api/usage/github-actions"),
   get("/api/prompt-budget"),
+  get("/api/steering/report"),
+  post("/api/steering/report/run"),
 
   // ambient reads (#2295)
   get("/api/plugins/manage/installed"),

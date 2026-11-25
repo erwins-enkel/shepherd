@@ -1,5 +1,6 @@
 import type { AutoMergeStatus } from "../../src/automerge";
 import type { BlockReason } from "../../src/blocked";
+import type { SteeringReport } from "../../src/steering-core";
 import type { ReviewFeedbackRow } from "../../src/store";
 import type { SubagentEntry } from "../../src/hooks-ingest";
 import type {
@@ -314,3 +315,83 @@ export const cliSessionEvents: [string, unknown][] = [
   ],
   ["session:review-feedback", { id: "sess_fixture", pending: [], autoPaused: false }],
 ];
+
+/** A finished steering report (#4175) with every nullable field populated, and a failed one with
+ *  every nullable field null: together they hit both arms of each `oneOf [.., null]`. */
+export const steeringReport: SteeringReport = {
+  id: "steer_fixture",
+  createdAt: 1_800_000_000_000,
+  windowStart: 1_799_395_200_000,
+  windowEnd: 1_800_000_000_000,
+  trigger: "manual",
+  status: "ok",
+  error: null,
+  model: "sonnet",
+  sample: {
+    windowStart: 1_799_395_200_000,
+    windowEnd: 1_800_000_000_000,
+    considered: 1,
+    capped: false,
+    skipped: { unarchived: 2, terminal: 0, relaunch: 1, noop: 0, outOfWindow: 3 },
+  },
+  sessions: [
+    {
+      desig: "TASK-1",
+      repo: "shepherd",
+      origin: "typed",
+      outcome: "merged",
+      durationMin: 42,
+      operatorSteerCount: 1,
+      shepherdSteers: { review: 2, merged: 1 },
+    },
+  ],
+  labels: {
+    prompts: [{ desig: "TASK-1", type: "bugfix", style: "prescribing" }],
+    steers: [{ desig: "TASK-1", index: 0, intent: "correction" }],
+    findings: [{ text: "Fix named before the problem.", desigs: ["TASK-1"] }],
+    examples: [
+      { desig: "TASK-1", quote: "change foo()", evidence: "2 critic rounds", rewrite: "X fails" },
+    ],
+  },
+  tables: {
+    byType: [
+      {
+        key: "bugfix",
+        n: 1,
+        thin: true,
+        mergedShare: 1,
+        medianOperatorSteers: 1,
+        medianReview: 2,
+        medianCi: 0,
+        medianPlanReview: 0,
+        medianDurationMin: 42,
+      },
+    ],
+    byStyle: [
+      {
+        key: "prescribing",
+        n: 1,
+        thin: true,
+        mergedShare: 1,
+        medianOperatorSteers: 1,
+        medianReview: 2,
+        medianCi: 0,
+        medianPlanReview: 0,
+        medianDurationMin: null,
+      },
+    ],
+    intents: [{ intent: "correction", start: 0, mid: 1, end: 0 }],
+  },
+};
+
+export const steeringFailedReport: SteeringReport = {
+  ...steeringReport,
+  id: "steer_failed",
+  status: "failed",
+  error: "timeout",
+  model: null,
+  sample: null,
+  sessions: [],
+  labels: null,
+  tables: null,
+};

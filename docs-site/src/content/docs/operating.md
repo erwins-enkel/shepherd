@@ -884,6 +884,26 @@ Device → Session opens on**; the choice is saved per device.
 The Chat reads the transcript only while it is on screen: every 2 s while the agent works, every
 8 s at rest. A herd card never reads it.
 
+## Steering report
+
+**Usage → Steering** shows how well your prompts steered your agents. Click **Run now** to read
+every session archived in the last 7 days, across all repos (the newest 60), and compare its
+opening prompt and your mid-session messages with the rework it took.
+
+- A **prescribing** prompt names the fix before it states the problem; a **describing** prompt
+  states the symptom, the desired outcome and the constraints, and leaves the fix to the agent.
+- The tables set prompt style and prompt type against merged share and the median of your steers,
+  critic rounds, red-CI fixes, plan reviews and duration. A row with fewer than 3 sessions is
+  dimmed as thin.
+- Up to three findings name the sessions they rest on, and up to five examples quote a real prompt,
+  its rework and a rewrite you can copy.
+
+A transient helper agent on the recap role's model only labels the prompts and writes the findings
+and rewrites. Shepherd computes every number in the tables itself. With fewer than 5 prompts you
+typed yourself in the window, the report shows its tables but no findings. With no typed prompts
+and no steers of your own, no helper runs at all. Reports are kept on the server (the newest 52). The `/prompt-retro` skill runs the
+same retro inside a session.
+
 ## Operator Assistant
 
 The **Operator Assistant** is an interactive Claude or Codex session that Shepherd runs for you and grounds

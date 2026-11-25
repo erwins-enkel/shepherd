@@ -8,6 +8,7 @@ import { AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
 import { RECOMMEND_LABEL } from "./prompt-recommend";
 import { SHAPE_LABEL } from "./task-shape";
+import { STEERING_LABEL } from "./steering";
 import { REQUIREMENTS_LABEL } from "./requirements-llm";
 import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
@@ -47,6 +48,7 @@ export type ReapableHerdr = Pick<
  *  - `recap <desig>`     — recap generator (recap.ts)
  *  - {@link RECOMMEND_LABEL}`<desig>` — prompt recommender (prompt-recommend.ts, #1852)
  *  - {@link SHAPE_LABEL}`<n>`        — New Task shaping round (task-shape.ts, #2158)
+ *  - {@link STEERING_LABEL}`<hex>`   — steering report labeller (steering.ts, #4175)
  *  - {@link REQUIREMENTS_LABEL}`<hex>` — New Task requirements reader (requirements-llm.ts, #2773)
  *  - {@link DOC_AGENT_LABEL}`<hex>`  — doc agent (doc-agent.ts, #2029)
  *  - {@link MAINTAIN_AGENT_LABEL}`<hex>` — maintain-loop diagnosis (maintain.ts, #2157)
@@ -70,6 +72,7 @@ export function isShepherdHelperLabel(label: string): boolean {
     label.startsWith("recap ") ||
     label.startsWith(RECOMMEND_LABEL) ||
     label.startsWith(SHAPE_LABEL) ||
+    label.startsWith(STEERING_LABEL) ||
     label.startsWith(REQUIREMENTS_LABEL) ||
     label.startsWith(AUTOPILOT_LABEL)
   );

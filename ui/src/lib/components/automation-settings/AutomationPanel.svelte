@@ -38,7 +38,7 @@
   provideRepoEditor(editor);
   const leaveGuard = useAutomationLeaveGuard();
   const shared: Section[] = ["autonomy", "agent", "start", "review", "merge", "epics"];
-  const local: Section[] = ["agent", "start", "schedules", "merge", "display"];
+  const local: Section[] = ["agent", "start", "schedules", "review", "merge", "display"];
   let confirming = $state(false);
   let error = $state("");
   let preparing = $state(false);
@@ -110,15 +110,18 @@
               editor.saving ||
               (!editor.dirty && !!editor.view?.repoConfigCommit)}
             onclick={review}
-            >{editor.view?.repoConfigCommit
-              ? m.automation_layers_review()
-              : m.automation_layers_share()}</button
           >
+            {editor.view?.repoConfigCommit
+              ? m.automation_layers_review()
+              : m.automation_layers_share()}
+          </button>
           {#if editor.dirty}<button
               class="gbtn"
               disabled={editor.saving}
-              onclick={() => editor.discard()}>{m.automation_layers_discard()}</button
-            >{/if}
+              onclick={() => editor.discard()}
+            >
+              {m.automation_layers_discard()}
+            </button>{/if}
         </div>{/if}
       {#if error}<p role="alert">{error}</p>{/if}
       {#if editor.view?.notifications?.some((result) => !result.ok)}<p role="status">

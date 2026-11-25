@@ -127,7 +127,7 @@ describe("buildWrappedArgv — disk TMPDIR redirect (#1875)", () => {
     withEnv("/disk/agent", () => {
       const w = buildWrappedArgv(["claude", "go"]);
       expect(w).not.toContain("bwrap"); // trusted/unwrapped shape — where the token is effective
-      const uIdx = w.indexOf("-u");
+      const uIdx = w.indexOf("CLAUDE_CODE_TMPDIR") - 1;
       expect(uIdx).toBeGreaterThan(0);
       expect(w[uIdx + 1]).toBe("CLAUDE_CODE_TMPDIR");
       const tmpIdx = w.indexOf("TMPDIR=/disk/agent");
@@ -138,10 +138,10 @@ describe("buildWrappedArgv — disk TMPDIR redirect (#1875)", () => {
     });
   });
 
-  it("omits both the `-u` and the TMPDIR token when disabled (empty string)", () => {
+  it("omits the CLAUDE_CODE_TMPDIR strip and the TMPDIR token when disabled (empty string)", () => {
     withEnv("", () => {
       const w = buildWrappedArgv(["claude"]);
-      expect(w).not.toContain("-u");
+      expect(w).not.toContain("CLAUDE_CODE_TMPDIR");
       expect(w.some((t) => t.startsWith("TMPDIR="))).toBe(false);
     });
   });
@@ -149,9 +149,54 @@ describe("buildWrappedArgv — disk TMPDIR redirect (#1875)", () => {
   it("still strips CLAUDE_CODE_TMPDIR but skips our token when the caller set TMPDIR", () => {
     withEnv("/disk/agent", () => {
       const w = buildWrappedArgv(["claude"], { TMPDIR: "/caller/tmp" });
-      expect(w[w.indexOf("-u") + 1]).toBe("CLAUDE_CODE_TMPDIR"); // always strip when enabled
+      expect(w[w.indexOf("CLAUDE_CODE_TMPDIR") - 1]).toBe("-u"); // always strip when enabled
       expect(w).toContain("TMPDIR=/caller/tmp"); // caller's value, via the sorted env tokens
       expect(w).not.toContain("TMPDIR=/disk/agent"); // our token is skipped
+    });
+  });
+});
+
+/**
+ * #4167: herdr.service loads ~/.shepherd/env once at daemon start, so every pane inherits whatever
+ * SHEPHERD_TOKEN herdr saw then — stale after a token change, and the CLI prefers it over the
+ * profile. The shim must strip it on every trusted spawn, TMPDIR redirect on or off.
+ */
+describe("buildWrappedArgv — strips inherited SHEPHERD_TOKEN (#4167)", () => {
+  const KEY = "SHEPHERD_AGENT_TMPDIR";
+  function withTmp(val: string, fn: () => void) {
+    const prev = process.env[KEY];
+    process.env[KEY] = val;
+    try {
+      fn();
+    } finally {
+      if (prev === undefined) delete process.env[KEY];
+      else process.env[KEY] = prev;
+    }
+  }
+
+  for (const [label, tmp] of [
+    ["enabled", "/disk/agent"],
+    ["disabled", ""],
+  ] as const) {
+    it(`emits \`-u SHEPHERD_TOKEN\` before every assignment (TMPDIR redirect ${label})`, () => {
+      withTmp(tmp, () => {
+        const w = buildWrappedArgv(["claude"], { FOO: "b" });
+        const envIdx = w.indexOf("env");
+        const uIdx = w.findIndex((t, i) => t === "-u" && w[i + 1] === "SHEPHERD_TOKEN");
+        expect(uIdx).toBeGreaterThan(envIdx);
+        const firstAssign = w.findIndex((t, i) => i > envIdx && t.includes("="));
+        expect(uIdx).toBeLessThan(firstAssign);
+        expect(w).toContain("FOO=b");
+      });
+    });
+  }
+
+  it("a child spawned through the shim does not see the parent's SHEPHERD_TOKEN", () => {
+    withTmp("", () => {
+      const w = buildWrappedArgv(["sh", "-c", 'printf %s "${SHEPHERD_TOKEN-unset}"']);
+      const argv = w.slice(w.indexOf("env"));
+      const out = Bun.spawnSync(argv, { env: { ...process.env, SHEPHERD_TOKEN: "stale" } });
+      expect(out.stdout.toString()).toBe("unset");
     });
   });
 });

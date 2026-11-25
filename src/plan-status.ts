@@ -1,6 +1,6 @@
 /**
  * Shared plan-gate rework-status predicate.
- * Mirror pair: ui/src/lib/plan-status.ts — keep both files byte-identical in logic.
+ * Mirror pair: ui/src/lib/plan-status.ts — locked by test/fixtures/plan-status-parity.json.
  *
  * The structural twin of addressStallStatus (src/review-status.ts) for the pre-execution plan
  * gate. The plan gate has no per-row finalRoundTimeoutMs column, so the timeout is this shared

@@ -15,7 +15,8 @@ import type {
 // detail cannot drift apart.
 
 /** Capabilities a task can name in New Task: the vocabulary except platforms not released for
- *  tasks (Windows). Mirrors CAPABILITIES in src/remote-instances/capabilities.ts. */
+ *  tasks (Windows). Mirrors CAPABILITIES in src/remote-instances/capabilities.ts — locked by
+ *  placement.test.ts. */
 export const REQUIREMENT_OPTIONS: readonly string[] = [
   "platform:linux",
   "platform:macos",

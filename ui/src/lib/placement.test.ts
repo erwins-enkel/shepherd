@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { m } from "#lib/paraglide/messages.js";
+import { CAPABILITIES, platformReleased } from "../../../src/remote-instances/capabilities";
 import {
+  REQUIREMENT_OPTIONS,
   capabilityList,
   placementReason,
   placementLoadObservation,
@@ -145,5 +147,15 @@ describe("host load explanation", () => {
     expect(placementLoadObservation("Mac", { ...report, stale: true })).toBe(
       m.placement_load_unavailable({ machine: "Mac" }),
     );
+  });
+});
+
+// Drift lock: REQUIREMENT_OPTIONS hand-copies the server vocabulary minus unreleased platforms.
+describe("REQUIREMENT_OPTIONS", () => {
+  it("is the server CAPABILITIES minus platforms not released for tasks, in order", () => {
+    const released = CAPABILITIES.filter(
+      (c) => !c.startsWith("platform:") || platformReleased(c.slice("platform:".length)),
+    );
+    expect(REQUIREMENT_OPTIONS).toEqual(released);
   });
 });

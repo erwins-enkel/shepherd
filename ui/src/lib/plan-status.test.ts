@@ -1,5 +1,6 @@
-import { expect, test } from "vitest";
-import { planStallStatus, PLAN_FINAL_ROUND_TIMEOUT_MS } from "./plan-status";
+import { readFileSync } from "node:fs";
+import { describe, expect, test } from "vitest";
+import { planStallStatus, PLAN_FINAL_ROUND_TIMEOUT_MS, type PlanStallStatus } from "./plan-status";
 import type { PlanGate } from "./types";
 
 const NOW = 1_000_000_000_000;
@@ -52,4 +53,35 @@ test('planStallStatus "stalled" once the pending final round times out', () => {
       NOW,
     ),
   ).toBe("stalled");
+});
+
+type ParityFixture = {
+  timeoutMs: number;
+  cases: {
+    name: string;
+    round: number;
+    cap: number;
+    finalRoundPending: boolean;
+    ageMs: number;
+    expected: PlanStallStatus;
+  }[];
+};
+
+describe("planStallStatus (UI) — shared parity fixture (server ↔ UI drift lock)", () => {
+  // The SAME fixture is asserted by test/plan-status.test.ts against the server copy; drift
+  // between the two implementations fails one suite.
+  const fixture = JSON.parse(
+    readFileSync(
+      new URL("../../../test/fixtures/plan-status-parity.json", import.meta.url),
+      "utf8",
+    ),
+  ) as ParityFixture;
+  test("PLAN_FINAL_ROUND_TIMEOUT_MS matches the fixture", () => {
+    expect(PLAN_FINAL_ROUND_TIMEOUT_MS).toBe(fixture.timeoutMs);
+  });
+  for (const { name, ageMs, expected, ...fields } of fixture.cases) {
+    test(name, () => {
+      expect(planStallStatus(gate({ ...fields, updatedAt: NOW - ageMs }), NOW)).toBe(expected);
+    });
+  }
 });

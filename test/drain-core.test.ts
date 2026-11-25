@@ -610,6 +610,40 @@ describe("computeNext", () => {
     expect(d.kind).toBe("hold");
   });
 
+  test("#4147: Code Review gate stands in for the critic on retire", () => {
+    const retire = (o: Partial<AutoSessionView>) =>
+      computeNext(
+        state({
+          criticEnabled: true,
+          autoSessions: [autoSession({ id: "sX", git: MERGEABLE, ...o })],
+        }),
+      ).kind;
+    // success / neutral retire with no critic verdict
+    expect(retire({ codeReviewGate: "success" })).toBe("retire");
+    expect(retire({ codeReviewGate: "none" })).toBe("retire");
+    // pending / failure hold
+    expect(retire({ codeReviewGate: "pending" })).toBe("hold");
+    expect(retire({ codeReviewGate: "failure" })).toBe("hold");
+    // older-head changes_requested and any error are ignored; current-head changes_requested blocks
+    expect(
+      retire({
+        codeReviewGate: "success",
+        reviewDecision: "changes_requested",
+        reviewHeadSha: "old",
+      }),
+    ).toBe("retire");
+    expect(
+      retire({ codeReviewGate: "success", reviewDecision: "error", reviewHeadSha: "abc" }),
+    ).toBe("retire");
+    expect(
+      retire({
+        codeReviewGate: "success",
+        reviewDecision: "changes_requested",
+        reviewHeadSha: "abc",
+      }),
+    ).toBe("hold");
+  });
+
   test("critic off + no verdict → still retire (CI-green sole gate)", () => {
     const d = computeNext(
       state({

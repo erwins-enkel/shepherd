@@ -70,6 +70,8 @@
     not_mergeable: m.automergebanner_not_mergeable,
     protection_blocked: m.automergebanner_protection_blocked,
     approval_pending: m.automergebanner_approval_pending,
+    code_review_pending: m.automergebanner_code_review_pending,
+    code_review_failed: m.automergebanner_code_review_failed,
     critic_error: m.automergebanner_critic_error,
     rebase_cap: m.automergebanner_rebase_cap,
     merge_backoff: m.automergebanner_merge_backoff,

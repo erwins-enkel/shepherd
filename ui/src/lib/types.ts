@@ -1440,6 +1440,9 @@ export interface RepoConfig {
   /** Append the named Fowler code-smell lens to the session critic's prompt (#1824). Non-blocking
    *  (matches go to a body section, never findings). Experimental trial, default OFF. */
   criticSmellLensEnabled: boolean;
+  /** Claude Ship (#4147): skip the critic on a head with a Claude Code Review check run; its
+   *  gates wait on that check instead. Optional — absent reads as off. */
+  claudeReviewSkipsCritic?: boolean;
   autoAddressEnabled: boolean;
   autopilotEnabled: boolean;
   autoDrainEnabled: boolean;
@@ -1550,6 +1553,8 @@ export type MergeWaitCode =
   | "not_mergeable"
   | "protection_blocked"
   | "approval_pending"
+  | "code_review_pending"
+  | "code_review_failed"
   | "behind"
   | "rebase_cap"
   | "signoff"

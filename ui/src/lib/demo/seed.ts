@@ -1735,6 +1735,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     criticEnabled: true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
+    claudeReviewSkipsCritic: false,
     autoAddressEnabled: false,
     autopilotEnabled: false,
     autoDrainEnabled: true,

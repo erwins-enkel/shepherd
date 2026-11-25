@@ -3,7 +3,12 @@ import type { ReviewDecision } from "./types";
 import type { ManualStep } from "./manual-steps";
 import { signedOff, type SignoffAuthority } from "./signoff";
 import { checksCleared } from "./checks-gate";
-import { approvalsHolding } from "./forge/claude-ship";
+import {
+  approvalsHolding,
+  codeReviewHolding,
+  criticBlocksRebaseUnderCodeReview,
+  criticBlocksUnderCodeReview,
+} from "./forge/claude-ship";
 import { isDefiniteConflict } from "./pr-conflict";
 
 /** How long a conflict-path rebase steer suppresses a re-steer for the SAME head. A conflicting
@@ -54,6 +59,10 @@ export interface MergeSessionView {
   /** The Claude Approvals check on the head (#4145), kept out of `checks`. Pending/failure holds
    *  the merge as `approval_pending`. Absent = no such check. */
   claudeApprovals?: ChecksState;
+  /** #4147: the Claude Code Review check standing in for the critic on this head (see
+   *  `codeReviewGate`). Present ⇒ it replaces the critic-verdict gate: pending holds as
+   *  `code_review_pending`, failure as `code_review_failed`. Absent = the critic gates. */
+  codeReviewGate?: ChecksState;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
   /** GitHub branch-protection merge state; absent on forges that do not supply it. */
@@ -171,7 +180,9 @@ function readyExceptManualSteps(
  *    due), `checks_pending`/`checks_failed` (CI running / autopilot steers the fix), `behind`/
  *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing mergeability),
  *    `queued` (in the base's merge queue; GitHub lands it once the queue's CI passes),
- *    `changes_requested` (auto-address — or the operator — answers the critic).
+ *    `changes_requested` (auto-address — or the operator — answers the critic),
+ *    `code_review_pending`/`code_review_failed` (#4147: Claude Code Review stands in for the
+ *    critic; it finishes, or Steward / the review-comment steer answers it with a push).
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
  *    `stacked`, `migrations`, `signoff`, `checks_absent` (a CI repo's PR has had no checks for
  *    10 minutes while mergeable — CI evidently skips it, #3221), `protection_blocked` (branch protection holds a green PR — typically a
@@ -186,6 +197,8 @@ export type MergeWaitCode =
   | "not_mergeable"
   | "protection_blocked"
   | "approval_pending"
+  | "code_review_pending"
+  | "code_review_failed"
   | "behind"
   | "rebase_cap"
   | "signoff"
@@ -244,15 +257,26 @@ function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
 /** The verdict half of the gate. A stale `changes_requested`/`error` (older head) still blocks,
  *  but reads as `critic_pending`: the re-review of the new head is what clears it. */
 export function verdictGateFailure(
-  s: Pick<MergeSessionView, "reviewDecision" | "reviewHeadSha" | "headSha">,
+  s: Pick<MergeSessionView, "reviewDecision" | "reviewHeadSha" | "headSha" | "codeReviewGate">,
   criticEnabled: boolean,
 ): MergeWaitCode | null {
+  if (s.codeReviewGate !== undefined) return codeReviewGateFailure(s, s.codeReviewGate);
   const staleVerdict = criticEnabled && s.reviewHeadSha !== s.headSha;
   if (s.reviewDecision === "changes_requested")
     return staleVerdict ? "critic_pending" : "changes_requested";
   if (s.reviewDecision === "error") return staleVerdict ? "critic_pending" : "critic_error";
   if (criticEnabled && (s.reviewDecision === null || staleVerdict)) return "critic_pending";
   return null;
+}
+
+/** #4147: the verdict gate while Claude Code Review stands in for the critic. */
+function codeReviewGateFailure(
+  s: Pick<MergeSessionView, "reviewDecision" | "reviewHeadSha" | "headSha">,
+  gate: ChecksState,
+): MergeWaitCode | null {
+  if (criticBlocksUnderCodeReview(s)) return "changes_requested";
+  if (!codeReviewHolding(gate)) return null;
+  return gate === "pending" ? "code_review_pending" : "code_review_failed";
 }
 
 /** Gate codes the train answers with a rebase steer (see rebaseEligible's final clause). */
@@ -277,7 +301,10 @@ function rebaseBlocker(
   // A verdict that blocks the rebase: an error / changes_requested, a re-review still due, or
   // findings on the current head ("fix first, then rebase" — verdictGateFailure passes those).
   if (!rebaseVerdictAllows(s, criticEnabled))
-    return verdictGateFailure(s, criticEnabled) ?? "changes_requested";
+    // #4147: under a Code Review stand-in only a current-head critic verdict blocks a rebase.
+    return s.codeReviewGate === undefined
+      ? (verdictGateFailure(s, criticEnabled) ?? "changes_requested")
+      : "changes_requested";
   return null;
 }
 
@@ -388,6 +415,8 @@ function rebaseUrgent(s: MergeSessionView): boolean {
  *  findings it gates too ("fix first, then rebase"), so the critic's auto-address steer and the
  *  rebase steer never land on the same idle pane. */
 function rebaseVerdictAllows(s: MergeSessionView, criticEnabled: boolean): boolean {
+  // #4147: Code Review stands in — a rebase replaces the head, so its state never gates one.
+  if (s.codeReviewGate !== undefined) return !criticBlocksRebaseUnderCodeReview(s);
   // A spawn-aborted error is no verdict on an urgent PR: review.ts holds the critic while behind,
   // so it can't retry, and blocking on it would wedge the PR until an operator forces a review.
   if (s.reviewSpawnAborted && rebaseUrgent(s)) return true;

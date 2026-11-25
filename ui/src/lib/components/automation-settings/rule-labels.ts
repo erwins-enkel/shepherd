@@ -10,6 +10,8 @@ export function ruleName(key: RuleField): string {
       return m.automation_allprs_name();
     case "criticSmellLensEnabled":
       return m.automation_smelllens_name();
+    case "claudeReviewSkipsCritic":
+      return m.automation_claudereview_name();
     case "autoAddressEnabled":
       return m.automation_autoaddress_name();
     case "autopilotEnabled":

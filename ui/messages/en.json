@@ -9386,5 +9386,15 @@
   "usage_steering_explain_shows_label": "What the report shows",
   "usage_steering_explain_shows": "Whether your describing prompts needed fewer steers, critic rounds and CI fixes than your prescribing ones, and rewrites of real prompts from this window.",
   "feat_steering_report_title": "Steering report: how well do your prompts steer?",
-  "feat_steering_report_body": "Usage → Steering reviews your last 7 days of sessions. It tells prompts that prescribe a fix apart from prompts that describe the problem, sets both against rework (steers, critic rounds, red CI), and rewrites the examples that cost the most. Click Run now to get one."
+  "feat_steering_report_body": "Usage → Steering reviews your last 7 days of sessions. It tells prompts that prescribe a fix apart from prompts that describe the problem, sets both against rework (steers, critic rounds, red CI), and rewrites the examples that cost the most. Click Run now to get one.",
+  "automation_signoff_claude_review": "Critic alone can't sign off while Claude Code Review replaces the Critic; use human or either.",
+  "automation_claudereview_name": "Claude Code Review replaces the Critic",
+  "automation_claudereview_desc": "Skip the Critic on commits Claude Code Review reviews — merges wait for its check instead",
+  "automation_claudereview_needs_critic": "Needs the Critic on",
+  "automation_claudereview_needs_signoff": "Sign-off by “Critic” needs the Critic — switch it to “Human” or “Human or Critic” first",
+  "automation_claudereview_detail": "For repos running Anthropic's Claude Ship (GitHub only). When a Claude Code Review check run is on a PR's latest commit — running or finished — Shepherd starts no Critic run for that commit, so the same code isn't reviewed and paid for twice. Full auto-merge, the drain and autopilot then wait for that check instead of a Critic verdict: success or neutral clears the PR, while running or failed holds it. Code Review's findings arrive as PR review comments, which reach the agent through PR review feedback. Commits without a Code Review check (it runs once per PR, or isn't installed) still get the Critic, once CI is green. Off by default. Only works while the Critic itself is on.",
+  "automergebanner_code_review_pending": "waiting for the Claude Code Review check",
+  "automergebanner_code_review_failed": "the Claude Code Review check failed — a push that addresses it re-runs the review",
+  "feat_claude_ship_skip_critic_title": "Claude Code Review can replace the Critic",
+  "feat_claude_ship_skip_critic_body": "A new per-repo switch under Review: on commits that Claude Code Review already reviews, Shepherd skips its own Critic, so you don't pay for two reviews. Full auto-merge then waits for the Claude Code Review check instead of a Critic verdict."
 }

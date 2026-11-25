@@ -18,6 +18,9 @@
   const groupName = $props.id();
   const goToSetting = useSettingLink();
   const flags = $derived(repoConfig.flags(repoPath));
+  // #4147: Claude Code Review replaces the Critic on its commits, so a Critic-only sign-off would
+  // never arrive there (the server refuses it); a human can still sign off under "either".
+  const claudeReview = $derived(flags.critic && repoConfig.claudeReviewSkipsCriticOn(repoPath));
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
   const unavailable = m.automation_lightweight_unavailable();
   // Draft needs GitHub's draft PRs; a local-only repo's stored draft has no effect, so you merge.
@@ -89,8 +92,9 @@
           type="button"
           class="goto"
           onclick={(e) => goToSetting(e.currentTarget, "start", "autopilotEnabled")}
-          >{m.reposettings_merge_goto_autopilot()}</button
         >
+          {m.reposettings_merge_goto_autopilot()}
+        </button>
       </p>
     {/if}
   {/snippet}
@@ -116,12 +120,15 @@
         <option value="human">{m.signoff_authority_human()}</option>
         <!-- Critic-reliant authorities are unusable with the Critic off (they could never
              promote a draft → permanent-draft deadlock), so disable them. -->
-        <option value="critic" disabled={!flags.critic}>{m.signoff_authority_critic()}</option>
+        <option value="critic" disabled={!flags.critic || claudeReview}>
+          {m.signoff_authority_critic()}
+        </option>
         <option value="either" disabled={!flags.critic}>{m.signoff_authority_either()}</option>
       </select>
     {/snippet}
     {#snippet below()}
-      {#if !flags.critic}<p class="note">{m.automation_signoff_needs_critic()}</p>{/if}
+      {#if !flags.critic}<p class="note">{m.automation_signoff_needs_critic()}</p>
+      {:else if claudeReview}<p class="note">{m.automation_signoff_claude_review()}</p>{/if}
     {/snippet}
   </RepoSettingRow>
 {/if}

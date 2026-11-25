@@ -690,6 +690,10 @@ export interface RepoConfig {
    *  finding C). Non-blocking: smell matches go to a body section, never `findings`. Experimental
    *  trial, default OFF — extra tokens/round, so it ships opt-in pending measurement. */
   criticSmellLensEnabled: boolean;
+  /** #4147 Claude Ship: skip the session critic on a head where a Claude Code Review check run
+   *  is present; every critic-verdict gate then waits on that check instead (default OFF).
+   *  Optional: absent reads as off. */
+  claudeReviewSkipsCritic?: boolean;
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
   autoAddressEnabled: boolean;
   /** Pre-PR autopilot loop: drive procedural gates, surface real questions, lead to a PR. */
@@ -1277,6 +1281,7 @@ type RepoCfgRow = {
   criticEnabled: number;
   criticAllPrs: number;
   criticSmellLensEnabled: number;
+  claudeReviewSkipsCritic: number;
   autoAddressEnabled: number;
   autopilotEnabled: number;
   planGateEnabled: number;
@@ -1592,6 +1597,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     criticEnabled: !!r.criticEnabled,
     criticAllPrs: !!r.criticAllPrs,
     criticSmellLensEnabled: !!r.criticSmellLensEnabled,
+    claudeReviewSkipsCritic: !!r.claudeReviewSkipsCritic,
     autoAddressEnabled: !!r.autoAddressEnabled,
     autopilotEnabled: !!r.autopilotEnabled,
     planGateEnabled: !!r.planGateEnabled,
@@ -1644,6 +1650,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.criticEnabled)),
     Number(Boolean(cfg.criticAllPrs)),
     Number(Boolean(cfg.criticSmellLensEnabled)),
+    Number(Boolean(cfg.claudeReviewSkipsCritic)),
     Number(Boolean(cfg.autoAddressEnabled)),
     Number(Boolean(cfg.autopilotEnabled)),
     Number(Boolean(cfg.planGateEnabled)),
@@ -3078,7 +3085,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getLocalRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
+        `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
@@ -3093,14 +3100,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const cfg = this.withStoredReviewFeedback(repoPath, input);
     this.db.run(
       `INSERT INTO repo_config
-         (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
+         (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
           manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
+         claudeReviewSkipsCritic = excluded.claudeReviewSkipsCritic,
          autoAddressEnabled = excluded.autoAddressEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
          planGateEnabled = excluded.planGateEnabled,
@@ -8257,6 +8265,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #1824: named Fowler code-smell lens for the session critic. Default OFF — experimental
     // trial, extra tokens/round; non-blocking (body section, never findings).
     add("criticSmellLensEnabled", `criticSmellLensEnabled INTEGER NOT NULL DEFAULT 0`);
+    // #4147: Claude Code Review stands in for the critic. Default OFF.
+    add("claudeReviewSkipsCritic", `claudeReviewSkipsCritic INTEGER NOT NULL DEFAULT 0`);
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("planGateEnabled", `planGateEnabled INTEGER NOT NULL DEFAULT 0`);
     add("autoDrainEnabled", `autoDrainEnabled INTEGER NOT NULL DEFAULT 0`);

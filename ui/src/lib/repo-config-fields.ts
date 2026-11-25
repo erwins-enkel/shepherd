@@ -6,6 +6,7 @@ export const RULE_FIELDS = [
   "criticEnabled",
   "criticAllPrs",
   "criticSmellLensEnabled",
+  "claudeReviewSkipsCritic",
   "autoAddressEnabled",
   "autopilotEnabled",
   "planGateEnabled",

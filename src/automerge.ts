@@ -1,5 +1,6 @@
 import { isUsagePaused } from "./schedule-pause";
-import type { SessionStore } from "./store";
+import type { RepoConfig, SessionStore } from "./store";
+import { codeReviewGate } from "./forge/claude-ship";
 import type { GitForge, GitState } from "./forge/types";
 import {
   MergeEnqueuedError,
@@ -310,7 +311,10 @@ export class AutoMergeService {
 
   /** PR-derived view fields (defaults for an absent/closed snapshot). Pulled out so toView
    *  stays flat — every `git?.x ?? y` here is a branch that would otherwise inflate it. */
-  private static prFields(git: GitState | null) {
+  private static prFields(
+    git: GitState | null,
+    cfg: Pick<RepoConfig, "criticEnabled" | "claudeReviewSkipsCritic">,
+  ) {
     return {
       state: git?.state ?? ("none" as const),
       checks: git?.checks ?? ("none" as const),
@@ -318,6 +322,7 @@ export class AutoMergeService {
       mergeable: git?.mergeable ?? null,
       mergeStateStatus: git?.mergeStateStatus,
       claudeApprovals: git?.claudeShip?.approvals,
+      codeReviewGate: codeReviewGate(cfg, git?.claudeShip),
       number: git?.number ?? null,
       headSha: git?.headSha ?? null,
       humanApproved: git?.latestReview?.state === "approved",
@@ -339,10 +344,10 @@ export class AutoMergeService {
   private async toView(
     s: Session,
     git: GitState | null,
-    mergeWithoutCi: boolean,
+    cfg: Pick<RepoConfig, "mergeWithoutCi" | "criticEnabled" | "claudeReviewSkipsCritic">,
     reconcile: boolean,
   ): Promise<MergeSessionView> {
-    const pr = AutoMergeService.prFields(git);
+    const pr = AutoMergeService.prFields(git, cfg);
     const queue: QueueRead =
       pr.state === "open"
         ? await this.cachedQueue(s.repoPath, git?.baseRefName ?? s.baseBranch)
@@ -360,7 +365,7 @@ export class AutoMergeService {
       id: s.id,
       desig: s.desig,
       ...pr,
-      noCiHold: pr.noCi && !mergeWithoutCi,
+      noCiHold: pr.noCi && !cfg.mergeWithoutCi,
       checksAbsent: this.checksAbsent(s.id, pr),
       behind,
       queued: reconcile
@@ -553,7 +558,7 @@ export class AutoMergeService {
             !s.shelved &&
             this.fullAuto(s),
         )
-        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi, reconcile)),
+        .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg, reconcile)),
     );
     const state: MergeRepoState = {
       enabled: sessions.length > 0,

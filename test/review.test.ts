@@ -1227,6 +1227,68 @@ describe("push trigger (#3426)", () => {
   });
 });
 
+// ── #4147: Claude Code Review stands in for the critic (claudeReviewSkipsCritic) ────────────
+describe("claudeReviewSkipsCritic (#4147)", () => {
+  const optIn = (d: any) => {
+    d.store.getRepoConfig = () => ({
+      criticEnabled: true,
+      autoAddressEnabled: false,
+      claudeReviewSkipsCritic: true,
+    });
+  };
+  const withReview = (git: GitState, codeReview: GitState["checks"]): GitState => ({
+    ...git,
+    claudeShip: { stewardWatching: false, codeReview },
+  });
+
+  test("opt-in + Code Review check on head (any state) → no critic", async () => {
+    for (const state of ["pending", "success", "failure", "none"] as const) {
+      const { deps: d, started } = makeDeps({});
+      optIn(d);
+      const outcome = await new ReviewService(d as any).consider(
+        session({ status: "idle" }),
+        withReview(OPEN_GREEN, state),
+      );
+      expect(outcome).toBe("skipped");
+      expect(started).toHaveLength(0);
+    }
+  });
+
+  test("opt-in + no check yet + agent idle + CI pending → waits for CI", async () => {
+    const { deps: d, started } = makeDeps({});
+    optIn(d);
+    await new ReviewService(d as any).consider(session({ status: "idle" }), {
+      ...OPEN_GREEN,
+      checks: "pending",
+    });
+    expect(started).toHaveLength(0);
+  });
+
+  test("opt-in + no check by CI-green → critic runs as usual", async () => {
+    const { deps: d, started } = makeDeps({});
+    optIn(d);
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    expect(started).toHaveLength(1);
+  });
+
+  test("opt-in + check on head + operator force → critic runs", async () => {
+    const { deps: d, started } = makeDeps({});
+    optIn(d);
+    const svc = new ReviewService(d as any);
+    expect(await svc.forceReview(session(), withReview(OPEN_GREEN, "success"))).toBe("started");
+    expect(started).toHaveLength(1);
+  });
+
+  test("opt-out + Code Review check on head → critic runs as before", async () => {
+    const { deps: d, started } = makeDeps({});
+    await new ReviewService(d as any).consider(
+      session({ status: "idle" }),
+      withReview(OPEN_GREEN, "success"),
+    );
+    expect(started).toHaveLength(1);
+  });
+});
+
 test("no-CI repo (noCi + checks:none) → reviews", async () => {
   const { deps: d, started } = makeDeps({});
   const svc = new ReviewService(d as any);

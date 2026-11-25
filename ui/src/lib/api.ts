@@ -3490,6 +3490,7 @@ export type RepoConfigPatch = Partial<
     | "criticEnabled"
     | "criticAllPrs"
     | "criticSmellLensEnabled"
+    | "claudeReviewSkipsCritic"
     | "autoAddressEnabled"
     | "autopilotEnabled"
     | "autoDrainEnabled"

@@ -2,6 +2,7 @@ import type { RepoLeitrechnerService, RepoLeitrechnerStatus } from "./repo-leitr
 import { classifyClaim, epicClaimBlockers, logClaim, type ClaimDiagnostic } from "./drain-claims";
 import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
+import { codeReviewGate } from "./forge/claude-ship";
 import type { EpicStructure, GitForge, GitState, Issue, PrStatus } from "./forge/types";
 import type { AgentProvider, CreateSessionInput, Session, SessionArchiveReason } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
@@ -1710,6 +1711,7 @@ export class DrainService {
           findings: review?.findings ?? [],
           humanApproved: snapshot[s.id]?.latestReview?.state === "approved",
           isDraft: snapshot[s.id]?.isDraft ?? false,
+          codeReviewGate: codeReviewGate(cfg, snapshot[s.id]?.claudeShip),
           fullAuto: isFullAuto(s, cfg),
           epicParent: sessionEpicParent(s),
           landingRepair: !!s.landingRepair,

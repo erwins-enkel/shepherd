@@ -173,6 +173,12 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
     },
     {
       section: "review",
+      field: "claudeReviewSkipsCritic",
+      name: m.automation_claudereview_name(),
+      description: m.automation_claudereview_desc(),
+    },
+    {
+      section: "review",
       field: "criticAllPrs",
       name: m.automation_allprs_name(),
       description: m.automation_allprs_desc(),

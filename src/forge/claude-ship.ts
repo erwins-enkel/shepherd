@@ -87,3 +87,51 @@ export function sameClaudeShip(
     a?.approvals === b?.approvals
   );
 }
+
+/** #4147: the Claude Code Review check standing in for the Shepherd critic on this head, or
+ *  undefined when the critic gates as usual. Defined only when the critic is on, the repo opted
+ *  in (`claudeReviewSkipsCritic`) AND a Code Review check run is on the head — in any state, so a
+ *  pending review already replaces the critic and the two never review the same head. With the
+ *  critic off there is no critic gate to replace, so a stored opt-in stays inert. */
+export function codeReviewGate(
+  cfg: { criticEnabled: boolean; claudeReviewSkipsCritic?: boolean },
+  signal: ClaudeShipSignal | undefined,
+): ChecksState | undefined {
+  return cfg.criticEnabled && cfg.claudeReviewSkipsCritic ? signal?.codeReview : undefined;
+}
+
+/** True while a standing-in Code Review check holds a merge/retire: still running, or failed.
+ *  Success and neutral/skipped (`none`) clear it. */
+export function codeReviewHolding(state: ChecksState | undefined): boolean {
+  return state === "pending" || state === "failure";
+}
+
+/** The critic verdict fields the Code Review stand-in still consults. */
+interface CriticVerdictView {
+  reviewDecision: string | null;
+  reviewHeadSha: string | null;
+  headSha: string | null;
+}
+
+/** #4147: while Code Review stands in, the one critic verdict that still blocks a merge/retire —
+ *  `changes_requested` on the CURRENT head (a critic that started before the check appeared, or
+ *  an operator-forced run). Older-head verdicts and `error` are ignored: no critic re-runs to
+ *  refresh them, so honoring them would wedge the PR. */
+export function criticBlocksUnderCodeReview(v: CriticVerdictView): boolean {
+  return v.reviewHeadSha === v.headSha && v.reviewDecision === "changes_requested";
+}
+
+/** #4147: the rebase leg of {@link criticBlocksUnderCodeReview} — a current-head verdict with
+ *  findings also blocks ("fix first, then rebase"), so the auto-address steer and the rebase
+ *  steer never land on the same idle pane. */
+export function criticBlocksRebaseUnderCodeReview(
+  v: CriticVerdictView & { findings: ReadonlyArray<string> },
+): boolean {
+  return (
+    criticBlocksUnderCodeReview(v) ||
+    (v.reviewHeadSha === v.headSha &&
+      v.reviewDecision !== null &&
+      v.reviewDecision !== "error" &&
+      v.findings.length > 0)
+  );
+}

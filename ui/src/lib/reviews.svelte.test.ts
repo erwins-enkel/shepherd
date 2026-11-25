@@ -700,6 +700,25 @@ test("repoConfig.setMergeMode keeps a Critic sign-off while the Critic is on", a
   expect(putRepoConfig).toHaveBeenCalledWith("/repo", { draftMode: true, autoMergeEnabled: false });
 });
 
+test("repoConfig.setMergeMode draft with Claude Code Review on sets a Critic-only sign-off to human (#4147)", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: true, signoffAuthority: "human" }));
+  repoConfig.enabled = { "/repo": true };
+  repoConfig.claudeReviewSkipsCritic = { "/repo": true };
+  repoConfig.signoffAuthority = { "/repo": "critic" };
+  await repoConfig.setMergeMode("/repo", "draft");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", {
+    draftMode: true,
+    autoMergeEnabled: false,
+    signoffAuthority: "human",
+  });
+  // "either" still lets a human sign off, so it is kept
+  vi.mocked(putRepoConfig).mockClear();
+  repoConfig.signoffAuthority = { "/repo": "either" };
+  await repoConfig.setMergeMode("/repo", "draft");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { draftMode: true, autoMergeEnabled: false });
+  repoConfig.claudeReviewSkipsCritic = {};
+});
+
 test("repoConfig.setMergeMode restores both fields when the PUT fails", async () => {
   vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
   repoConfig.draftMode = { "/repo": true };

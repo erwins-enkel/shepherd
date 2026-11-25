@@ -76,3 +76,45 @@ export function shapeTipIndex(elapsedMs: number, offset: number): number {
   const auto = Math.floor(Math.max(0, elapsedMs) / SHAPE_TIP_MS);
   return (((auto + offset) % SHAPE_TIP_COUNT) + SHAPE_TIP_COUNT) % SHAPE_TIP_COUNT;
 }
+
+// ── Passive coaching (#4177) ─────────────────────────────────────────────────────────────────
+// A judge-backed hint while the operator writes, and the verdict a Shape round returns.
+
+/** Mirrors HINT_MIN_CHARS in src/prompt-coach-core.ts: shorter prompts are never sent. */
+export const HINT_MIN_CHARS = 40;
+/** How long the text must sit still before the hint is asked for. */
+export const HINT_DEBOUNCE_MS = 1500;
+
+export interface HintAvailability {
+  prompt: string;
+  repoResolved: boolean;
+  mode: ComposeMode;
+  /** No Shape round is running or showing — the hint shares its slot and points at it. */
+  shapeIdle: boolean;
+  /** The mobile layout renders no Shape control, so a hint pointing at it would mislead. */
+  mobile: boolean;
+}
+
+/** Whether the coaching hint is worth asking for: only where Shape itself could run. */
+export function hintApplies(i: HintAvailability): boolean {
+  return (
+    i.shapeIdle &&
+    !i.mobile &&
+    i.mode === "code" &&
+    i.repoResolved &&
+    i.prompt.trim().length >= HINT_MIN_CHARS
+  );
+}
+
+const VERDICT_MISSING = ["symptom", "outcome", "acceptance"] as const;
+export type VerdictMissing = (typeof VERDICT_MISSING)[number];
+
+/** The verdict's known style, or null for an unknown one (a newer server) — no header then. */
+export function verdictStyle(style: string): "prescribing" | "describing" | null {
+  return style === "prescribing" || style === "describing" ? style : null;
+}
+
+/** The verdict's known `missing` entries in canonical order; an unknown one is dropped. */
+export function verdictMissing(missing: readonly string[]): VerdictMissing[] {
+  return VERDICT_MISSING.filter((k) => missing.includes(k));
+}

@@ -9,6 +9,8 @@
     shapeRemainingMs,
     shapeTipIndex,
     shapeWait,
+    verdictMissing,
+    verdictStyle,
     SHAPE_TIMEOUT_MS,
     SHAPE_TIP_COUNT,
     type ShapeFailure,
@@ -105,6 +107,25 @@
   ]);
 
   const bullets = (items: string[]) => items.filter((s) => s.trim() !== "");
+
+  // The verdict on the rough ask (#4177). An unknown style (a newer server) shows no header.
+  const style = $derived(round?.verdict ? verdictStyle(round.verdict.style) : null);
+  const missing = $derived(round?.verdict ? verdictMissing(round.verdict.missing) : []);
+  const missingLabel = (k: (typeof missing)[number]) =>
+    k === "symptom"
+      ? m.shape_verdict_missing_symptom()
+      : k === "outcome"
+        ? m.shape_verdict_missing_outcome()
+        : m.shape_verdict_missing_acceptance();
+  const verdictTip = $derived<TooltipExplanation>({
+    title: m.shape_verdict_tip_title(),
+    summary: m.shape_verdict_tip_summary(),
+    sections: [
+      { label: m.shape_verdict_prescribing(), text: m.shape_verdict_tip_prescribing() },
+      { label: m.shape_verdict_describing(), text: m.shape_verdict_tip_describing() },
+      { label: m.shape_verdict_tip_missing_label(), text: m.shape_verdict_tip_missing() },
+    ],
+  });
 </script>
 
 <section class="shape" class:ready={status === "ready"} aria-label={m.shape_heading()}>
@@ -140,8 +161,10 @@
         stroke-width="2.2"
         stroke-linecap="round"
         stroke-linejoin="round"
-        aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8" /></svg
+        aria-hidden="true"
       >
+        <path d="M4 17l6-5-6-5M12 19h8" />
+      </svg>
       <span class="shape-engine-name">{engineLabel}</span>
     </button>
     {#if status === "ready" && round}
@@ -152,9 +175,9 @@
     {#if status === "running"}
       <span class="shape-clock" class:closing={wait === "closing"} aria-hidden="true">{clock}</span>
     {/if}
-    <button type="button" class="shape-dismiss" onclick={ondismiss}
-      >{status === "running" ? m.common_cancel() : m.shape_discard()}</button
-    >
+    <button type="button" class="shape-dismiss" onclick={ondismiss}>
+      {status === "running" ? m.common_cancel() : m.shape_discard()}
+    </button>
   </div>
 
   {#if status === "running"}
@@ -190,15 +213,19 @@
           type="button"
           class="shape-page"
           aria-label={m.shape_tip_prev_aria()}
-          onclick={() => tipOffset--}>‹</button
+          onclick={() => tipOffset--}
         >
+          ‹
+        </button>
         <span class="shape-page-pos" aria-hidden="true">{tipIndex + 1}/{SHAPE_TIP_COUNT}</span>
         <button
           type="button"
           class="shape-page"
           aria-label={m.shape_tip_next_aria()}
-          onclick={() => tipOffset++}>›</button
+          onclick={() => tipOffset++}
         >
+          ›
+        </button>
       </span>
     </div>
   {:else if status === "error"}
@@ -210,6 +237,28 @@
       </div>
     {/if}
   {:else if round}
+    {#if style}
+      <div class="shape-verdict">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <span
+          class="shape-verdict-style"
+          class:prescribing={style === "prescribing"}
+          tabindex="0"
+          use:statusTip={{ text: verdictTip, still: true }}
+        >
+          {style === "prescribing" ? m.shape_verdict_prescribing() : m.shape_verdict_describing()}
+        </span>
+        {#if missing.length}
+          <span class="shape-verdict-missing">
+            {m.shape_verdict_missing({ items: missing.map(missingLabel).join(" · ") })}
+          </span>
+        {:else if round.verdict?.missing.length === 0}
+          <!-- Only an explicitly empty list claims completeness; entries this client does not
+               know (a newer server) say nothing rather than "complete". -->
+          <span class="shape-verdict-missing">{m.shape_verdict_complete()}</span>
+        {/if}
+      </div>
+    {/if}
     <dl class="shape-draft">
       {#each [[m.shape_s_problem(), round.draft.problem], [m.shape_s_outcome(), round.draft.outcome]] as [label, body] (label)}
         {#if body.trim()}
@@ -481,6 +530,36 @@
   .gbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .shape-verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .shape-verdict-style {
+    border: 1px solid var(--color-green);
+    border-radius: 2px;
+    color: var(--color-green);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    cursor: help;
+  }
+  .shape-verdict-style.prescribing {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .shape-verdict-style:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+  .shape-verdict-missing {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    overflow-wrap: anywhere;
   }
   .shape-draft {
     margin: 0;

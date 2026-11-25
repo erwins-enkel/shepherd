@@ -513,10 +513,11 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // round-trip with nothing to simulate — a demo handler would have to invent a shaped
   // round that fits exactly one seeded prompt — and Attach writes a real file. Both
   // already degrade honestly: `shapeTask()` to `{error:"timeout"}`, `composeTaskBrief()`
-  // to null, `uploadFile()` to an undefined path. None of the three can reach a
+  // to null, `uploadFile()` to an undefined path. The coaching hint (#4177) is the same
+  // judge round-trip: the tail's `{ok:true}` reads as no hint. None of these can reach a
   // `$derived`, which is what separates them from `POST /api/projects` (in INVENTORY:
   // its response goes straight into `ondone(entry)` and the caller reads `entry.path`).
-  "New Task Shape + Attach": ["/api/shape", "/api/shape/brief", "/api/uploads"],
+  "New Task Shape + Attach": ["/api/shape", "/api/shape/brief", "/api/shape/hint", "/api/uploads"],
 
   // The demo reports the Operator Assistant unavailable (GET in INVENTORY), so nothing offers a
   // New conversation or ends a repo assistant (the demo offers no repo assistant to start); the

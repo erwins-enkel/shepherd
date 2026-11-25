@@ -9665,6 +9665,41 @@ components:
           $ref: "#/components/schemas/TaskBriefDraft"
         block:
           $ref: "#/components/schemas/VisualBlockQuestionForm"
+        verdict:
+          $ref: "#/components/schemas/ShapeVerdict"
+    ShapeStyle:
+      anyOf:
+        - $ref: "#/components/schemas/ShapeStyleKnown"
+        - type: string
+    ShapeStyleKnown:
+      type: string
+      enum:
+        - prescribing
+        - describing
+    ShapeMissing:
+      anyOf:
+        - $ref: "#/components/schemas/ShapeMissingKnown"
+        - type: string
+    ShapeMissingKnown:
+      type: string
+      enum:
+        - symptom
+        - outcome
+        - acceptance
+    ShapeVerdict:
+      type: object
+      additionalProperties: true
+      description: "The shaping round's verdict on the rough ask as written (#4177); absent when the helper wrote none or an unusable one. `style` prescribing: names a fix before the problem; describing: states the problem. `missing` lists what the ask leaves out: symptom (what is wrong, for whom), outcome (desired end state), acceptance (a check that proves it done)."
+      required:
+        - style
+        - missing
+      properties:
+        style:
+          $ref: "#/components/schemas/ShapeStyle"
+        missing:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShapeMissing"
     ShapeBriefRequest:
       type: object
       additionalProperties: false

@@ -206,6 +206,8 @@ import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
 import { STEERING_LABEL, SteeringReportService } from "./steering";
+import { latestSteeringFindings } from "./steering-core";
+import { promptHintViaJudge } from "./prompt-coach";
 import {
   deriveRequirementsViaAgent,
   deriveRequirementsViaJudge,
@@ -4946,9 +4948,16 @@ const appDeps: AppDeps = {
         model,
         label: `${SHAPE_LABEL}${randomUUID().slice(0, 8)}`,
         operatorLanguage: config.operatorLanguage,
+        steeringFindings: latestSteeringFindings(store.latestSteeringReport()),
       },
       { herdr },
     ),
+  // New Task's passive coaching hint (#4177): judge only — no judge, no hint (Shape's verdict
+  // covers that case). Shares the judge's daily ceiling.
+  promptHint: async (prompt) => {
+    const judge = armedJudge();
+    return judge ? promptHintViaJudge(prompt, judge, judgeSpend) : null;
+  },
   // New Task reads a task's requirements from its description (#2773): the judge (JEV) first when
   // it is armed and the task has no screenshots — one HTTP request — else, and on any judge failure,
   // a helper on the autopilot classifier's role CLI and model. No session exists yet, so the

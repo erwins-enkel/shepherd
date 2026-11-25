@@ -22,6 +22,7 @@
     getInstance,
     previewPlacement,
     deriveRequirements,
+    promptHint,
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -88,6 +89,7 @@
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import type { TooltipExplanation } from "#lib/tooltips/content.js";
   import {
     epicModeExplanation,
     plainModeExplanation,
@@ -103,7 +105,13 @@
   import { selectedProviderCapacity } from "#lib/components/usage-gauges.js";
   import { elapsed } from "#lib/format.js";
   import { deriveReadiness } from "./new-task/readiness";
-  import { shapeBlocker, shapeErrorKey, type ShapeFailure } from "./new-task/shape";
+  import {
+    hintApplies,
+    shapeBlocker,
+    shapeErrorKey,
+    HINT_DEBOUNCE_MS,
+    type ShapeFailure,
+  } from "./new-task/shape";
   import ShapeRound from "./ShapeRound.svelte";
   import {
     preselectModel,
@@ -1551,6 +1559,49 @@
     shapeRound = null;
   }
 
+  // ── Passive coaching hint (#4177): the judge reads the settled prompt; a prescribing one gets a
+  // line in Shape's slot pointing at Shape. The server answers null without a judge, so nothing
+  // shows there. One ask per settled text: a change aborts the one in flight, a stale answer drops.
+  let coachHint = $state<{ key: string; value: "prescribing" | null } | null>(null);
+  const coachKey = $derived(prompt.trim());
+  const coachOn = $derived(
+    hintApplies({
+      prompt,
+      repoResolved: !!repoPath.trim(),
+      mode,
+      shapeIdle: shapeStatus === "idle",
+      mobile,
+    }),
+  );
+  const showCoachHint = $derived(
+    coachOn && coachHint?.key === coachKey && coachHint.value === "prescribing",
+  );
+  let coachSeq = 0;
+  $effect(() => {
+    const key = coachKey;
+    if (!coachOn || untrack(() => coachHint?.key) === key) return;
+    const seq = ++coachSeq;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void promptHint(key, controller.signal).then((value) => {
+        if (seq === coachSeq && !controller.signal.aborted) coachHint = { key, value };
+      });
+    }, HINT_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  });
+  const coachTip = $derived<TooltipExplanation>({
+    title: m.newtask_coach_tip_title(),
+    summary: m.newtask_coach_tip_summary(),
+    sections: [
+      { label: m.newtask_coach_tip_why_label(), text: m.newtask_coach_tip_why() },
+      { label: m.newtask_coach_tip_shape_label(), text: m.newtask_coach_tip_shape() },
+      { label: m.newtask_coach_tip_cost_label(), text: m.newtask_coach_tip_cost() },
+    ],
+  });
+
   /** Drop the round and start with the rough prompt — through the normal submit path, so every
    *  readiness check and confirmation still applies. */
   function startWithoutShaping() {
@@ -2451,9 +2502,9 @@
           <option value={self.instanceId}>{m.newtask_runon_here()}</option>
         {/if}
         {#each runOnOptions as machine (machine.instanceId)}
-          <option value={machine.instanceId}
-            >{machineLabel(machine, needsClone(machine, selectedRepo?.remoteSlug))}</option
-          >
+          <option value={machine.instanceId}>
+            {machineLabel(machine, needsClone(machine, selectedRepo?.remoteSlug))}
+          </option>
         {/each}
       </select>
     {/snippet}
@@ -2472,9 +2523,9 @@
     {/snippet}
     {#snippet draftNotice()}
       <span class="draft-tag">{m.newtask_draft_restored()}</span>
-      <button type="button" class="tool-btn" onclick={ondiscarddraft}
-        >{m.newtask_draft_discard()}</button
-      >
+      <button type="button" class="tool-btn" onclick={ondiscarddraft}>
+        {m.newtask_draft_discard()}
+      </button>
     {/snippet}
     <div class="chead">
       <span class="chead-title">{heading}</span>
@@ -2519,16 +2570,16 @@
             onpointerdown={(e) => e.preventDefault()}
             onclick={() => (activeSheet = "engine")}
           >
-            <span class="ctx-dim"
-              >{agentProvider === "codex"
+            <span class="ctx-dim">
+              {agentProvider === "codex"
                 ? m.agent_provider_codex()
-                : m.agent_provider_claude()}{modeLocked ? "" : " · "}</span
-            >
+                : m.agent_provider_claude()}{modeLocked ? "" : " · "}
+            </span>
             <!-- No gate readout in a mode that has no guards — see RunSettingsGroups. -->
             {#if !modeLocked}
-              <span class="es-gate" class:on={planGate}
-                >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
-              >
+              <span class="es-gate" class:on={planGate}>
+                {planGate ? m.newtask_gate_on() : m.newtask_gate_off()}
+              </span>
             {/if}
             <span class="chev" aria-hidden="true">▾</span>
           </button>
@@ -2564,8 +2615,10 @@
         class="x"
         aria-keyshortcuts={shortcutAttr("close")}
         onclick={dismiss}
-        aria-label={m.common_close()}>✕</button
+        aria-label={m.common_close()}
       >
+        ✕
+      </button>
     </div>
     {#if draft && mobile}
       <div class="draft-bar">{@render draftNotice()}</div>
@@ -2661,9 +2714,9 @@
                 })}
               </span>
             {:else if upstream && upstream.behind > 0}
-              <span class="nt-upstream"
-                >{m.newtask_upstream_behind({ count: upstream.behind })}</span
-              >
+              <span class="nt-upstream">
+                {m.newtask_upstream_behind({ count: upstream.behind })}
+              </span>
             {:else if baseMissing}
               <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
             {/if}
@@ -2684,16 +2737,16 @@
               />
             {/if}
             {#if remoteTarget}
-              <span class="nt-upstream"
-                >{m.newtask_runon_notice({ machine: remoteTarget.name, base: baseBranch })}</span
-              >
+              <span class="nt-upstream">
+                {m.newtask_runon_notice({ machine: remoteTarget.name, base: baseBranch })}
+              </span>
               {#if remoteTargetClones}
-                <span class="nt-upstream"
-                  >{m.newtask_runon_clone_notice({
+                <span class="nt-upstream">
+                  {m.newtask_runon_clone_notice({
                     machine: remoteTarget.name,
                     project: selectedRepoName,
-                  })}</span
-                >
+                  })}
+                </span>
               {/if}
             {/if}
 
@@ -2720,10 +2773,9 @@
               <div class="prompt-label-row">
                 <label class="prompt-label" for="nt-prompt">{m.newtask_prompt_label()}</label>
                 {#if shapeStatus === "running"}
-                  <span class="prompt-reading"
-                    ><span class="live-dot" aria-hidden="true"
-                    ></span>{m.newtask_prompt_reading()}</span
-                  >
+                  <span class="prompt-reading">
+                    <span class="live-dot" aria-hidden="true"></span>{m.newtask_prompt_reading()}
+                  </span>
                 {/if}
                 {#if held}
                   <Keycap id="focus-prompt" ctx={keymapCtx} flash={hold.flash === "focus-prompt"} />
@@ -2860,9 +2912,9 @@
                     </svg>
                     {#if shapeStatus === "running"}
                       <span class="tool-label">{m.newtask_shape_running_label()}</span>
-                      <span class="shape-btn-clock" aria-hidden="true"
-                        >{elapsed(0, shapeElapsedMs)}</span
-                      >
+                      <span class="shape-btn-clock" aria-hidden="true">
+                        {elapsed(0, shapeElapsedMs)}
+                      </span>
                     {:else}
                       <span class="tool-label">{m.newtask_shape_label()}</span>
                     {/if}
@@ -2923,9 +2975,9 @@
                   />
                 {/each}
                 {#if !composing && usesPromptFile(prompt.trim())}
-                  <span id="nt-prompt-delivery" class="prompt-delivery"
-                    >{m.newtask_prompt_file_delivery()}</span
-                  >
+                  <span id="nt-prompt-delivery" class="prompt-delivery">
+                    {m.newtask_prompt_file_delivery()}
+                  </span>
                 {/if}
                 <span class="char-count">
                   {#if mobile}
@@ -2970,9 +3022,9 @@
                   {/each}
                   <span class="cm-count">{m.newtask_char_count({ count: prompt.length })}</span>
                   {#if usesPromptFile(prompt.trim())}
-                    <span id="nt-prompt-delivery" class="prompt-delivery"
-                      >{m.newtask_prompt_file_delivery()}</span
-                    >
+                    <span id="nt-prompt-delivery" class="prompt-delivery">
+                      {m.newtask_prompt_file_delivery()}
+                    </span>
                   {/if}
                   <span class="cm-hint">{m.newtask_syntax_hint_touch()}</span>
                 </div>
@@ -3007,6 +3059,13 @@
               onretry={runShape}
               onstartplain={startWithoutShaping}
             />
+          {:else if showCoachHint}
+            <p class="coach-hint" role="status">
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <span tabindex="0" use:statusTip={{ text: coachTip, still: true }}>
+                {m.newtask_coach_hint()}
+              </span>
+            </p>
           {/if}
 
           {#if issueRef && !relaunch}
@@ -3018,8 +3077,10 @@
                 href={firstSafeHttpUrl(issueRef.url) ?? undefined}
                 target="_blank"
                 rel="noopener"
-                ><span class="issue-ref-num">#{issueRef.number}</span> {issueRef.title}</a
               >
+                <span class="issue-ref-num">#{issueRef.number}</span>
+                {issueRef.title}
+              </a>
               <!-- eslint-enable svelte/no-navigation-without-resolve -->
               <button
                 type="button"
@@ -3028,8 +3089,10 @@
                   issueRef = null;
                   attachedRepoPath = null;
                 }}
-                aria-label={m.newtask_issue_remove_aria()}>✕</button
+                aria-label={m.newtask_issue_remove_aria()}
               >
+                ✕
+              </button>
             </div>
             {#if attachedOthers.length > 0}
               <p class="issue-assigned-notice">
@@ -3062,9 +3125,9 @@
                 {agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()}
                 · {modelSummary}{#if !modeLocked}
                   ·
-                  <span class="es-gate" class:on={planGate}
-                    >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
-                  >
+                  <span class="es-gate" class:on={planGate}>
+                    {planGate ? m.newtask_gate_on() : m.newtask_gate_off()}
+                  </span>
                 {/if}
               </span>
               <span class="chev" aria-hidden="true">▾</span>
@@ -3135,8 +3198,9 @@
                   class="spawn-cancel"
                   disabled={spawnCanceling}
                   onclick={cancelCurrentSpawn}
-                  >{spawnCanceling ? m.newtask_spawn_canceling() : m.newtask_spawn_cancel()}</button
                 >
+                  {spawnCanceling ? m.newtask_spawn_canceling() : m.newtask_spawn_cancel()}
+                </button>
               {/if}
             </div>
           {/if}
@@ -3147,9 +3211,9 @@
             <div class="err" role="alert">
               <span>{error}</span>
               {#if errorAction}
-                <button type="button" class="retry" onclick={errorAction.run}
-                  >{errorAction.label}</button
-                >
+                <button type="button" class="retry" onclick={errorAction.run}>
+                  {errorAction.label}
+                </button>
               {/if}
             </div>
           {/if}
@@ -3314,10 +3378,10 @@
               <span class="r-ok" aria-hidden="true">✓</span>
               {m.newtask_readiness_ready()} ·
               {#if mobile && footerCapacity}
-                <span class="r-cap"
-                  >{footerCapacity.code}
-                  {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}</span
-                >
+                <span class="r-cap">
+                  {footerCapacity.code}
+                  {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}
+                </span>
               {:else}
                 {m.newtask_readiness_branches({ base: baseBranch })}
               {/if}
@@ -3329,13 +3393,13 @@
         {/if}
         {#if hasOutstandingUploads}
           <button class="run" type="button" disabled>
-            <span
-              >{uploadFinishing
+            <span>
+              {uploadFinishing
                 ? m.newtask_upload_finishing()
                 : uploadCurrentLengthComputable !== false
                   ? m.newtask_upload_cta({ percent: uploadPercent })
-                  : m.newtask_uploading()}</span
-            >
+                  : m.newtask_uploading()}
+            </span>
           </button>
         {:else if showDualCta}
           <div class="run-dual">
@@ -3372,8 +3436,8 @@
             disabled={!readiness.canSubmit}
             title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
           >
-            <span
-              >{editHeld
+            <span>
+              {editHeld
                 ? submitting
                   ? m.newtask_edit_held_saving()
                   : m.newtask_edit_held_submit()
@@ -3381,8 +3445,8 @@
                   ? m.newtask_spawning()
                   : selectedRepoName && !mobile
                     ? m.newtask_submit_in_repo({ repo: selectedRepoName })
-                    : m.newtask_submit()}</span
-            >
+                    : m.newtask_submit()}
+            </span>
             {#if held}
               <Keycap id="submit" ctx={keymapCtx} flash={hold.flash === "submit"} />
             {:else if !submitting && !coarse.current}
@@ -3574,13 +3638,14 @@
       aria-pressed={mode === "code"}
       aria-keyshortcuts={shortcutAttr("mode-code")}
       onclick={() => setMode("code")}
-      >{m.newtask_mode_code()}{#if held}<Keycap
+    >
+      {m.newtask_mode_code()}{#if held}<Keycap
           id="mode-code"
           ctx={keymapCtx}
           tight
           flash={hold.flash === "mode-code"}
-        />{/if}</button
-    >
+        />{/if}
+    </button>
     <button
       type="button"
       class="seg-btn"
@@ -3589,13 +3654,14 @@
       use:statusTip={{ text: researchModeExplanation(), ...modeTip }}
       aria-keyshortcuts={shortcutAttr("mode-research")}
       onclick={() => setMode("research")}
-      >{held ? m.keymap_mode_research_short() : m.newtask_mode_research()}{#if held}<Keycap
+    >
+      {held ? m.keymap_mode_research_short() : m.newtask_mode_research()}{#if held}<Keycap
           id="mode-research"
           ctx={keymapCtx}
           tight
           flash={hold.flash === "mode-research"}
-        />{/if}</button
-    >
+        />{/if}
+    </button>
     <button
       type="button"
       class="seg-btn"
@@ -3604,13 +3670,14 @@
       use:statusTip={{ text: epicModeExplanation(), ...modeTip }}
       aria-keyshortcuts={shortcutAttr("mode-epic")}
       onclick={() => setMode("epic")}
-      >{m.newtask_mode_epic()}{#if held}<Keycap
+    >
+      {m.newtask_mode_epic()}{#if held}<Keycap
           id="mode-epic"
           ctx={keymapCtx}
           tight
           flash={hold.flash === "mode-epic"}
-        />{/if}</button
-    >
+        />{/if}
+    </button>
     <button
       type="button"
       class="seg-btn"
@@ -3619,13 +3686,14 @@
       use:statusTip={{ text: plainModeExplanation(), ...modeTip }}
       aria-keyshortcuts={shortcutAttr("mode-plain")}
       onclick={() => setMode("plain")}
-      >{m.newtask_mode_plain()}{#if held}<Keycap
+    >
+      {m.newtask_mode_plain()}{#if held}<Keycap
           id="mode-plain"
           ctx={keymapCtx}
           tight
           flash={hold.flash === "mode-plain"}
-        />{/if}</button
-    >
+        />{/if}
+    </button>
     {#if bootstrapOffered || bootstrap}<button
         type="button"
         class="seg-btn"
@@ -3634,13 +3702,14 @@
         use:statusTip={{ text: bootstrapModeExplanation(), ...modeTip }}
         aria-keyshortcuts={shortcutAttr("mode-bootstrap")}
         onclick={() => setMode("bootstrap")}
-        >{m.newtask_mode_bootstrap()}{#if held}<Keycap
+      >
+        {m.newtask_mode_bootstrap()}{#if held}<Keycap
             id="mode-bootstrap"
             ctx={keymapCtx}
             tight
             flash={hold.flash === "mode-bootstrap"}
-          />{/if}</button
-      >{/if}
+          />{/if}
+      </button>{/if}
   </div>
 {/snippet}
 
@@ -4165,6 +4234,23 @@
   }
   .tool-btn.shaping svg {
     animation: shape-btn-turn 2.4s linear infinite;
+  }
+  /* The passive coaching hint (#4177): quiet text in Shape's slot, amber edge like Shape's. */
+  .coach-hint {
+    margin: 0;
+    padding: 6px 10px;
+    border-left: 2px solid var(--color-amber);
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .coach-hint span {
+    cursor: help;
+  }
+  .coach-hint span:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--color-amber);
   }
   .shape-btn-clock {
     font-family: var(--font-mono);

@@ -365,6 +365,7 @@ import {
 } from "./readiness-drift";
 import { composeTaskBrief } from "./intent-shape";
 import { normalizeRound } from "./task-shape";
+import { HINT_MIN_CHARS } from "./prompt-coach-core";
 import { listCommands, readCodexExtensions } from "./commands";
 import { codexHome } from "./codex-usage";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
@@ -1351,6 +1352,10 @@ export interface AppDeps {
     /** `null` = inherit the spawn default (the New Task picker's "default" arrives as null). */
     model: string | null,
   ) => Promise<import("./task-shape").ShapeResult>;
+  /** The New Task prompt-coaching hint (#4177): does the typed prompt name a fix before the
+   *  problem? Wired to the judge in index.ts — null when it is unarmed or fails; never throws.
+   *  Absent ⇒ the route answers `{hint: null}`. */
+  promptHint?: (prompt: string) => Promise<import("./prompt-coach-core").PromptHint | null>;
   /** Read a task's requirements with a transient helper (#2773); never throws. Wired to
    *  deriveRequirementsViaAgent in index.ts; absent in tests that don't exercise it → `failed`
    *  (`unavailable`). `signal` aborts when the client goes away. */
@@ -14093,6 +14098,27 @@ async function handleShape({ req, parts, deps }: Ctx): Promise<Response | null> 
   return "error" in result ? json({ error: result.error }, 422) : json(result);
 }
 
+// POST /api/shape/hint — the passive New Task coaching hint (#4177). Web-only (not in the contract).
+// 200 {hint: "prescribing" | null}: null whenever the judge is unarmed, refuses, fails, or the prompt
+// is too short to judge — the hint is optional coaching, never an error the card has to show.
+async function handleShapeHint({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "shape" &&
+    parts[2] === "hint" &&
+    !parts[3]
+  ))
+    return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await readJsonBody(req)) as Record<string, unknown> | null;
+  const prompt = body?.prompt;
+  if (typeof prompt !== "string") return json({ error: "body must be {prompt: string}" }, 400);
+  if (!deps.promptHint || prompt.trim().length < HINT_MIN_CHARS) return json({ hint: null });
+  return json({ hint: await deps.promptHint(prompt) });
+}
+
 // POST /api/shape/brief — compose the intent-shaped brief from a round the operator answered.
 // Pure: no spawn, no state. Answers are resolved fail-closed against the round's own questions
 // (the plan gate's resolver), so an answer that matches no question is dropped rather than trusted.
@@ -16118,6 +16144,7 @@ const ROUTE_HANDLERS = [
   handleDependabotCommand,
   handleShape,
   handleShapeBrief,
+  handleShapeHint,
   handleReadiness,
   handleReadinessGreenfield,
   handleReadinessForge,

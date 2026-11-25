@@ -1826,8 +1826,31 @@ export async function shapeTask(
   });
   const data = (await r.json().catch(() => null)) as
     (Partial<ShapeRound> & { error?: unknown }) | null;
-  if (r.ok && data?.draft && data.block) return { round: { draft: data.draft, block: data.block } };
+  if (r.ok && data?.draft && data.block) {
+    const { draft, block, verdict } = data;
+    return { round: verdict ? { draft, block, verdict } : { draft, block } };
+  }
   return { error: data && typeof data.error === "string" ? data.error : "timeout" };
+}
+
+/** The passive New Task coaching hint (#4177): "prescribing" when the judge reads the typed prompt
+ *  as naming a fix before the problem, else null. Every failure is null — the hint is optional. */
+export async function promptHint(
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<"prescribing" | null> {
+  try {
+    const r = await fetch("/api/shape/hint", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ prompt }),
+      signal,
+    });
+    const data = (await r.json().catch(() => null)) as { hint?: unknown } | null;
+    return r.ok && data?.hint === "prescribing" ? "prescribing" : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Compose the answered round into the intent-shaped brief that replaces the rough prompt. Pure

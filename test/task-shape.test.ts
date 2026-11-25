@@ -3,6 +3,7 @@ import {
   SHAPE_BLOCK_ID,
   SHAPE_FILE,
   normalizeRound,
+  normalizeVerdict,
   shapeTask,
   shaperPrompt,
   type ShapeArgs,
@@ -276,4 +277,58 @@ test("normalizeRound keeps a draft with no usable questions, but rejects an empt
   expect(normalizeRound({ draft: {}, questions: [] })).toBeNull();
   expect(normalizeRound(null)).toBeNull();
   expect(normalizeRound("nope")).toBeNull();
+});
+
+test("shaperPrompt asks for a verdict on the ask as written", () => {
+  const p = shaperPrompt("x", "/r");
+  expect(p).toContain('"verdict":{"style":"prescribing"');
+  expect(p).toContain('"symptom"');
+  expect(p).toContain('"acceptance"');
+});
+
+test("shaperPrompt fences steering findings only when there are some", () => {
+  const withFindings = shaperPrompt("x", "/r", "en", ["Names the fix first", "Skips acceptance"]);
+  expect(withFindings).toContain("⟦UNTRUSTED:steering findings:");
+  expect(withFindings).toContain("- Names the fix first\n- Skips acceptance");
+  expect(shaperPrompt("x", "/r", "en", [])).not.toContain("steering findings");
+  expect(shaperPrompt("x", "/r")).not.toContain("steering findings");
+});
+
+test("shapeTask hands steering findings to the agent", async () => {
+  const { deps, calls } = makeDeps({ readRound: () => round });
+  await shapeTask({ ...args(), steeringFindings: ["Names the fix first"] }, deps);
+  expect(calls.started!.argv.at(-1)).toContain("Names the fix first");
+});
+
+test("normalizeVerdict keeps known values in canonical order and drops the rest", () => {
+  expect(
+    normalizeVerdict({
+      style: "prescribing",
+      missing: ["acceptance", "bogus", "symptom", "symptom"],
+    }),
+  ).toEqual({ style: "prescribing", missing: ["symptom", "acceptance"] });
+  expect(normalizeVerdict({ style: "describing", missing: [] })).toEqual({
+    style: "describing",
+    missing: [],
+  });
+  // Never read as "states all three" unless the helper said so with an empty list.
+  expect(normalizeVerdict({ style: "describing" })).toBeUndefined();
+  expect(normalizeVerdict({ style: "describing", missing: "symptom" })).toBeUndefined();
+  expect(normalizeVerdict({ style: "describing", missing: ["acceptance check"] })).toBeUndefined();
+  expect(normalizeVerdict({ style: "vague", missing: [] })).toBeUndefined();
+  expect(normalizeVerdict(null)).toBeUndefined();
+  expect(normalizeVerdict(["prescribing"])).toBeUndefined();
+});
+
+test("normalizeRound carries a valid verdict and omits an invalid one", () => {
+  const v = normalizeRound({
+    draft: { problem: "p" },
+    verdict: { style: "describing", missing: ["outcome"] },
+  });
+  expect(v?.verdict).toEqual({ style: "describing", missing: ["outcome"] });
+  const bad = normalizeRound({ draft: { problem: "p" }, verdict: { style: "nope" } });
+  expect(bad).not.toBeNull();
+  expect(bad && "verdict" in bad).toBe(false);
+  // A verdict alone judges the ask but is not a usable round.
+  expect(normalizeRound({ draft: {}, verdict: { style: "describing", missing: [] } })).toBeNull();
 });

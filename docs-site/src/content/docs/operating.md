@@ -904,6 +904,13 @@ typed yourself in the window, the report shows its tables but no findings. With 
 and no steers of your own, no helper runs at all. Reports are kept on the server (the newest 52). The `/prompt-retro` skill runs the
 same retro inside a session.
 
+New Task coaches the prompt you are writing, too. Every **Shape** round opens with a verdict on
+your rough prompt: prescribing or describing, and which of symptom, outcome and acceptance check it
+leaves out. The round weighs it against your latest report's findings. With the decision model on
+(**Settings → Decision model**), New Task also shows a quiet hint under a settled prompt that names a fix
+before the problem, pointing you at Shape. That hint costs one decision-model call per settled
+prompt against the model's daily ceiling; without the decision model, nothing is asked.
+
 ## Operator Assistant
 
 The **Operator Assistant** is an interactive Claude or Codex session that Shepherd runs for you and grounds

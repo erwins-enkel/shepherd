@@ -215,8 +215,22 @@ describe("Usage modal component", () => {
     expect(document.querySelector(".range-row"), "no range row on the Steering tab").toBeNull();
   });
 
-  it("initialTab='steering' opens on the Steering lens (the weekly push deep link)", async () => {
-    render(Usage, { onclose: vi.fn(), initialTab: "steering" });
+  it("a steering request switches an open Usage to the Steering lens (weekly push tap)", async () => {
+    const view = await render(Usage, { onclose: vi.fn() });
+    const pressed = () =>
+      document.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.textContent?.trim();
+    expect(pressed()).toContain("Spend");
+    await view.rerender({ onclose: vi.fn(), steeringRequest: 1 });
+    await vi.waitFor(() => expect(pressed()).toBe(m.usage_steering_tab()));
+    // A repeat tap after the operator moved away switches back again.
+    document.querySelector<HTMLButtonElement>('button[aria-pressed="false"]')!.click();
+    await vi.waitFor(() => expect(pressed()).not.toBe(m.usage_steering_tab()));
+    await view.rerender({ onclose: vi.fn(), steeringRequest: 2 });
+    await vi.waitFor(() => expect(pressed()).toBe(m.usage_steering_tab()));
+  });
+
+  it("opens on the Steering lens when mounted with a steering request", async () => {
+    render(Usage, { onclose: vi.fn(), steeringRequest: 1 });
     await expect.element(page.getByText(m.usage_steering_none())).toBeInTheDocument();
     const active = document.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
     expect(active?.textContent?.trim()).toBe(m.usage_steering_tab());

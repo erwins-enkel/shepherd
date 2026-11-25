@@ -39,11 +39,12 @@
 
   let {
     onclose,
-    initialTab,
+    steeringRequest = 0,
   }: {
     onclose?: () => void;
-    /** Opening lens (a deep link: the weekly steering push opens "steering"); default Spend. */
-    initialTab?: "steering";
+    /** Bumped by each weekly steering push tap (#4176): every change shows the Steering lens, also
+     *  when Usage is already open on another one. 0 = no request (opens on Spend). */
+    steeringRequest?: number;
   } = $props();
 
   // Phone (full-screen card): a rightward swipe closes, like Settings and the command bar.
@@ -62,7 +63,10 @@
     | "limits"
     | "github";
 
-  let tab = $state<Tab>(untrack(() => initialTab) ?? "spend");
+  let tab = $state<Tab>(untrack(() => steeringRequest) > 0 ? "steering" : "spend");
+  $effect(() => {
+    if (steeringRequest > 0) tab = "steering";
+  });
   let range = $state<UsageRange>("7d");
 
   let breakdown = $state<UsageBreakdown | null>(null);

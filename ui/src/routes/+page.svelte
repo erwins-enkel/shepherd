@@ -409,10 +409,11 @@
   // the boot settles so their first open doesn't wait on the network.
   onMount(() => prefetchWhenIdle([loadNewTask, loadSettingsOverlay]));
   let showUsage = $state(false);
-  // Usage's opening lens: set by the weekly steering push (#4176), cleared on close.
-  let usageTab = $state<"steering" | undefined>(undefined);
+  // Weekly steering push taps (#4176): each bump shows Usage → Steering, even when Usage is
+  // already open on another lens. Reset on close.
+  let usageSteeringRequest = $state(0);
   function openUsageSteering() {
-    usageTab = "steering";
+    usageSteeringRequest++;
     showUsage = true;
   }
   // Phone only: the full-screen host panel (the bar chip's popover on desktop).
@@ -4799,10 +4800,10 @@
     showUsage = true;
   }}
   {showUsage}
-  usageInitialTab={usageTab}
+  {usageSteeringRequest}
   onusageclose={() => {
     showUsage = false;
-    usageTab = undefined;
+    usageSteeringRequest = 0;
   }}
   {showClone}
   oncloneclose={() => {

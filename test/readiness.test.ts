@@ -128,7 +128,7 @@ test("a fully-equipped repo (Shepherd-shaped) scores 100 with all guardrails pre
   write(".prettierrc", "{}");
   write(
     "eslint.config.js",
-    'export default [{ rules: { "no-empty": "error", "no-floating-promises": "error" } }];',
+    'export default [{ rules: { "no-empty": "error", "no-floating-promises": "error", "no-restricted-syntax": ["error", "WithStatement"] } }];',
   );
   write("tsconfig.json", '{ "compilerOptions": { "strict": true } }');
   write("commitlint.config.js", "export default {};");
@@ -1012,4 +1012,147 @@ test("Shepherd's own repo scores swallowed_errors present", async () => {
 
 test("bootstrap checklist prescribes the swallowed-error lint rules", () => {
   expect(bootstrapGuardrailChecklist("js-ts", "bun")).toContain("Swallowed-error lint rules");
+});
+
+// ── lint_strictness: warnings fail the gate AND house rules, conditional on a linter (#4153) ──
+
+const LINT_STRICT = "lint_strictness" as const;
+const strictCheck = (r: ReadinessReport) => r.checks.find((c) => c.id === LINT_STRICT);
+const HOUSE_CONFIG = `export default [{ rules: { "no-restricted-imports": ["error", "lodash"] } }];\n`;
+
+test("lint_strictness is omitted when the repo has no linter", async () => {
+  pkg({ name: "lib", scripts: { build: "tsc --max-warnings 0" } });
+  expect(strictCheck(await analyzeReadiness(dir))).toBeUndefined();
+});
+
+test("strict: --max-warnings 0 + house rules → present with evidence from both groups", async () => {
+  pkg({
+    name: "app",
+    scripts: { lint: "eslint . --max-warnings 0" },
+    devDependencies: { eslint: "^9" },
+  });
+  write(
+    "eslint.config.js",
+    `import local from "./eslint-rules/no-foo.js";\nexport default [{ rules: { "no-console": "warn" } }];\n`,
+  );
+  expect(strictCheck(await analyzeReadiness(dir))).toEqual({
+    id: LINT_STRICT,
+    present: true,
+    weight: 5,
+    evidence: ["--max-warnings 0", "local ESLint rules"],
+  });
+});
+
+test("lax: a linter with stock rules → applies, absent, prescribed with both halves", async () => {
+  pkg({ name: "app", scripts: { lint: "eslint ." }, devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `import js from "@eslint/js";\nexport default [js.configs.recommended];\n`,
+  );
+  const r = await analyzeReadiness(dir);
+  expect(strictCheck(r)).toEqual({ id: LINT_STRICT, present: false, weight: 5, evidence: [] });
+  expect(r.claudeMd).toContain("Strict lint: warnings fail the gate + house-specific rules");
+  expect(r.claudeMd).toContain("--max-warnings 0");
+  expect(r.claudeMd).toContain("no-restricted-syntax");
+});
+
+test("house rules alone (a warn severity, no --max-warnings 0) is not strict", async () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `export default [{ rules: { "no-restricted-syntax": ["warn", "WithStatement"] } }];\n`,
+  );
+  expect(strictCheck(await analyzeReadiness(dir))?.present).toBe(false);
+});
+
+test("enforcement alone (--max-warnings 0, stock preset) is not strict", async () => {
+  pkg({
+    name: "app",
+    scripts: { lint: "eslint . --max-warnings=0" },
+    devDependencies: { eslint: "^9" },
+  });
+  write("eslint.config.js", `export default [{ rules: { "no-console": "error" } }];\n`);
+  expect(strictCheck(await analyzeReadiness(dir))?.present).toBe(false);
+});
+
+test("explicit error severities and no warn count as enforcement", async () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write("eslint.config.js", HOUSE_CONFIG);
+  expect(strictCheck(await analyzeReadiness(dir))?.evidence).toEqual([
+    "rules at error (no warn)",
+    "no-restricted-imports",
+  ]);
+});
+
+test.each([
+  ["a husky hook", () => write(".husky/pre-commit", "npx eslint --max-warnings=0 .\n")],
+  [
+    "the package.json lint-staged field",
+    () =>
+      pkg({
+        name: "app",
+        devDependencies: { eslint: "^9" },
+        "lint-staged": { "*.ts": "eslint --max-warnings 0" },
+      }),
+  ],
+  [
+    ".lintstagedrc.json",
+    () => write(".lintstagedrc.json", '{ "*.ts": "eslint --max-warnings=0" }'),
+  ],
+  ["Biome --error-on-warnings", () => write(".husky/pre-push", "biome lint --error-on-warnings\n")],
+] as const)("--max-warnings 0 in %s satisfies the enforced group", async (_name, setup) => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write("eslint.config.js", `export default [{ rules: { "no-restricted-imports": "warn" } }];\n`);
+  expect(strictCheck(await analyzeReadiness(dir))?.present).toBe(false);
+  setup();
+  expect(strictCheck(await analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("a type-aware preset or a local-rules plugin dep counts as house rules", async () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `export default [ts.configs.recommendedTypeChecked, { rules: { a: "error" } }];\n`,
+  );
+  expect(strictCheck(await analyzeReadiness(dir))?.evidence).toContain("type-aware preset");
+
+  pkg({ name: "app", devDependencies: { eslint: "^9", "eslint-plugin-local-rules": "^3" } });
+  write("eslint.config.js", `export default [{ rules: { "local-rules/x": "error" } }];\n`);
+  expect(strictCheck(await analyzeReadiness(dir))?.evidence).toEqual([
+    "rules at error (no warn)",
+    "local ESLint rules plugin",
+  ]);
+});
+
+test("a relative import that is not a rule or plugin is not house rules", async () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `import base from "../eslint.base.js";\nexport default [base, { rules: { a: "error" } }];\n`,
+  );
+  expect(strictCheck(await analyzeReadiness(dir))?.present).toBe(false);
+});
+
+test("turning strictness on flips only lint_strictness", async () => {
+  write("eslint.config.js", `export default [{ rules: { "no-restricted-imports": "warn" } }];\n`);
+  pkg({ name: "app", scripts: { lint: "eslint ." }, devDependencies: { eslint: "^9" } });
+  const lax = await analyzeReadiness(dir);
+  pkg({
+    name: "app",
+    scripts: { lint: "eslint . --max-warnings 0" },
+    devDependencies: { eslint: "^9" },
+  });
+  const strict = await analyzeReadiness(dir);
+  const others = (r: ReadinessReport) => r.checks.filter((c) => c.id !== LINT_STRICT);
+  expect(others(strict)).toEqual(others(lax));
+  expect(strictCheck(lax)?.present).toBe(false);
+  expect(strictCheck(strict)?.present).toBe(true);
+});
+
+test("Shepherd's own repo scores lint_strictness present", async () => {
+  expect(strictCheck(await analyzeReadiness(join(import.meta.dir, "..")))?.present).toBe(true);
+});
+
+test("bootstrap checklist prescribes strict lint", () => {
+  expect(bootstrapGuardrailChecklist("js-ts", "bun")).toContain("Strict lint");
 });

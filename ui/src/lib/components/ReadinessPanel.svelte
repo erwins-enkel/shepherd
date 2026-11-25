@@ -75,6 +75,8 @@
         return m.readiness_g_ts_strict_title();
       case "linter":
         return m.readiness_g_linter_title();
+      case "lint_strictness":
+        return m.readiness_g_lint_strictness_title();
       case "formatter":
         return m.readiness_g_formatter_title();
       case "test_runner":
@@ -112,6 +114,8 @@
         return m.readiness_g_ts_strict_removes();
       case "linter":
         return m.readiness_g_linter_removes();
+      case "lint_strictness":
+        return m.readiness_g_lint_strictness_removes();
       case "formatter":
         return m.readiness_g_formatter_removes();
       case "test_runner":

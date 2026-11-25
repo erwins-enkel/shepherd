@@ -3342,6 +3342,7 @@ export interface BacklogPayload {
 export type GuardrailId =
   | "formatter"
   | "linter"
+  | "lint_strictness"
   | "type_checker"
   | "ts_strict"
   | "commit_lint"

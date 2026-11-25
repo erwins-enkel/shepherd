@@ -159,3 +159,46 @@ test("the bootstrap checklist covers every Swift guardrail", () => {
   expect(list.split("\n").filter((l) => l.startsWith("- ")).length).toBe(SWIFT_GUARDRAILS.length);
   expect(list).not.toMatch(FOREIGN);
 });
+
+// ── lint_strictness (#4153) ──
+
+async function strictCheck() {
+  return (await analyzeReadiness(dir)).checks.find((c) => c.id === "lint_strictness");
+}
+
+test("lint_strictness is omitted when the package has no linter", async () => {
+  write("Package.swift");
+  write(".githooks/pre-push", "swift build --strict\n");
+  expect(await strictCheck()).toBeUndefined();
+});
+
+test("strict: SwiftLint strict: true, swiftlint --strict or swift format lint --strict → present", async () => {
+  write("Package.swift");
+  write(".swiftlint.yml", "opt_in_rules:\n  - empty_count\nstrict: true\n");
+  expect(await strictCheck()).toMatchObject({
+    present: true,
+    evidence: ["swiftlint strict: true"],
+  });
+
+  write(".swiftlint.yml", "strict: false\n");
+  write(".githooks/pre-push", "swiftlint lint --strict\n");
+  expect(await strictCheck()).toMatchObject({ present: true, evidence: ["swiftlint --strict"] });
+
+  write(".githooks/pre-push", "swift format lint --strict -r Sources\n");
+  expect(await strictCheck()).toMatchObject({
+    present: true,
+    evidence: ["swift-format lint --strict"],
+  });
+});
+
+test("lax: a non-strict linter → absent, prescribed", async () => {
+  write("Package.swift");
+  write(".swiftlint.yml", "strict: false\n");
+  write(".githooks/pre-push", "swiftlint lint\n");
+  const r = await analyzeReadiness(dir);
+  expect(r.checks.find((c) => c.id === "lint_strictness")).toMatchObject({
+    present: false,
+    evidence: [],
+  });
+  expect(r.claudeMd).toContain("Set `strict: true` in `.swiftlint.yml`");
+});

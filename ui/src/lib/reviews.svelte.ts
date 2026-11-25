@@ -400,6 +400,7 @@ const OVERLAY_MAPS = {
   criticEnabled: "enabled",
   criticAllPrs: "allPrs",
   criticSmellLensEnabled: "smellLens",
+  claudeReviewSkipsCritic: "claudeReviewSkipsCritic",
   autoAddressEnabled: "autoAddress",
   autopilotEnabled: "autopilot",
   autoDrainEnabled: "autoDrain",
@@ -448,6 +449,7 @@ export class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   allPrs = $state<Record<string, boolean>>({}); // standalone repo-wide PR critic on/off (default off)
   smellLens = $state<Record<string, boolean>>({}); // Fowler code-smell lens on the session critic (default off, #1824)
+  claudeReviewSkipsCritic = $state<Record<string, boolean>>({}); // Claude Code Review stands in for the critic (default off, #4147)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
   autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
   autoDrain = $state<Record<string, boolean>>({}); // auto-drain queue (default off)
@@ -517,6 +519,10 @@ export class RepoConfigStore {
     this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
     this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
     this.smellLens = { ...this.smellLens, [repoPath]: c.criticSmellLensEnabled };
+    this.claudeReviewSkipsCritic = {
+      ...this.claudeReviewSkipsCritic,
+      [repoPath]: c.claudeReviewSkipsCritic ?? false,
+    };
     this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
     this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
     this.autoDrain = { ...this.autoDrain, [repoPath]: c.autoDrainEnabled };
@@ -742,6 +748,12 @@ export class RepoConfigStore {
     await this.write(repoPath, { criticSmellLensEnabled: !this.smellLensOn(repoPath) });
   }
 
+  async toggleClaudeReviewSkipsCritic(repoPath: string) {
+    await this.write(repoPath, {
+      claudeReviewSkipsCritic: !this.claudeReviewSkipsCriticOn(repoPath),
+    });
+  }
+
   async toggleAutoAddress(repoPath: string) {
     await this.write(repoPath, { autoAddressEnabled: !this.isAutoAddressEnabled(repoPath) });
   }
@@ -780,16 +792,21 @@ export class RepoConfigStore {
 
   /** Pick how finished PRs land (#3444): draftMode and autoMergeEnabled in one patch, so the two
    *  are never on together. Draft with the Critic off also sets a Critic sign-off to "human" —
-   *  the server refuses that pair otherwise. */
+   *  the server refuses that pair otherwise. So does Draft with a Critic-only sign-off while
+   *  Claude Code Review replaces the Critic (#4147). */
   async setMergeMode(repoPath: string, mode: MergeMode) {
     const patch: RepoConfigPatch = mergeModePatch(mode);
-    if (
-      mode === "draft" &&
-      !this.isEnabled(repoPath) &&
-      this.signoffAuthorityFor(repoPath) !== "human"
-    )
-      patch.signoffAuthority = "human";
+    if (mode === "draft" && this.draftSignoffWedged(repoPath)) patch.signoffAuthority = "human";
     await this.write(repoPath, patch);
+  }
+
+  /** The stored sign-off could never promote a draft: a Critic sign-off with the Critic off, or a
+   *  Critic-only one while Claude Code Review replaces the Critic (#4147). */
+  private draftSignoffWedged(repoPath: string): boolean {
+    const authority = this.signoffAuthorityFor(repoPath);
+    if (authority === "human") return false;
+    if (!this.isEnabled(repoPath)) return true;
+    return authority === "critic" && this.claudeReviewSkipsCriticOn(repoPath);
   }
 
   /** Set an autonomy level (#3445): exactly its five values — Critic, Auto-Address, Autopilot,
@@ -945,6 +962,10 @@ export class RepoConfigStore {
 
   smellLensOn(repoPath: string): boolean {
     return this.smellLens[repoPath] ?? false;
+  }
+
+  claudeReviewSkipsCriticOn(repoPath: string): boolean {
+    return this.claudeReviewSkipsCritic[repoPath] ?? false;
   }
 
   isAutoAddressEnabled(repoPath: string): boolean {

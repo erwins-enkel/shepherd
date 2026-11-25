@@ -4,6 +4,10 @@ import {
   claudeShipCheckKind,
   claudeShipInFlight,
   claudeShipSignal,
+  codeReviewGate,
+  codeReviewHolding,
+  criticBlocksRebaseUnderCodeReview,
+  criticBlocksUnderCodeReview,
   sameClaudeShip,
   splitClaudeShipRollup,
 } from "../src/forge/claude-ship";
@@ -117,4 +121,52 @@ test("sameClaudeShip compares field-wise", () => {
       { stewardWatching: false, approvals: "success" },
     ),
   ).toBe(false);
+});
+
+describe("Code Review stand-in (#4147)", () => {
+  test("codeReviewGate: only with the critic on, the opt-in and a check on the head", () => {
+    const on = { criticEnabled: true, claudeReviewSkipsCritic: true };
+    const ran = { stewardWatching: false, codeReview: "success" as const };
+    expect(codeReviewGate({ criticEnabled: true }, ran)).toBeUndefined();
+    expect(codeReviewGate({ ...on, claudeReviewSkipsCritic: false }, ran)).toBeUndefined();
+    // critic off: nothing to replace, a stored opt-in stays inert
+    expect(codeReviewGate({ ...on, criticEnabled: false }, ran)).toBeUndefined();
+    expect(codeReviewGate(on, undefined)).toBeUndefined();
+    expect(codeReviewGate(on, { stewardWatching: true })).toBeUndefined();
+    expect(codeReviewGate(on, { stewardWatching: false, codeReview: "pending" })).toBe("pending");
+    expect(codeReviewGate(on, { stewardWatching: false, codeReview: "none" })).toBe("none");
+  });
+
+  test("codeReviewHolding: pending and failure hold", () => {
+    expect(codeReviewHolding("pending")).toBe(true);
+    expect(codeReviewHolding("failure")).toBe(true);
+    expect(codeReviewHolding("success")).toBe(false);
+    expect(codeReviewHolding("none")).toBe(false);
+    expect(codeReviewHolding(undefined)).toBe(false);
+  });
+
+  test("criticBlocksUnderCodeReview: only a current-head changes_requested", () => {
+    const v = (reviewDecision: string | null, reviewHeadSha: string | null) => ({
+      reviewDecision,
+      reviewHeadSha,
+      headSha: "h1",
+    });
+    expect(criticBlocksUnderCodeReview(v("changes_requested", "h1"))).toBe(true);
+    expect(criticBlocksUnderCodeReview(v("changes_requested", "h0"))).toBe(false);
+    expect(criticBlocksUnderCodeReview(v("error", "h1"))).toBe(false);
+    expect(criticBlocksUnderCodeReview(v(null, null))).toBe(false);
+  });
+
+  test("criticBlocksRebaseUnderCodeReview: current-head findings block too, error never", () => {
+    const v = (reviewDecision: string, reviewHeadSha: string, findings: string[]) => ({
+      reviewDecision,
+      reviewHeadSha,
+      headSha: "h1",
+      findings,
+    });
+    expect(criticBlocksRebaseUnderCodeReview(v("commented", "h1", ["x"]))).toBe(true);
+    expect(criticBlocksRebaseUnderCodeReview(v("commented", "h0", ["x"]))).toBe(false);
+    expect(criticBlocksRebaseUnderCodeReview(v("commented", "h1", []))).toBe(false);
+    expect(criticBlocksRebaseUnderCodeReview(v("error", "h1", ["x"]))).toBe(false);
+  });
 });

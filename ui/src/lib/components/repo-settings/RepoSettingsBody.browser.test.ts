@@ -761,6 +761,8 @@ describe("RepoSettingsBody — lock reasons (#3444)", () => {
     repoConfig.enabled = {};
     repoConfig.autoMerge = {};
     repoConfig.autopilot = {};
+    repoConfig.draftMode = {};
+    repoConfig.signoffAuthority = {};
   });
 
   /** Every locked switch row by its field, in every section, with the reason it names. */
@@ -790,6 +792,7 @@ describe("RepoSettingsBody — lock reasons (#3444)", () => {
     expect(await locks()).toEqual({
       autoDrainEnabled: reason,
       criticAllPrs: reason,
+      claudeReviewSkipsCritic: reason,
       mergeWithoutCi: reason,
       manualStepsIssueEnabled: reason,
       epicStacksEnabled: reason,
@@ -805,13 +808,21 @@ describe("RepoSettingsBody — lock reasons (#3444)", () => {
       await expect.element(page.getByRole("radio", { name, exact: true })).toBeEnabled();
   });
 
-  it("with the Critic off, exactly Auto-Address and the smell lens are locked", async () => {
+  it("with the Critic off, exactly Auto-Address, the smell lens and Claude Code Review are locked", async () => {
     repoConfig.enabled = { [repo]: false };
     await mount("autonomy");
     expect(await locks()).toEqual({
       autoAddressEnabled: m.automation_autoaddress_needs_critic(),
       criticSmellLensEnabled: m.automation_smelllens_needs_critic(),
+      claudeReviewSkipsCritic: m.automation_claudereview_needs_critic(),
     });
+  });
+
+  it("Draft sign-off by the Critic locks Claude Code Review with its fix (#4147)", async () => {
+    repoConfig.draftMode = { [repo]: true };
+    repoConfig.signoffAuthority = { [repo]: "critic" };
+    await mount("autonomy");
+    expect((await locks()).claudeReviewSkipsCritic).toBe(m.automation_claudereview_needs_signoff());
   });
 
   it("locks nothing in a GitHub repo with the Critic on", async () => {
@@ -892,7 +903,7 @@ describe("RepoSettingsBody — search", () => {
       })
       .click();
     await expect
-      .element(page.getByRole("switch", { name: m.automation_critic_name() }))
+      .element(page.getByRole("switch", { name: m.automation_critic_name(), exact: true }))
       .toHaveFocus();
     await expect.element(input).toHaveValue("");
     expect(tab("review")?.getAttribute("aria-selected")).toBe("true");

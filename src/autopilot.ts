@@ -6,6 +6,7 @@ import type { GitState } from "./forge/types";
 import type { SessionStateChange } from "./session-snapshot";
 import { effectiveAutopilot, hasTaskConversation } from "./effective-autopilot";
 import { signedOff } from "./signoff";
+import { codeReviewGate, criticBlocksRebaseUnderCodeReview } from "./forge/claude-ship";
 import { checksCleared } from "./checks-gate";
 import { isConflicting, isDefiniteConflict } from "./pr-conflict";
 import { OWNERSHIP_TTL_MS } from "./automerge-core";
@@ -361,6 +362,17 @@ function ciHandedBack(s: Session): boolean {
 /** The `ci-red skip` reason for a session parked on a pause or completion. */
 function parkedReason(s: Session): CiSkipReason {
   return s.autopilotPaused ? "paused" : "complete";
+}
+
+/** #4147: the rebase review gate while Claude Code Review stands in for the critic — only a
+ *  current-head critic verdict (changes_requested, or findings still to address) holds it. */
+function codeReviewRebasePasses(review: ReviewVerdict | null, git: GitState): boolean {
+  return !criticBlocksRebaseUnderCodeReview({
+    reviewDecision: review?.decision ?? null,
+    reviewHeadSha: review?.headSha ?? null,
+    headSha: git.headSha ?? null,
+    findings: review?.findings ?? [],
+  });
 }
 
 export class AutopilotService {
@@ -1375,8 +1387,11 @@ export class AutopilotService {
    *  Otherwise (neither — only the counter-reset path reaches here) require a CLEAN head-matched
    *  critic sign-off via the tested signedOff predicate. */
   private rebaseReviewPassed(s: Session, git: GitState): boolean {
-    if (!this.deps.store.getRepoConfig(s.repoPath).criticEnabled) return true;
+    const cfg = this.deps.store.getRepoConfig(s.repoPath);
+    if (!cfg.criticEnabled) return true;
     const review = this.deps.getReview(s.id);
+    if (codeReviewGate(cfg, git.claudeShip) !== undefined)
+      return codeReviewRebasePasses(review, git);
     if (rebaseUrgent(git)) {
       // Waive "a verdict must exist" — on a behind or conflicting PR review.ts holds the critic,
       // so one can never arrive. For the same reason a verdict on an OLDER head counts as none:

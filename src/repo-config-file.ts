@@ -12,6 +12,7 @@ export const REPO_RULE_FIELDS = [
   "criticEnabled",
   "criticAllPrs",
   "criticSmellLensEnabled",
+  "claudeReviewSkipsCritic",
   "autoAddressEnabled",
   "autopilotEnabled",
   "planGateEnabled",
@@ -48,6 +49,7 @@ export const REPO_RULE_DEFAULTS: Readonly<RepoRules> = Object.freeze({
   criticEnabled: true,
   criticAllPrs: false,
   criticSmellLensEnabled: false,
+  claudeReviewSkipsCritic: false,
   autoAddressEnabled: false,
   autopilotEnabled: false,
   planGateEnabled: false,
@@ -71,7 +73,20 @@ export function repoRuleValidationError(config: RepoRules): string | null {
   // A critic-reliant signoff with critic disabled would leave drafts stuck forever.
   if (config.draftMode && !config.criticEnabled && config.signoffAuthority !== "human")
     return `signoffAuthority "${config.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`;
+  // #4147: the same wedge — Claude Code Review replaces the critic on its heads, so a critic-only
+  // sign-off never arrives there.
+  if (codeReviewWedgesSignoff(config))
+    return `signoffAuthority "critic" conflicts with claudeReviewSkipsCritic — the critic is skipped where Claude Code Review runs, so it would never sign off (use "human" or "either")`;
   return null;
+}
+
+function codeReviewWedgesSignoff(config: RepoRules): boolean {
+  return (
+    config.draftMode &&
+    config.criticEnabled &&
+    !!config.claudeReviewSkipsCritic &&
+    config.signoffAuthority === "critic"
+  );
 }
 
 const CONFIG_PATH = ".shepherd/config.json";

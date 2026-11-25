@@ -743,16 +743,23 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   }
 
   /** Hard preconditions + the push debounce: an open PR with a head and number, a branch, the
-   *  critic on, and — unless forced — CI cleared or the agent at rest. */
+   *  critic on, and — unless forced — CI cleared or the agent at rest.
+   *
+   *  #4147 `claudeReviewSkipsCritic`: a Claude Code Review check on the head (any state) stands in
+   *  for the critic, so no auto run. Without one yet, wait for CI to clear rather than for the
+   *  agent to rest — that gives Code Review time to post its check before we spend a critic run. */
   private reviewable(
     session: Session,
     git: GitState,
     force: boolean,
   ): git is GitState & { headSha: string; number: number } {
     if (git.state !== "open" || !git.headSha || !git.number || !session.branch) return false;
-    if (!force && !checksCleared(git.checks, git.noCi ?? false) && !this.resting(session))
-      return false;
-    return this.deps.store.getRepoConfig(session.repoPath).criticEnabled;
+    const cfg = this.deps.store.getRepoConfig(session.repoPath);
+    if (!cfg.criticEnabled) return false;
+    if (force) return true;
+    const cleared = checksCleared(git.checks, git.noCi ?? false);
+    if (cfg.claudeReviewSkipsCritic) return cleared && git.claudeShip?.codeReview === undefined;
+    return cleared || this.resting(session);
   }
 
   /** The task agent has finished its turn: idle/done, with no background shell still running.

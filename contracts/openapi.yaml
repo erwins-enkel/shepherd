@@ -1561,6 +1561,8 @@ components:
           not_mergeable,
           protection_blocked,
           approval_pending,
+          code_review_pending,
+          code_review_failed,
           behind,
           rebase_cap,
           signoff,
@@ -7856,6 +7858,9 @@ components:
           type: boolean
         criticSmellLensEnabled:
           type: boolean
+        claudeReviewSkipsCritic:
+          type: boolean
+          description: "Claude Ship (#4147): skip the Shepherd critic on a head with a Claude Code Review check run; critic-verdict gates wait on that check instead. Absent = false."
         autoAddressEnabled:
           type: boolean
         autopilotEnabled:
@@ -8098,6 +8103,9 @@ components:
           type: boolean
         criticSmellLensEnabled:
           type: boolean
+        claudeReviewSkipsCritic:
+          type: boolean
+          description: "Claude Ship (#4147): skip the Shepherd critic on a head with a Claude Code Review check run; critic-verdict gates wait on that check instead. Absent = false."
         autoAddressEnabled:
           type: boolean
         autopilotEnabled:
@@ -9276,6 +9284,9 @@ components:
           type: boolean
         criticSmellLensEnabled:
           type: boolean
+        claudeReviewSkipsCritic:
+          type: boolean
+          description: "Claude Ship (#4147): skip the Shepherd critic on a head with a Claude Code Review check run; critic-verdict gates wait on that check instead. Absent = false."
         autoAddressEnabled:
           type: boolean
         autopilotEnabled:
@@ -9314,6 +9325,9 @@ components:
           type: boolean
         criticSmellLensEnabled:
           type: boolean
+        claudeReviewSkipsCritic:
+          type: boolean
+          description: "Claude Ship (#4147): skip the Shepherd critic on a head with a Claude Code Review check run; critic-verdict gates wait on that check instead. Absent = false."
         autoAddressEnabled:
           type: boolean
         autopilotEnabled:
@@ -9493,6 +9507,9 @@ components:
           type: boolean
         criticSmellLensEnabled:
           type: boolean
+        claudeReviewSkipsCritic:
+          type: boolean
+          description: "Claude Ship (#4147): skip the Shepherd critic on a head with a Claude Code Review check run; critic-verdict gates wait on that check instead. Absent = false."
         autoAddressEnabled:
           type: boolean
         autopilotEnabled:

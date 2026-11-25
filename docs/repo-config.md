@@ -64,7 +64,7 @@ cannot publish shared rules; their settings stay local.
 ## Fields and precedence
 
 The shared fields are `criticEnabled`, `criticAllPrs`, `criticSmellLensEnabled`,
-`autoAddressEnabled`, `autopilotEnabled`, `planGateEnabled`, `autoDrainEnabled`,
+`claudeReviewSkipsCritic`, `autoAddressEnabled`, `autopilotEnabled`, `planGateEnabled`, `autoDrainEnabled`,
 `autoMergeEnabled`, `buildQueueEnabled`, `draftMode`, `signoffAuthority`,
 `manualStepsIssueEnabled`, `preWarmEpicLandingCi`, `epicStacksEnabled`, `autoLabel`,
 `defaultModel`, `defaultEffort` and `leitrechner`.

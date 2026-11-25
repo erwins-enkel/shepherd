@@ -106,6 +106,27 @@ test("PUT /api/repo-config with non-boolean autopilotEnabled → 400", async () 
   expect(res.status).toBe(400);
 });
 
+// ── PUT /api/repo-config accepts claudeReviewSkipsCritic (#4147) ───────────────
+
+test("PUT /api/repo-config: claudeReviewSkipsCritic defaults off, persists, rejects non-boolean", async () => {
+  const { app, store: s } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const put = (body: unknown) =>
+    app.fetch(
+      new Request(url, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await (await app.fetch(new Request(url))).json()).claudeReviewSkipsCritic).toBe(false);
+  const res = await put({ claudeReviewSkipsCritic: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).claudeReviewSkipsCritic).toBe(true);
+  expect(s.getRepoConfig(repoDir).claudeReviewSkipsCritic).toBe(true);
+  expect((await put({ claudeReviewSkipsCritic: "yes" })).status).toBe(400);
+});
+
 // ── PUT /api/sessions/:id/autopilot ──────────────────────────────────────────
 
 function makeSession(store: SessionStore, repoPath: string) {

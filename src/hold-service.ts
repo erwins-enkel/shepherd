@@ -10,6 +10,7 @@ import type { RepoConfig } from "./store";
 import type { EpicRun } from "./epic-core";
 import { sessionEpicParent } from "./epic-branch";
 import { drainEnabled, readyToRetire, type AutoSessionView } from "./drain-core";
+import { codeReviewGate } from "./forge/claude-ship";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -23,7 +24,14 @@ export interface SessionStore {
 export interface EpicRetireReader {
   getRepoConfig(
     repoPath: string,
-  ): Pick<RepoConfig, "autoDrainEnabled" | "criticEnabled" | "draftMode" | "signoffAuthority">;
+  ): Pick<
+    RepoConfig,
+    | "autoDrainEnabled"
+    | "criticEnabled"
+    | "draftMode"
+    | "signoffAuthority"
+    | "claudeReviewSkipsCritic"
+  >;
   getEpicRun(repoPath: string): Pick<EpicRun, "status" | "parentIssueNumber"> | null;
   getEpicIntegrationBranch(repoPath: string, parentIssueNumber: number): string | null;
 }
@@ -56,6 +64,7 @@ function retireView(
   git: GitState,
   review: ReviewVerdict | undefined,
   epic: number,
+  cfg: Pick<RepoConfig, "criticEnabled" | "claudeReviewSkipsCritic">,
 ): AutoSessionView {
   return {
     id: s.id,
@@ -68,6 +77,7 @@ function retireView(
     findings: review?.findings ?? [],
     humanApproved: git.latestReview?.state === "approved",
     isDraft: git.isDraft ?? false,
+    codeReviewGate: codeReviewGate(cfg, git.claudeShip),
     fullAuto: false,
     epicParent: epic,
     landingRepair: false,
@@ -254,7 +264,7 @@ export class HoldReasonService {
     const run = reader.getEpicRun(s.repoPath);
     if (drainEnabled(run, cfg.autoDrainEnabled)) return null;
     if (reader.getEpicIntegrationBranch(s.repoPath, epic) == null) return null;
-    const view = retireView(s, git, review, epic);
+    const view = retireView(s, git, review, epic, cfg);
     if (!readyToRetire(view, cfg.criticEnabled, cfg.draftMode, cfg.signoffAuthority)) return null;
     return { epic, leadEpic: run?.status === "paused" ? run.parentIssueNumber : null };
   }

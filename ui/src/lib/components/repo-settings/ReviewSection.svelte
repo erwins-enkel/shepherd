@@ -21,6 +21,17 @@
   // #3444: switching the Critic off moved a Draft sign-off that needed it to Human — say so here,
   // the Sign-off select itself sits in the Merge section.
   let signoffReset = $state(false);
+  // #4147: a critic-only Draft sign-off never arrives where Claude Code Review replaces the Critic
+  // (the server rejects that combination), so name the fix instead of failing the write.
+  const claudeReviewLock = $derived(
+    lightweight
+      ? m.automation_lightweight_unavailable()
+      : !flags.critic
+        ? m.automation_claudereview_needs_critic()
+        : flags.draftMode && repoConfig.signoffAuthorityFor(repoPath) === "critic"
+          ? m.automation_claudereview_needs_signoff()
+          : undefined,
+  );
 </script>
 
 <RepoSettingRow
@@ -56,6 +67,17 @@
   locked={flags.critic ? undefined : m.automation_smelllens_needs_critic()}
   checked={flags.smellLens && flags.critic}
   ontoggle={() => repoConfig.toggleSmellLens(repoPath)}
+/>
+<RepoSettingRow
+  field="claudeReviewSkipsCritic"
+  glyph="⇄"
+  name={m.automation_claudereview_name()}
+  desc={m.automation_claudereview_desc()}
+  detail={{ id: "claude-review-skips-critic", text: m.automation_claudereview_detail() }}
+  indent
+  locked={claudeReviewLock}
+  checked={repoConfig.claudeReviewSkipsCriticOn(repoPath) && flags.critic && !lightweight}
+  ontoggle={() => repoConfig.toggleClaudeReviewSkipsCritic(repoPath)}
 />
 <RepoSettingRow
   field="criticAllPrs"

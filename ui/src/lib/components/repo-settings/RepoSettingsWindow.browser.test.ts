@@ -149,7 +149,7 @@ afterEach(() => {
 });
 
 const tab = (label: string) => page.getByRole("tab", { name: new RegExp(`^${label}`) });
-const sw = (name: string) => page.getByRole("switch", { name });
+const sw = (name: string) => page.getByRole("switch", { name, exact: true });
 const MODE_NAMES: Record<MergeMode, () => string> = {
   manual: () => m.reposettings_merge_mode_manual(),
   draft: () => m.reposettings_merge_mode_draft(),
@@ -446,6 +446,18 @@ describe("RepoSettingsWindow — Finished PRs (#3444)", () => {
     await expect.element(page.getByText(m.automation_signoff_needs_critic())).toBeVisible();
     await radio("auto").click();
     await expect.element(signoff()).not.toBeInTheDocument();
+  });
+
+  it("with Claude Code Review replacing the Critic only the Critic-only sign-off is locked (#4147)", async () => {
+    mockApi({ criticEnabled: true, claudeReviewSkipsCritic: true });
+    await open({ section: "merge" });
+    await radio("draft").click();
+    await expect.element(signoff()).toBeVisible();
+    const disabled = [...signoff().element().querySelectorAll("option")]
+      .filter((o) => o.disabled)
+      .map((o) => o.value);
+    expect(disabled).toEqual(["critic"]);
+    await expect.element(page.getByText(m.automation_signoff_claude_review())).toBeVisible();
   });
 
   it("switching the Critic off moves a Critic sign-off to Human in the same write, visibly", async () => {

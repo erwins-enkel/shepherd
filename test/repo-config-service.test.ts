@@ -68,6 +68,17 @@ test("patch: rejects draftMode without critic when signoffAuthority isn't human"
   expect(r.error).toContain("requires criticEnabled");
 });
 
+test("patch: rejects critic-only draft sign-off with claudeReviewSkipsCritic (#4147)", async () => {
+  const { svc } = harness();
+  const base = { draftMode: true, criticEnabled: true, claudeReviewSkipsCritic: true };
+  const r = await svc.patch("/r", { ...base, signoffAuthority: "critic" });
+  expect(r.ok).toBe(false);
+  if (r.ok) throw new Error("expected rejection");
+  expect(r.error).toContain("conflicts with claudeReviewSkipsCritic");
+  // a human can still sign off under "either", so that stays allowed
+  expect((await svc.patch("/r", { ...base, signoffAuthority: "either" })).ok).toBe(true);
+});
+
 test("patch: draftMode with critic enabled is allowed", async () => {
   const { svc } = harness();
   const r = await svc.patch("/r", {

@@ -119,6 +119,8 @@ function harness(opts: {
   review?: ReviewVerdict | null;
   /** Repo criticEnabled flag (default true, matching getRepoConfig below). */
   criticEnabled?: boolean;
+  /** Repo claudeReviewSkipsCritic flag (#4147, default false). */
+  claudeReviewSkipsCritic?: boolean;
   /** Max rebase steers before reEngageRebase hands back (default 5). */
   rebaseCap?: number;
   /** Injected clock (default 0) so the conflict-ownership window is deterministic. */
@@ -160,6 +162,7 @@ function harness(opts: {
       getRepoConfig: () =>
         ({
           criticEnabled: opts.criticEnabled ?? true,
+          claudeReviewSkipsCritic: opts.claudeReviewSkipsCritic ?? false,
           autoAddressEnabled: false,
           autopilotEnabled: opts.repoEnabled ?? false,
           draftMode: opts.repoDraftMode ?? false,
@@ -2084,6 +2087,31 @@ test("rebase: conflict (mergeable=false) → steers", async () => {
   await h.svc.onDone("s1");
   await flush();
   expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("rebase: #4147 Code Review stand-in — no critic verdict needed; current-head findings hold", async () => {
+  const run = async (o: { skip: boolean; review: ReviewVerdict | null }) => {
+    const h = harness({
+      session: sess({ status: "done" }),
+      openPr: true,
+      prGit: greenPr({
+        mergeable: false,
+        claudeShip: { stewardWatching: false, codeReview: "pending" },
+      }),
+      claudeReviewSkipsCritic: o.skip,
+      review: o.review,
+    });
+    await h.svc.onDone("s1");
+    await flush();
+    return h.events.some((e) => e.steer === REBASE_STEER_MAIN);
+  };
+  // opted in: the Code Review check stands in, so no critic sign-off is needed
+  expect(await run({ skip: true, review: null })).toBe(true);
+  expect(await run({ skip: true, review: review({ headSha: "old", findings: ["x"] }) })).toBe(true);
+  // a current-head verdict with findings still holds ("fix first, then rebase")
+  expect(await run({ skip: true, review: review({ findings: ["x"] }) })).toBe(false);
+  // opted out: today's critic sign-off gate (no verdict → no steer)
+  expect(await run({ skip: false, review: null })).toBe(false);
 });
 
 test("rebase: draft PR behind → no-op (a rebase can't make a draft mergeable; DRAFT masks BEHIND)", async () => {

@@ -3579,6 +3579,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
   "criticAllPrs",
   "criticSmellLensEnabled",
+  "claudeReviewSkipsCritic",
   "autoAddressEnabled",
   "autopilotEnabled",
   "planGateEnabled",
@@ -3602,6 +3603,7 @@ type RepoCfgBody = {
   criticEnabled?: unknown;
   criticAllPrs?: unknown;
   criticSmellLensEnabled?: unknown;
+  claudeReviewSkipsCritic?: unknown;
   autoAddressEnabled?: unknown;
   autopilotEnabled?: unknown;
   planGateEnabled?: unknown;
@@ -3763,6 +3765,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       criticEnabled?: boolean;
       criticAllPrs?: boolean;
       criticSmellLensEnabled?: boolean;
+      claudeReviewSkipsCritic?: boolean;
       autoAddressEnabled?: boolean;
       autopilotEnabled?: boolean;
       planGateEnabled?: boolean;
@@ -3862,6 +3865,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     criticEnabled: body.criticEnabled as boolean | undefined,
     criticAllPrs: body.criticAllPrs as boolean | undefined,
     criticSmellLensEnabled: body.criticSmellLensEnabled as boolean | undefined,
+    claudeReviewSkipsCritic: body.claudeReviewSkipsCritic as boolean | undefined,
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,
     planGateEnabled: body.planGateEnabled as boolean | undefined,

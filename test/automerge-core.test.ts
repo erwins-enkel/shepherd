@@ -825,6 +825,55 @@ test("computeMerge: never merges while Claude Approvals holds", () => {
   expect(computeMerge(state([sess({ claudeApprovals: "success" })])).kind).toBe("merge");
 });
 
+// ── #4147: Claude Code Review stands in for the critic ──────────────────────────────────────
+
+test("mergeWaitReason: Code Review gate replaces the critic verdict (#4147)", () => {
+  // pending / failure hold under their own codes, with no critic verdict in sight
+  expect(wait({ codeReviewGate: "pending" })).toBe("code_review_pending");
+  expect(wait({ codeReviewGate: "failure" })).toBe("code_review_failed");
+  // success / neutral clear it — no critic verdict needed
+  expect(wait({ codeReviewGate: "success" })).toBeNull();
+  expect(wait({ codeReviewGate: "none" })).toBeNull();
+  // older-head verdicts and error are ignored: no critic re-runs to refresh them
+  expect(wait({ codeReviewGate: "success", reviewDecision: "changes_requested" })).toBeNull();
+  expect(
+    wait({ codeReviewGate: "success", reviewDecision: "changes_requested", reviewHeadSha: "h0" }),
+  ).toBeNull();
+  expect(wait({ codeReviewGate: "success", reviewDecision: "error", reviewHeadSha: "h1" })).toBe(
+    null,
+  );
+  // a current-head changes_requested still blocks
+  expect(
+    wait({ codeReviewGate: "success", reviewDecision: "changes_requested", reviewHeadSha: "h1" }),
+  ).toBe("changes_requested");
+  // CI still reads first
+  expect(wait({ codeReviewGate: "pending", checks: "failure" })).toBe("checks_failed");
+});
+
+test("computeMerge: Code Review gate — merges on success, holds on pending/failure (#4147)", () => {
+  const on = { criticEnabled: true };
+  expect(computeMerge(state([sess({ codeReviewGate: "success" })], on)).kind).toBe("merge");
+  expect(computeMerge(state([sess({ codeReviewGate: "none" })], on)).kind).toBe("merge");
+  expect(computeMerge(state([sess({ codeReviewGate: "pending" })], on)).kind).toBe("hold");
+  expect(computeMerge(state([sess({ codeReviewGate: "failure" })], on)).kind).toBe("hold");
+  // no gate → today's critic gate (no verdict holds)
+  expect(computeMerge(state([sess()], on)).kind).toBe("hold");
+});
+
+test("computeMerge: Code Review gate never gates a rebase; current-head findings do (#4147)", () => {
+  const on = { criticEnabled: true };
+  const behind = (o: Partial<MergeSessionView>) =>
+    sess({ behind: true, codeReviewGate: "pending", ...o });
+  expect(computeMerge(state([behind({})], on)).kind).toBe("rebase");
+  const stale = behind({ reviewDecision: "commented", reviewHeadSha: "h0", findings: ["x"] });
+  expect(computeMerge(state([stale], on)).kind).toBe("rebase");
+  const errored = behind({ reviewDecision: "error", reviewHeadSha: "h1" });
+  expect(computeMerge(state([errored], on)).kind).toBe("rebase");
+  const findings = behind({ reviewDecision: "commented", reviewHeadSha: "h1", findings: ["x"] });
+  expect(computeMerge(state([findings], on)).kind).not.toBe("rebase");
+  expect(mergeWaitReason(findings, state([], on))).toBe("changes_requested");
+});
+
 test("mergeWaitReason: behind base", () => {
   expect(wait({ behind: true })).toBe("behind");
   expect(wait({ behind: null })).toBe("behind");

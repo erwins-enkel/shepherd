@@ -9386,5 +9386,15 @@
   "usage_steering_explain_shows_label": "Was der Bericht zeigt",
   "usage_steering_explain_shows": "Ob deine beschreibenden Prompts mit weniger Steers, Critic-Runden und CI-Fixes ausgekommen sind als die vorschreibenden, und Umformulierungen echter Prompts aus diesem Zeitraum.",
   "feat_steering_report_title": "Steuerungsbericht: Wie gut steuern deine Prompts?",
-  "feat_steering_report_body": "Unter Nutzung → Steuerung wertet ein Bericht deine Sitzungen der letzten 7 Tage aus: Er trennt Prompts, die eine Lösung vorgeben, von Prompts, die das Problem beschreiben, vergleicht beide mit der Nacharbeit (Steers, Critic-Runden, rotes CI) und schreibt die teuersten Beispiele neu. „Jetzt erstellen“ startet ihn."
+  "feat_steering_report_body": "Unter Nutzung → Steuerung wertet ein Bericht deine Sitzungen der letzten 7 Tage aus: Er trennt Prompts, die eine Lösung vorgeben, von Prompts, die das Problem beschreiben, vergleicht beide mit der Nacharbeit (Steers, Critic-Runden, rotes CI) und schreibt die teuersten Beispiele neu. „Jetzt erstellen“ startet ihn.",
+  "automation_signoff_claude_review": "„Kritiker“ allein kann nicht freigeben, solange Claude Code Review den Kritiker ersetzt; nutze „Mensch“ oder „Mensch oder Kritiker“.",
+  "automation_claudereview_name": "Claude Code Review ersetzt den Kritiker",
+  "automation_claudereview_desc": "Kein Kritiker auf Commits, die Claude Code Review prüft — Merges warten stattdessen auf dessen Check",
+  "automation_claudereview_needs_critic": "Erfordert aktiven Kritiker",
+  "automation_claudereview_needs_signoff": "„Freigabe durch“ Kritiker braucht den Kritiker — stell sie erst auf „Mensch“ oder „Mensch oder Kritiker“",
+  "automation_claudereview_detail": "Für Repos mit Anthropics Claude Ship (nur GitHub). Liegt auf dem neuesten Commit eines PRs ein Claude-Code-Review-Check — laufend oder fertig —, startet Shepherd für diesen Commit keinen Kritiker, damit derselbe Code nicht zweimal geprüft und bezahlt wird. Voller Auto-Merge, die Drain und der Autopilot warten dann auf diesen Check statt auf ein Kritiker-Urteil: Erfolg oder neutral gibt den PR frei, laufend oder fehlgeschlagen hält ihn. Die Findings von Code Review kommen als PR-Review-Kommentare und erreichen den Agenten über das PR-Review-Feedback. Commits ohne Code-Review-Check (er läuft nur einmal pro PR oder ist nicht installiert) bekommen weiterhin den Kritiker, sobald die CI grün ist. Standardmäßig aus. Funktioniert nur, solange der Kritiker selbst an ist.",
+  "automergebanner_code_review_pending": "wartet auf den Claude-Code-Review-Check",
+  "automergebanner_code_review_failed": "der Claude-Code-Review-Check ist fehlgeschlagen — ein Push, der ihn behebt, startet das Review neu",
+  "feat_claude_ship_skip_critic_title": "Claude Code Review kann den Kritiker ersetzen",
+  "feat_claude_ship_skip_critic_body": "Ein neuer Schalter pro Repo unter Review: Auf Commits, die Claude Code Review bereits prüft, lässt Shepherd seinen eigenen Kritiker weg, damit du nicht zwei Reviews bezahlst. Der volle Auto-Merge wartet dann auf den Claude-Code-Review-Check statt auf ein Kritiker-Urteil."
 }

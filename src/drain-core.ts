@@ -1,4 +1,5 @@
-import type { Issue, GitState } from "./forge/types";
+import type { ChecksState, Issue, GitState } from "./forge/types";
+import { codeReviewHolding, criticBlocksUnderCodeReview } from "./forge/claude-ship";
 import type { AgentProvider, SessionStatus, ReviewDecision } from "./types";
 import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 import { checksCleared } from "./checks-gate";
@@ -111,6 +112,10 @@ export interface AutoSessionView {
   humanApproved: boolean;
   /** The latest critic verdict's discrete findings ([] = clean / none). */
   findings: string[];
+  /** #4147: the Claude Code Review check standing in for the critic on this head (see
+   *  `codeReviewGate`). Present ⇒ it replaces the critic-verdict gate in {@link readyToRetire}.
+   *  Absent = the critic gates. */
+  codeReviewGate?: ChecksState;
   /** Effective full-auto (autopilot ∧ auto-merge). When true the merge train lands this
    *  session, so the drain must NOT retire it (that would foreclose rebase recovery). When
    *  false the drain retires it normally — even in an auto-merge repo — so it can't sit
@@ -136,7 +141,7 @@ export interface AutoSessionView {
  *  (#3957) has no session here, so its view is built from the forge and this host's critic. */
 export type RetireView = Pick<
   AutoSessionView,
-  "git" | "reviewDecision" | "reviewHeadSha" | "humanApproved" | "findings"
+  "git" | "reviewDecision" | "reviewHeadSha" | "humanApproved" | "findings" | "codeReviewGate"
 >;
 
 /** The auto sessions that hold an agent slot — all but landing repairs (#2973). */
@@ -316,6 +321,12 @@ export function readyToRetire(
   if (draftMode) {
     return signedOff(authority, signoffView(s));
   }
+  // #4147: Claude Code Review stands in for the critic — its check is the verdict gate.
+  if (s.codeReviewGate !== undefined)
+    return (
+      !criticBlocksUnderCodeReview({ ...s, headSha: g.headSha ?? null }) &&
+      !codeReviewHolding(s.codeReviewGate)
+    );
   if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
   if (criticEnabled) {
     if (s.reviewDecision === null) return false; // critic on, no verdict yet → wait

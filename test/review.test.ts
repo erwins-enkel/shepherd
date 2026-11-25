@@ -2059,6 +2059,35 @@ test("forget reaps an in-flight critic and drops the stored review", async () =>
   expect(reviews["s1"]).toBeUndefined(); // stored verdict dropped
 });
 
+// #4163: forget() drops a run that tick() is finalizing; a new run then claims the slot. The old
+// finalize, resuming, must neither delete the new run's inflight entry nor signal run-ended over it.
+test("a finishing finalize leaves a newer run's inflight entry and reviewing state alone", async () => {
+  const usage = Promise.withResolvers<null>();
+  const events: [string, boolean][] = [];
+  let usageCalls = 0;
+  const { deps: d } = makeDeps({
+    readVerdict: () => ({ decision: "comment", summary: "ok", body: "" }),
+    readUsage: () => (++usageCalls === 1 ? usage.promise : Promise.resolve(null)),
+    onReviewing: (id: string, reviewing: boolean) => events.push([id, reviewing]),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  const ticking = svc.tick(); // settles the verdict, then parks in captureRunUsage
+  await new Promise((r) => setTimeout(r, 0));
+  expect(usageCalls).toBe(1);
+
+  svc.forget("s1"); // drops the finalizing entry
+  await svc.consider(session(), OPEN_GREEN); // a new run claims the slot
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+  expect(events.at(-1)).toEqual(["s1", true]);
+
+  usage.resolve(null);
+  await ticking;
+
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+  expect(events.filter(([id]) => id === "s1").at(-1)).toEqual(["s1", true]);
+});
+
 // ── rebase-skip (content-fingerprint dedup) ───────────────────────────────────
 
 test("rebase with identical diff: skips the critic, re-points head, preserves the verdict", async () => {

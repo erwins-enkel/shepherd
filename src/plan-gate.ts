@@ -1814,7 +1814,9 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     } finally {
       // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
       // place every in-flight drop goes through, so no completion path can leak it.
-      this.deps.onReviewing?.(f.sessionId, false);
+      // Skip when a newer run owns the slot (this one was reaped mid-finalize): its run-ended
+      // signal would clear the new run's reviewing state (#4163).
+      if ((this.inflight.get(f.sessionId) ?? f) === f) this.deps.onReviewing?.(f.sessionId, false);
       await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
     }
@@ -2242,9 +2244,10 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   /** Drop an in-flight reviewer AND release its resolver entry. The two must stay coupled: the
    *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
    *  reset (archive/reap, finalize) is retained for the server's lifetime. Every `inflight.delete`
-   *  goes through here so a future early-abort path can't forget it. */
+   *  goes through here so a future early-abort path can't forget it. Deletes only if `f` still owns
+   *  the slot: a finalize reaped mid-await must not remove a newer run that claimed it (#4163). */
   protected dropInflight(sessionId: string, f: PlanInFlight): void {
-    this.inflight.delete(sessionId);
+    if (this.inflight.get(sessionId) === f) this.inflight.delete(sessionId);
     this.codexResolver.reset(f.reviewerSessionId);
   }
 

@@ -1761,7 +1761,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       // Before onReviewing(false): that event lands while the entry is still in `inflight` (tick()
       // drops it after this returns), and the CI steer re-evaluates its held head on it.
       f.ciReleased = true;
-      this.deps.onReviewing?.(f.sessionId, false);
+      // Skip when a newer run owns the slot (this one was reaped mid-finalize): its run-ended
+      // signal would clear the new run's reviewing state (#4163).
+      if ((this.inflight.get(f.sessionId) ?? f) === f) this.deps.onReviewing?.(f.sessionId, false);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
   }
@@ -2625,9 +2627,11 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   /** Drop an in-flight critic AND release its resolver entry. The two must stay coupled: the
    *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
    *  reset (force-re-review, archive, finalize) is retained for the server's lifetime. Every
-   *  `inflight.delete` goes through here so a future early-abort path can't forget it. */
+   *  `inflight.delete` goes through here so a future early-abort path can't forget it. Deletes
+   *  only if `f` still owns the slot: a finalize reaped mid-await must not remove a newer run that
+   *  claimed it (#4163). */
   protected dropInflight(sessionId: string, f: InFlight): void {
-    this.inflight.delete(sessionId);
+    if (this.inflight.get(sessionId) === f) this.inflight.delete(sessionId);
     this.codexResolver.reset(f.criticSessionId);
   }
 }

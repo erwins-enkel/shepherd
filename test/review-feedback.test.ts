@@ -694,7 +694,7 @@ test("markAddressed: cached head stale but freshGit moved ⇒ replies + resolves
   h.st.fresh = h.git("u2", "def5678abc"); // the push the poller has not announced yet
   const out = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed the check" }]);
   expect(out).toEqual({ ok: true, results: [{ id: "rc:5", result: "resolved" }] });
-  expect(h.st.freshCalls).toBe(1);
+  expect(h.st.freshCalls).toBe(2); // once at the steer, once at the declaration
   expect(h.resolveCalls).toEqual([
     ["T1", "Fixed the check\n\nAddressed in def5678.\n\n<!-- shepherd:review-feedback -->"],
   ]);
@@ -703,6 +703,23 @@ test("markAddressed: cached head stale but freshGit moved ⇒ replies + resolves
   const again = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "x" }]);
   expect(again.results).toEqual([{ id: "rc:5", result: "already-resolved" }]);
   expect(h.resolveCalls).toHaveLength(1);
+});
+
+test("a steer sent before the poller saw a push records the fresh head, not the cached one", async () => {
+  const h = harness({ resolve: true });
+  h.st.fresh = h.git("u2", "bbb2222"); // pushed B; the poller still holds A
+  await steeredInline(h, [["rc:5", "T1"]]);
+  expect(h.store.getReviewFeedbackItems(h.id, ["rc:5"])[0]?.sentHeadSha).toBe("bbb2222");
+  // No new push since the steer: the declaration is refused.
+  const out = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(out.results).toEqual([{ id: "rc:5", result: "not-pushed" }]);
+  expect(h.resolveCalls).toEqual([]);
+});
+
+test("resolve off: a steer never polls the PR", async () => {
+  const h = harness();
+  await steeredInline(h, [["rc:5", "T1"]]);
+  expect(h.st.freshCalls).toBe(0);
 });
 
 test("markAddressed: freshGit throwing falls back to the cached head", async () => {

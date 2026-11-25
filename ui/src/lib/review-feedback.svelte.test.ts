@@ -77,13 +77,18 @@ describe("mirrored sessions (#4139)", () => {
     expect(reviewFeedback.items("r1")).toHaveLength(1);
   });
 
-  it("a failed read is retried on the next sync", async () => {
-    mockGet.mockRejectedValueOnce(new Error("502"));
+  it("a failed read waits for the machine's next key, so row frames never re-fire it", async () => {
+    mockGet.mockRejectedValueOnce(new Error("404"));
     reviewFeedback.syncMachines([read("m-retry", "k1")], () => ["r1"]);
     await flush();
     mockGet.mockResolvedValue({ r1: { items: [item("rc:1")], autoPaused: false } });
     reviewFeedback.syncMachines([read("m-retry", "k1")], () => ["r1"]);
     await flush();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(reviewFeedback.items("r1")).toEqual([]);
+    reviewFeedback.syncMachines([read("m-retry", "k2")], () => ["r1"]);
+    await flush();
+    expect(mockGet).toHaveBeenCalledTimes(2);
     expect(reviewFeedback.items("r1")).toHaveLength(1);
   });
 

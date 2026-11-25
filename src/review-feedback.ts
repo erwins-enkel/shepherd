@@ -541,7 +541,11 @@ export class ReviewFeedbackService {
     const s = this.#deps.store.get(id);
     const resolve = !!s && this.#resolveOn(s);
     let sent: boolean;
+    let headSha: string | undefined;
     try {
+      // The head the steer goes out at, read fresh when resolving is on (#4139): a push the
+      // poller has not announced yet must not later pass for the fix of these items.
+      headSha = (resolve ? await this.#freshGit(id) : this.#git.get(id))?.headSha;
       sent = await this.#deps.reply(id, buildReviewFeedbackSteer(prNumber, batch, { resolve }));
     } catch (err) {
       console.warn(`[review-feedback] steer for ${id}:`, err);
@@ -555,7 +559,7 @@ export class ReviewFeedbackService {
       batch.map((i) => i.id),
       by,
       this.#now(),
-      this.#git.get(id)?.headSha,
+      headSha,
     );
     this.#emitState(id);
     return "sent";

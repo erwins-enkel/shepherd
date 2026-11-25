@@ -44,8 +44,9 @@ class ReviewFeedbackStore {
   }
 
   /** Read each machine's snapshot once per read key; `idsOf` names the machine's mirrored
-   *  sessions when the answer lands, and only those entries are replaced. A failed read is
-   *  retried on the next key change of any machine. */
+   *  sessions when the answer lands, and only those entries are replaced. A failed read (e.g. an
+   *  older machine without the route) is not retried until that machine's key changes — its next
+   *  connection or this page's next socket — so row frames never re-fire it. */
   syncMachines(reads: MachineRead[], idsOf: (instanceId: string) => string[]) {
     for (const { instanceId, key } of reads) {
       if (this.#readKeys.get(instanceId) === key) continue;
@@ -54,9 +55,7 @@ class ReviewFeedbackStore {
         .then((map) => {
           if (this.#readKeys.get(instanceId) === key) this.#seedRemote(map, idsOf(instanceId));
         })
-        .catch(() => {
-          if (this.#readKeys.get(instanceId) === key) this.#readKeys.delete(instanceId);
-        });
+        .catch(() => {});
     }
   }
 

@@ -21,7 +21,8 @@ import {
   type GithubBackoff,
 } from "../src/agent-control";
 import { ASSISTANT_ACTION_GROUPS } from "../src/operator-assistant-permissions";
-import { SessionStore } from "../src/store";
+import { SessionStore, type RepoConfig } from "../src/store";
+import type { MarkAddressedOutcome } from "../src/review-feedback";
 import type { RateLimitSnapshot } from "../src/forge/rate-limit";
 import type { GitState } from "../src/forge/types";
 import { EventHub } from "../src/events";
@@ -1341,5 +1342,187 @@ describe("gh_request_permission", () => {
       const { isError } = toolPayload(await call(deps, h.sessionId, "gh_request_permission", args));
       expect(isError).toBe(true);
     }
+  });
+});
+
+// ── review_feedback_addressed (#4139) ────────────────────────────────────────
+
+describe("review_feedback_addressed", () => {
+  const names = (deps: AgentControlDeps, id: string) => agentTools(deps, id).map((t) => t.name);
+  const optIn = (h: ReturnType<typeof harness>, over: Partial<RepoConfig> = {}) =>
+    h.store.setRepoConfig("/repo", {
+      ...h.store.getRepoConfig("/repo"),
+      reviewFeedbackResolve: true,
+      ...over,
+    });
+  const withFeedback = (
+    h: ReturnType<typeof harness>,
+    outcome: MarkAddressedOutcome,
+  ): { deps: AgentControlDeps; calls: [string, { id: string; reply: string }[]][] } => {
+    const calls: [string, { id: string; reply: string }[]][] = [];
+    return {
+      calls,
+      deps: {
+        ...h.deps,
+        reviewFeedback: {
+          markAddressed: async (id, items) => (calls.push([id, items]), outcome),
+        },
+      },
+    };
+  };
+  const ARGS = { items: [{ id: "rc:1", reply: "Renamed the helper." }] };
+
+  test("offered only to non-plain sessions in a forge repo that opted in", () => {
+    const off = harness();
+    expect(names(off.deps, off.sessionId)).not.toContain("review_feedback_addressed");
+    const on = harness();
+    optIn(on);
+    expect(names(on.deps, on.sessionId)).toEqual([...READ_TOOLS, "review_feedback_addressed"]);
+    const plain = harness({ plain: true });
+    optIn(plain);
+    expect(names(plain.deps, plain.sessionId)).toEqual([]);
+    const light = harness();
+    optIn(light, { repoMode: "lightweight" });
+    expect(names(light.deps, light.sessionId)).not.toContain("review_feedback_addressed");
+    const assistant = harness({ operatorAssistant: true });
+    optIn(assistant);
+    expect(names(assistant.deps, assistant.sessionId)).not.toContain("review_feedback_addressed");
+  });
+
+  test("the schema bounds items and reply length", () => {
+    const h = harness();
+    optIn(h);
+    const tool = agentTools(h.deps, h.sessionId).find(
+      (t) => t.name === "review_feedback_addressed",
+    )!;
+    const items = (tool.inputSchema as any).properties.items;
+    expect(items).toMatchObject({ minItems: 1, maxItems: 20 });
+    expect(items.items.required).toEqual(["id", "reply"]);
+    expect(items.items.properties.reply.maxLength).toBe(1000);
+  });
+
+  test("an opted-out session calling it is the -32602 entitlement error", async () => {
+    const h = harness();
+    const body = (await call(h.deps, h.sessionId, "review_feedback_addressed", ARGS)).body as {
+      error: { code: number };
+    };
+    expect(body.error.code).toBe(-32602);
+  });
+
+  test("forwards the items and returns per-item results with next steps", async () => {
+    const h = harness();
+    optIn(h);
+    const { deps, calls } = withFeedback(h, {
+      ok: true,
+      results: [
+        { id: "rc:1", result: "resolved" },
+        { id: "rc:2", result: "not-pushed" },
+      ],
+    });
+    const { isError, payload } = toolPayload(
+      await call(deps, h.sessionId, "review_feedback_addressed", {
+        items: [
+          { id: "rc:1", reply: "Renamed the helper." },
+          { id: " rc:2 ", reply: "Guarded the null." },
+        ],
+      }),
+    );
+    expect(isError).toBe(false);
+    expect(calls).toEqual([
+      [
+        h.sessionId,
+        [
+          { id: "rc:1", reply: "Renamed the helper." },
+          { id: "rc:2", reply: "Guarded the null." },
+        ],
+      ],
+    ]);
+    expect(payload.results).toEqual([
+      { id: "rc:1", result: "resolved" },
+      { id: "rc:2", result: "not-pushed", next: "push the fix first, then call again" },
+    ]);
+  });
+
+  test("an already-resolved item alone is not an error (a retry is idempotent)", async () => {
+    const h = harness();
+    optIn(h);
+    const { deps } = withFeedback(h, {
+      ok: true,
+      results: [{ id: "rc:1", result: "already-resolved" }],
+    });
+    const { isError } = toolPayload(
+      await call(deps, h.sessionId, "review_feedback_addressed", ARGS),
+    );
+    expect(isError).toBe(false);
+  });
+
+  test("nothing resolved is an isError result carrying each item's reason", async () => {
+    const h = harness();
+    optIn(h);
+    const { deps } = withFeedback(h, {
+      ok: true,
+      results: [
+        { id: "rc:1", result: "not-pushed" },
+        { id: "rc:2", result: "error", error: "HTTP 502" },
+      ],
+    });
+    const { isError, payload } = toolPayload(
+      await call(deps, h.sessionId, "review_feedback_addressed", {
+        items: [
+          { id: "rc:1", reply: "a" },
+          { id: "rc:2", reply: "b" },
+        ],
+      }),
+    );
+    expect(isError).toBe(true);
+    expect(payload.error).toContain("rc:1: not-pushed (push the fix first, then call again)");
+    expect(payload.error).toContain("rc:2: error (HTTP 502;");
+  });
+
+  test("a refused call is an isError result with the service's reason", async () => {
+    const h = harness();
+    optIn(h);
+    const { deps } = withFeedback(h, {
+      ok: false,
+      error: "This session has no open PR.",
+      results: [],
+    });
+    const { isError, payload } = toolPayload(
+      await call(deps, h.sessionId, "review_feedback_addressed", ARGS),
+    );
+    expect(isError).toBe(true);
+    expect(payload.error).toBe("This session has no open PR.");
+  });
+
+  test("bad arguments are an isError result and never reach the service", async () => {
+    const h = harness();
+    optIn(h);
+    const { deps, calls } = withFeedback(h, { ok: true, results: [] });
+    for (const args of [
+      {},
+      { items: [] },
+      { items: "rc:1" },
+      { items: Array.from({ length: 21 }, (_, i) => ({ id: `rc:${i}`, reply: "x" })) },
+      { items: [{ id: "", reply: "x" }] },
+      { items: [{ id: "x".repeat(65), reply: "x" }] },
+      { items: [{ id: "rc:1" }] },
+      { items: ["rc:1"] },
+    ]) {
+      const { isError } = toolPayload(
+        await call(deps, h.sessionId, "review_feedback_addressed", args),
+      );
+      expect(isError).toBe(true);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("without the service it answers unavailable", async () => {
+    const h = harness();
+    optIn(h);
+    const { isError, payload } = toolPayload(
+      await call(h.deps, h.sessionId, "review_feedback_addressed", ARGS),
+    );
+    expect(isError).toBe(true);
+    expect(payload.error).toContain("unavailable");
   });
 });

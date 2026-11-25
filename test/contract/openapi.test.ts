@@ -1166,6 +1166,7 @@ describe("sessions", () => {
       }),
       sendNow: async () => outcome,
       dismiss: () => {},
+      markAddressed: async () => ({ ok: true, results: [] }),
     };
     try {
       const pending = await fetch(`${s.baseUrl}${PENDING}`, { headers: bearer(token) });

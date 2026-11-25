@@ -9384,5 +9384,7 @@
   "usage_steering_explain_prescribing": "“Add a retry to fetchUser.” The agent does exactly that. If the guess was wrong, you find out later and correct it.",
   "usage_steering_explain_describing": "“Profile loads fail on flaky Wi-Fi; they should survive one dropped request.” The agent finds the cause and can check its own work against the outcome.",
   "usage_steering_explain_shows_label": "What the report shows",
-  "usage_steering_explain_shows": "Whether your describing prompts needed fewer steers, critic rounds and CI fixes than your prescribing ones, and rewrites of real prompts from this window."
+  "usage_steering_explain_shows": "Whether your describing prompts needed fewer steers, critic rounds and CI fixes than your prescribing ones, and rewrites of real prompts from this window.",
+  "feat_steering_report_title": "Steering report: how well do your prompts steer?",
+  "feat_steering_report_body": "Usage → Steering reviews your last 7 days of sessions. It tells prompts that prescribe a fix apart from prompts that describe the problem, sets both against rework (steers, critic rounds, red CI), and rewrites the examples that cost the most. Click Run now to get one."
 }

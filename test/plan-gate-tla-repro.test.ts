@@ -165,30 +165,27 @@ test.failing(
 // gate still reads approved: Go (releasePlanGateInner) or the chat release
 // (releasePlanOnOperatorReply) — both guard on `getPlanGate(id).approved` — move the session to
 // executing, and the tail putPlanGate then leaves it executing on a withdrawn approval.
-test.failing(
-  "CE-3: the approval is withdrawn before the findings steer can be raced by Go",
-  async () => {
-    let approvedDuringSteer: boolean | undefined;
-    const w = world();
-    w.deps.reply = async () => {
-      approvedDuringSteer = w.state.gate?.approved; // what a concurrent Go / chat release would read
-      return true;
-    };
-    await w.svc.consider(w.session);
-    w.state.verdicts.set(w.state.spawns[0]!.worktreePath, APPROVE);
-    await w.svc.tick();
-    expect(w.state.gate.approved).toBe(true);
+test("CE-3: the approval is withdrawn before the findings steer can be raced by Go", async () => {
+  let approvedDuringSteer: boolean | undefined;
+  const w = world();
+  w.deps.reply = async () => {
+    approvedDuringSteer = w.state.gate?.approved; // what a concurrent Go / chat release would read
+    return true;
+  };
+  await w.svc.consider(w.session);
+  w.state.verdicts.set(w.state.spawns[0]!.worktreePath, APPROVE);
+  await w.svc.tick();
+  expect(w.state.gate.approved).toBe(true);
 
-    w.state.plan = "PLAN B"; // edited after approval; operator forces a re-review (#2224)
-    await w.svc.consider(w.session, { force: true });
-    expect(w.state.started).toHaveLength(2);
-    w.state.verdicts.set(w.state.spawns[1]!.worktreePath, CHANGES);
-    await w.svc.tick();
+  w.state.plan = "PLAN B"; // edited after approval; operator forces a re-review (#2224)
+  await w.svc.consider(w.session, { force: true });
+  expect(w.state.started).toHaveLength(2);
+  w.state.verdicts.set(w.state.spawns[1]!.worktreePath, CHANGES);
+  await w.svc.tick();
 
-    expect(w.state.gate.approved).toBe(false);
-    expect(approvedDuringSteer).toBe(false);
-  },
-);
+  expect(w.state.gate.approved).toBe(false);
+  expect(approvedDuringSteer).toBe(false);
+});
 
 // CE-4 (#4163; INV-NoLeakedSpawn): reapReviewer (PR auto-advance) drops a run that is mid-finalize;
 // a forced re-review then claims the slot; when the old finalize's tick() reaches its finally,

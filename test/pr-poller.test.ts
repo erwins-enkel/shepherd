@@ -22,6 +22,14 @@ const openGit = (over: Partial<GitState> = {}): GitState => ({
   ...over,
 });
 
+test("gitStateChanged: true when the Claude Ship signal moves on the same head (#4145)", () => {
+  const waiting = openGit({ claudeShip: { stewardWatching: false, approvals: "pending" } });
+  const approved = openGit({ claudeShip: { stewardWatching: false, approvals: "success" } });
+  expect(gitStateChanged(waiting, approved)).toBe(true);
+  expect(gitStateChanged(openGit(), waiting)).toBe(true);
+  expect(gitStateChanged(waiting, openGit({ claudeShip: { ...waiting.claudeShip! } }))).toBe(false);
+});
+
 test("gitStateChanged: true when the running-checks set changes", () => {
   expect(
     gitStateChanged(openGit({ runningChecks: ["a"] }), openGit({ runningChecks: ["a", "b"] })),
@@ -1402,6 +1410,44 @@ test("fastTick falls back to per-session for a single eligible PR — count<2 (b
   expect(stats.list).toBe(0);
   expect(stats.prStatus).toBe(1); // lone eligible → per-session
 });
+
+test.each([
+  [{ stewardWatching: false, approvals: "pending" }, 1],
+  [{ stewardWatching: false, approvals: "failure" }, 1],
+  [{ stewardWatching: false, codeReview: "pending" }, 1],
+  [{ stewardWatching: true, approvals: "success" }, 0],
+] as const)(
+  "fastTick re-polls an idle session's green PR while a Claude check is in flight (#4145): %o",
+  async (claudeShip, polls) => {
+    const store = new SessionStore(":memory:");
+    const s = store.create({ ...baseSession, branch: "shepherd/a" });
+    store.update(s.id, { status: "idle" }); // a full-auto session waiting on the train
+    const green: PrStatus = {
+      state: "open",
+      number: 1,
+      checks: "success",
+      mergeable: true,
+      mergeStateStatus: "clean",
+      deployConfigured: false,
+      claudeShip,
+    };
+    const { forge, stats } = forgeWithBatch(
+      { "shepherd/a": green },
+      { prStatusByBranch: { "shepherd/a": green } },
+    );
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+    );
+
+    await poller.tick();
+    stats.prStatus = 0;
+    elapseFastInterval(poller);
+    await poller.fastTick();
+    expect(stats.prStatus).toBe(polls);
+  },
+);
 
 test("fastTick keeps re-polling an open PR whose CI failed but still has running jobs", async () => {
   const store = new SessionStore(":memory:");

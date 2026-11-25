@@ -559,6 +559,11 @@ test("hasTransient: pending, running, unknown and unstable PRs count; settled on
     [{ mergeStateStatus: "unknown" }, true],
     [{ mergeStateStatus: "unstable" }, true],
     [{ state: "merged", checks: "pending" }, false],
+    // #4145: Claude checks sit outside `checks` but still settle without a push
+    [{ claudeShip: { stewardWatching: false, approvals: "pending" } }, true],
+    [{ claudeShip: { stewardWatching: false, approvals: "failure" } }, true],
+    [{ claudeShip: { stewardWatching: false, codeReview: "pending" } }, true],
+    [{ claudeShip: { stewardWatching: true, approvals: "success", codeReview: "failure" } }, false],
   ];
   for (const [status, expected] of cases) {
     const svc = new OpenPrSnapshotService(() => 0);
@@ -631,6 +636,23 @@ test("noteHeadRead: a disagreeing head read marks the snapshot stale until a lat
   now = 20;
   await svc.refresh(forge);
   expect(svc.isStale(forge)).toBe(false);
+});
+
+test("noteHeadRead: a Claude Approvals flip on the same head marks the snapshot stale (#4145)", async () => {
+  const svc = new OpenPrSnapshotService(() => 0);
+  const forge = makeForge();
+  const waiting = { claudeShip: { stewardWatching: false, approvals: "pending" as const } };
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () =>
+    snapshotWith(waiting);
+  await svc.get(forge);
+  const read = snapshotWith(waiting).statuses.get("branch-a")!;
+  svc.noteHeadRead(forge, "branch-a", read);
+  expect(svc.isStale(forge)).toBe(false);
+  svc.noteHeadRead(forge, "branch-a", {
+    ...read,
+    claudeShip: { stewardWatching: false, approvals: "success" },
+  });
+  expect(svc.isStale(forge)).toBe(true);
 });
 
 // ── mergeability settle + patchPr + onUpdate ───────────────────────────────

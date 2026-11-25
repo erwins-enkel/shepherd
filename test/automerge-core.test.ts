@@ -801,6 +801,30 @@ test("mergeWaitReason: branch protection blocking a green PR → protection_bloc
   expect(wait({ mergeStateStatus: "blocked", checks: "pending" })).toBe("checks_pending");
 });
 
+test("mergeWaitReason: Claude Approvals pending/failing → approval_pending (#4145)", () => {
+  const clean = { reviewDecision: "commented" as const, reviewHeadSha: "h1" };
+  expect(wait({ ...clean, claudeApprovals: "pending" })).toBe("approval_pending");
+  expect(wait({ ...clean, claudeApprovals: "failure" })).toBe("approval_pending");
+  // it names the blocker a required Approvals check causes, over generic protection
+  expect(wait({ ...clean, claudeApprovals: "failure", mergeStateStatus: "blocked" })).toBe(
+    "approval_pending",
+  );
+  // cleared / neutral (observe mode) / absent → no hold
+  expect(wait({ ...clean, claudeApprovals: "success" })).toBeNull();
+  expect(wait({ ...clean, claudeApprovals: "none" })).toBeNull();
+  expect(wait(clean)).toBeNull();
+  // real CI and conflicts still read first
+  expect(wait({ claudeApprovals: "failure", checks: "failure" })).toBe("checks_failed");
+  const dirty = { mergeable: false, mergeStateStatus: "dirty" as const, checks: "none" as const };
+  expect(wait({ ...dirty, claudeApprovals: "failure" })).toBe("conflict");
+});
+
+test("computeMerge: never merges while Claude Approvals holds", () => {
+  const s = sess({ claudeApprovals: "pending" });
+  expect(computeMerge(state([s])).kind).not.toBe("merge");
+  expect(computeMerge(state([sess({ claudeApprovals: "success" })])).kind).toBe("merge");
+});
+
 test("mergeWaitReason: behind base", () => {
   expect(wait({ behind: true })).toBe("behind");
   expect(wait({ behind: null })).toBe("behind");

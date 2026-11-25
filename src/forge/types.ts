@@ -346,6 +346,21 @@ export interface PrStatus {
   /** The method Shepherd would land this PR with (the forge's configured `mergeMethod`).
    *  Display-only — see {@link PullRequest.mergeMethod}. */
   mergeMethod?: MergeMethod;
+  /** Claude Ship signs on this PR (#4145): Steward's watch label or a Claude App check run.
+   *  Its checks are NOT part of `checks`/`jobs`/`runningChecks` — they are review gates, not
+   *  CI. GitHub only; absent when no sign is present. */
+  claudeShip?: ClaudeShipSignal;
+}
+
+/** What Claude Ship is doing on one PR (#4145). A check field is absent when that Claude App
+ *  check run is not on the head; `none` means it completed neutral/skipped. */
+export interface ClaudeShipSignal {
+  /** The `claude-pr-steward-watching` label is on the PR: PR Steward may push to it. */
+  stewardWatching: boolean;
+  /** The Claude Code Review check run on the head. */
+  codeReview?: ChecksState;
+  /** The Claude Approvals check run on the head. */
+  approvals?: ChecksState;
 }
 
 /** A session's forge kind plus its current PR status — the GET /api/sessions/:id/git

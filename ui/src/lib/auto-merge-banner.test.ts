@@ -55,6 +55,7 @@ describe("waitOwner", () => {
     "stacked",
     "signoff",
     "protection_blocked",
+    "approval_pending",
     "no_ci",
     "checks_absent",
   ])("%s needs the operator", (code) => expect(waitOwner(code, true)).toBe("operator"));

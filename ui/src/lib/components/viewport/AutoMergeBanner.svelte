@@ -69,6 +69,7 @@
     conflict: m.automergebanner_conflict,
     not_mergeable: m.automergebanner_not_mergeable,
     protection_blocked: m.automergebanner_protection_blocked,
+    approval_pending: m.automergebanner_approval_pending,
     critic_error: m.automergebanner_critic_error,
     rebase_cap: m.automergebanner_rebase_cap,
     merge_backoff: m.automergebanner_merge_backoff,
@@ -148,18 +149,18 @@
   >
     <span class="am-icon" aria-hidden="true">↣</span>
     <span class="am-text">
-      <span class="am-lead"
-        >{view.owner === "shepherd"
+      <span class="am-lead">
+        {view.owner === "shepherd"
           ? m.automergebanner_shepherd_lead()
-          : m.automergebanner_operator_lead()}</span
-      >
+          : m.automergebanner_operator_lead()}
+      </span>
       <span class="am-sep" aria-hidden="true"> — </span>
       <span class="am-reason">{reason(view.code)}</span>
     </span>
     {#if canMergeWithoutCi}
-      <button class="am-merge" type="button" onclick={mergeWithoutCi}
-        >{m.automergebanner_merge_without_ci()}</button
-      >
+      <button class="am-merge" type="button" onclick={mergeWithoutCi}>
+        {m.automergebanner_merge_without_ci()}
+      </button>
     {/if}
     <InfoTip text={autoMergeStripExplanation()} label={m.automergebanner_tip_title()} />
   </div>

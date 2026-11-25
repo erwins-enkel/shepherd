@@ -8,6 +8,7 @@ import type { CiStartupFailureService } from "./ci-startup-failure";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
 import { withGhCaller } from "./forge/gh-caller";
+import { claudeShipInFlight } from "./forge/claude-ship";
 
 type PrPollerStore = Pick<
   SessionStore,
@@ -218,7 +219,9 @@ function reviewStateChanged(prev: GitState, git: GitState): boolean {
     // The merge confirmation reads this, and unlike `handoff` it is not CI-gated — on a stable
     // open PR nothing else here moves, so without this term a freshly derived (or cleared)
     // responsibility would be recomputed and then discarded, forever.
-    stableJson(prev.mergeGate) !== stableJson(git.mergeGate)
+    stableJson(prev.mergeGate) !== stableJson(git.mergeGate) ||
+    // #4145: Claude Ship's review gates move without a new head (an Approvals check completing).
+    stableJson(prev.claudeShip) !== stableJson(git.claudeShip)
   );
 }
 
@@ -327,6 +330,8 @@ export class PrPoller implements PrCache {
         // Queued: it lands (or is ejected) without a human, so fast-poll it to see that.
         !!git.inMergeQueue ||
         (git.runningChecks?.length ?? 0) > 0 ||
+        // #4145: Claude checks are out of `checks` but still settle without a push.
+        claudeShipInFlight(git.claudeShip) ||
         git.mergeable == null ||
         git.mergeStateStatus === "unknown")
     );
@@ -339,6 +344,7 @@ export class PrPoller implements PrCache {
       ((s.status !== "done" && s.status !== "idle") ||
         git.checks === "pending" ||
         (git.runningChecks?.length ?? 0) > 0 ||
+        claudeShipInFlight(git.claudeShip) ||
         !!git.inMergeQueue)
     );
   }

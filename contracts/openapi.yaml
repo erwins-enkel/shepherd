@@ -1560,6 +1560,7 @@ components:
           checks_failed,
           not_mergeable,
           protection_blocked,
+          approval_pending,
           behind,
           rebase_cap,
           signoff,
@@ -2674,6 +2675,24 @@ components:
           $ref: "#/components/schemas/PrReview"
         issueUrl: { type: string }
         deployConfigured: { type: boolean }
+        claudeShip:
+          $ref: "#/components/schemas/ClaudeShipSignal"
+    ClaudeShipSignal:
+      type: object
+      additionalProperties: true
+      description: >-
+        Claude Ship signs on a GitHub PR (#4145): PR Steward's watch label or a Claude App check
+        run. Those checks are review gates and are NOT part of the PR's `checks`/`jobs`. Absent
+        when no sign is present. A check field is absent when that check is not on the head.
+      required: [stewardWatching]
+      properties:
+        stewardWatching:
+          type: boolean
+          description: The `claude-pr-steward-watching` label is on the PR.
+        codeReview:
+          $ref: "#/components/schemas/ChecksState"
+        approvals:
+          $ref: "#/components/schemas/ChecksState"
     SessionGitEvent:
       type: object
       additionalProperties: true

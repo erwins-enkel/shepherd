@@ -328,6 +328,16 @@ function isWorkflowJobArray(value: unknown): value is WorkflowJob[] {
   );
 }
 
+/** A persisted {@link GitState.claudeShip} (#4145): the Steward flag plus optional check states. */
+function isClaudeShipSignal(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.stewardWatching === "boolean" &&
+    (value.codeReview === undefined || PERSISTED_CHECK_STATES.has(value.codeReview)) &&
+    (value.approvals === undefined || PERSISTED_CHECK_STATES.has(value.approvals))
+  );
+}
+
 function isWebUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
@@ -360,6 +370,7 @@ const FLAT_OPTIONAL_GIT_FIELDS = {
   handoffInferred: (value: unknown) => typeof value === "boolean",
   issueUrl: isWebUrl,
   mergeMethod: (value: unknown) => PERSISTED_MERGE_METHODS.has(value),
+  claudeShip: isClaudeShipSignal,
 } satisfies Record<FlatOptionalGitField, (value: unknown) => boolean>;
 
 function parsePersistedLatestReview(value: unknown): GitState["latestReview"] | null {

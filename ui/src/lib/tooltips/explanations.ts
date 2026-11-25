@@ -1,8 +1,8 @@
-import type { ScheduleUsageLimit } from "#lib/types.js";
+import type { ChecksState, ClaudeShipSignal, ScheduleUsageLimit } from "#lib/types.js";
 import { usageLimitChip, schedulePauseWhen } from "#lib/schedules.svelte.js";
 import { placementLoadObservation } from "#lib/placement.js";
 import { m } from "#lib/paraglide/messages.js";
-import type { TooltipExplanation } from "./content";
+import type { TooltipExplanation, TooltipRow } from "./content";
 import type { EgressRiskReason } from "#lib/egress-trust.js";
 import {
   ASSISTANT_ACTION_GROUPS,
@@ -1415,4 +1415,38 @@ export function reviewFeedbackBadgeExplanation(
     ],
     footer: [m.tooltip_review_comments_click()],
   };
+}
+
+/** Hover explanation for the Claude Ship badge (#4145): what Claude Ship is doing on the PR,
+ *  then what Shepherd does about it. Rows are the three parts, absent checks omitted. */
+export function claudeShipExplanation(signal: ClaudeShipSignal): TooltipExplanation {
+  const rows: TooltipRow[] = [
+    signal.stewardWatching
+      ? { text: m.tooltip_claude_ship_steward_watching(), tone: "warn" }
+      : { text: m.tooltip_claude_ship_steward_idle(), tone: "idle" },
+  ];
+  if (signal.codeReview) rows.push(claudeCodeReviewRow(signal.codeReview));
+  if (signal.approvals) rows.push(claudeApprovalsRow(signal.approvals));
+  return {
+    title: m.tooltip_claude_ship_title(),
+    summary: m.tooltip_claude_ship_summary(),
+    sections: [
+      { label: m.tooltip_claude_ship_doing(), text: "", rows },
+      { label: m.tooltip_claude_ship_shepherd(), text: m.tooltip_claude_ship_shepherd_body() },
+    ],
+  };
+}
+
+function claudeCodeReviewRow(state: ChecksState): TooltipRow {
+  if (state === "pending") return { text: m.tooltip_claude_ship_review_running(), tone: "run" };
+  if (state === "success") return { text: m.tooltip_claude_ship_review_passed(), tone: "ok" };
+  if (state === "failure") return { text: m.tooltip_claude_ship_review_failed(), tone: "fail" };
+  return { text: m.tooltip_claude_ship_review_done(), tone: "idle" };
+}
+
+function claudeApprovalsRow(state: ChecksState): TooltipRow {
+  if (state === "pending" || state === "failure")
+    return { text: m.tooltip_claude_ship_approvals_waiting(), tone: "warn" };
+  if (state === "success") return { text: m.tooltip_claude_ship_approvals_ok(), tone: "ok" };
+  return { text: m.tooltip_claude_ship_approvals_observe(), tone: "idle" };
 }

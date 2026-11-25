@@ -17,6 +17,7 @@
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import PrFindingsDialog from "./PrFindingsDialog.svelte";
   import ReviewFeedbackBadge from "./ReviewFeedbackBadge.svelte";
+  import ClaudeShipBadge from "./ClaudeShipBadge.svelte";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { railEpicChild, railEpicStopped } from "./git-rail/epic-rail";
 
@@ -344,6 +345,8 @@
       />
       <!-- #4126: PR review feedback waiting for the agent; opens ReviewFeedbackDialog. -->
       <ReviewFeedbackBadge {sessionId} {git} variant="rail" />
+      <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI. -->
+      <ClaudeShipBadge {git} variant="rail" />
 
       {#if err}
         <span class="err" role="alert" title={err}>{err}</span>

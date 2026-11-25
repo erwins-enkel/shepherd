@@ -317,6 +317,7 @@ export class AutoMergeService {
       noCi: git?.noCi ?? false,
       mergeable: git?.mergeable ?? null,
       mergeStateStatus: git?.mergeStateStatus,
+      claudeApprovals: git?.claudeShip?.approvals,
       number: git?.number ?? null,
       headSha: git?.headSha ?? null,
       humanApproved: git?.latestReview?.state === "approved",

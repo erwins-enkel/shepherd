@@ -27,7 +27,7 @@ const PR_FRAGMENT =
   "checkSuite{workflowRun{workflow{name}}} status conclusion startedAt completedAt detailsUrl}}}}}}} " +
   "headRefOid baseRefName reviews(first:100){nodes{author{login} submittedAt body state}} " +
   "reviewRequests(first:100){nodes{requestedReviewer{__typename ...on User{login} ...on Bot{login}}}} " +
-  "headRepositoryOwner{login} updatedAt}";
+  "headRepositoryOwner{login} updatedAt labels(first:20){nodes{name}}}";
 
 const LOOKUP = "states:[OPEN,CLOSED,MERGED],first:1,orderBy:{field:CREATED_AT,direction:DESC}";
 
@@ -73,7 +73,8 @@ interface RawContext extends Omit<RollupEntry, "workflowName"> {
   checkSuite?: { workflowRun?: { workflow?: { name?: string | null } | null } | null } | null;
 }
 
-interface RawPr extends Omit<GhPr, "statusCheckRollup" | "reviewRequests" | "reviews"> {
+interface RawPr extends Omit<GhPr, "statusCheckRollup" | "reviewRequests" | "reviews" | "labels"> {
+  labels?: { nodes?: Array<{ name?: string } | null> };
   commits?: {
     nodes?: Array<{
       commit?: { statusCheckRollup?: { contexts?: { nodes?: RawContext[] } } | null };
@@ -87,7 +88,7 @@ interface RawPr extends Omit<GhPr, "statusCheckRollup" | "reviewRequests" | "rev
 
 /** One GraphQL node in the shape `gh pr list --json` prints. */
 function toGhPr(raw: RawPr): GhPr {
-  const { commits, reviews, reviewRequests, ...rest } = raw;
+  const { commits, reviews, reviewRequests, labels, ...rest } = raw;
   const contexts = commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
   return {
     ...rest,
@@ -97,6 +98,7 @@ function toGhPr(raw: RawPr): GhPr {
         : c,
     ),
     reviews: reviews?.nodes ?? [],
+    ...(labels ? { labels: (labels.nodes ?? []).filter((l): l is { name?: string } => !!l) } : {}),
     reviewRequests: (reviewRequests?.nodes ?? [])
       .map((n) => n?.requestedReviewer)
       .filter((r): r is { login: string } => !!r?.login)

@@ -787,6 +787,10 @@ can't go out, the dialog says why, for example the agent isn't running or the PR
 closed. After five automatic sends in an hour, a session stops sending on its own until the hour
 has passed. The badge's tooltip then says sending is paused, and you can still send by hand.
 
+A session on a connected machine shows its badge the same way. **Send to agent** and **Dismiss**
+act on that machine, so they need it connected. The machine's own repo settings decide what it
+reads and sends.
+
 ### Resolve addressed threads
 
 **Resolve addressed threads** (Settings → repo → Review, off by default) closes inline review

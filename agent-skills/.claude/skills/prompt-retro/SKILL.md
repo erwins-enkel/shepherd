@@ -34,6 +34,7 @@ bun <skill base dir>/collect.ts [--limit N] [--all-repos] [--profile <name>] > <
 - Exit **3**, **4** or **7**: the CLI cannot read history from here (unauthenticated, token without
   the `full` scope, server unreachable). Tell the operator the retro needs a CLI profile with a
   `full` token (Settings → Access), passed as `/prompt-retro profile <name>`, and stop. Leave token and config files alone.
+- Any other non-zero exit: show the operator the script's stderr and stop.
 - Done when the file exists and parses as JSON.
 
 ## 2. Read the digest

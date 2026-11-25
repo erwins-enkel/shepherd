@@ -10,7 +10,6 @@
  * untrusted data for whoever reads the digest.
  */
 import { dirname } from "node:path";
-import { unwrapPasted } from "../../../../src/steer-log";
 
 export interface RetroSession {
   id: string;
@@ -98,6 +97,12 @@ const MERGED = /^Shepherd: PR #\S+ merged\b/;
 const BASE_MOVED = "Heads-up: your base branch moved";
 /** Steers that arrive after the work is done; the agent's replies to them are not session activity. */
 const TAIL_KINDS = new Set(["merged", "base_moved"]);
+
+/** Strips Claude Code's paste wrapper. A copy of src/steer-log.ts `unwrapPasted`: a sandbox
+ *  membrane binds only the agent-skills directory, so this script cannot import from src/. */
+const PASTED_RE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content(?: id="\1")?>/g;
+const unwrapPasted = (text: string) =>
+  text.replace(PASTED_RE, (_, _id: string, body: string) => body).trim();
 
 /** User-role transcript records nobody typed: Claude Code's background-task notices, slash-command
  *  echoes, the compaction summary and interrupt markers. Neither a steer nor a prompt. */

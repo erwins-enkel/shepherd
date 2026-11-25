@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   summarize,
   type RetroMessage,
@@ -240,5 +241,16 @@ describe("prompt-retro summarize()", () => {
     });
     const by = Object.fromEntries(out.sessions.map((s) => [s.desig, s.transcript]));
     expect(by).toEqual({ GONE: "file-missing", NOMSG: "not-fetched" });
+  });
+});
+
+describe("prompt-retro collect.ts", () => {
+  it("imports nothing outside its skill directory (a membrane binds only agent-skills/)", () => {
+    const src = readFileSync(
+      new URL("../agent-skills/.claude/skills/prompt-retro/collect.ts", import.meta.url),
+      "utf8",
+    );
+    const specifiers = [...src.matchAll(/^import[^"]*"([^"]+)"/gm)].map((m) => m[1]);
+    expect(specifiers.filter((s) => !s?.startsWith("node:"))).toEqual([]);
   });
 });

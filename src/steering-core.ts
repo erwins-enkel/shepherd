@@ -764,3 +764,10 @@ export function steeringTrend(reports: SteeringReport[]): SteeringTrendPoint[] {
     })
     .sort((a, b) => a.createdAt - b.createdAt);
 }
+
+/** The latest report's findings as Shape's context (#4177): only a run that finished `ok` has
+ *  findings worth weighing (a `thin` one has none by construction, `failed`/`empty` no labels). */
+export function latestSteeringFindings(report: SteeringReport | null): string[] {
+  if (!report || report.status !== "ok" || !report.labels) return [];
+  return report.labels.findings.map((f) => f.text).filter(Boolean);
+}

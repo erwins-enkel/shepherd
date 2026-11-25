@@ -924,6 +924,13 @@ numbers across the weekly reports: the share of your typed prompts labelled pres
 per-session median of corrections, critic rounds and CI rounds. Reports from **Run now** stay out
 of the trend because their windows overlap the weekly ones.
 
+New Task coaches the prompt you are writing, too. Every **Shape** round opens with a verdict on
+your rough prompt: prescribing or describing, and which of symptom, outcome and acceptance check it
+leaves out. The round weighs it against your latest report's findings. With the decision model on
+(**Settings → Decision model**), New Task also shows a quiet hint under a settled prompt that names a fix
+before the problem, pointing you at Shape. That hint costs one decision-model call per settled
+prompt against the model's daily ceiling; without the decision model, nothing is asked.
+
 ## Operator Assistant
 
 The **Operator Assistant** is an interactive Claude or Codex session that Shepherd runs for you and grounds

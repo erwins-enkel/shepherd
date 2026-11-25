@@ -6,6 +6,7 @@ import {
   buildSteeringPrompt,
   computeSteeringTables,
   labelsForStatus,
+  latestSteeringFindings,
   parseSteeringResult,
   selectSteeringSessions,
   steeringHeadline,
@@ -628,5 +629,40 @@ describe("steeringTrend()", () => {
       medianReview: null,
       medianCi: null,
     });
+  });
+});
+
+describe("latestSteeringFindings", () => {
+  const report = (over: Partial<SteeringReport>): SteeringReport => ({
+    id: "r1",
+    createdAt: 1,
+    windowStart: 0,
+    windowEnd: 1,
+    trigger: "manual",
+    status: "ok",
+    error: null,
+    model: null,
+    sample: null,
+    sessions: [],
+    labels: {
+      prompts: [],
+      steers: [],
+      findings: [
+        { text: "Names the file first", desigs: ["a"] },
+        { text: "", desigs: [] },
+      ],
+      examples: [],
+    },
+    tables: null,
+    ...over,
+  });
+  it("returns the finding texts of an ok report", () => {
+    expect(latestSteeringFindings(report({}))).toEqual(["Names the file first"]);
+  });
+  it("is empty without a usable report", () => {
+    expect(latestSteeringFindings(null)).toEqual([]);
+    expect(latestSteeringFindings(report({ status: "failed" }))).toEqual([]);
+    expect(latestSteeringFindings(report({ status: "thin" }))).toEqual([]);
+    expect(latestSteeringFindings(report({ labels: null }))).toEqual([]);
   });
 });

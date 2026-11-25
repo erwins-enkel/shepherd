@@ -177,3 +177,77 @@ test("the shaping round gets an idle budget; the pure compose route stays on the
   expect(sec("POST", "/api/shape/brief")).toBeNull();
   expect(sec("GET", "/api/shape")).toBeNull();
 });
+
+test("POST /api/shape passes the round's verdict through", async () => {
+  const withVerdict: ShapeResult = {
+    ...round,
+    verdict: { style: "prescribing", missing: ["symptom"] },
+  } as ShapeResult;
+  const { app } = harness(async () => withVerdict);
+  const res = await app.fetch(
+    post("/api/shape", { repoPath: repoDir, prompt: "x", provider: "claude" }),
+  );
+  expect(res.status).toBe(200);
+  expect(((await res.json()) as { verdict: unknown }).verdict).toEqual({
+    style: "prescribing",
+    missing: ["symptom"],
+  });
+});
+
+const LONG_PROMPT = "Change parseConfig() in src/config.ts to cache the result in a Map.";
+
+function hintApp(promptHint?: AppDeps["promptHint"]) {
+  return makeApp({
+    store: new SessionStore(":memory:"),
+    service: {} as never,
+    promptHint,
+  } as unknown as AppDeps);
+}
+
+test("POST /api/shape/hint returns the judge's hint for the typed prompt", async () => {
+  const seen: string[] = [];
+  const app = hintApp(async (p) => {
+    seen.push(p);
+    return "prescribing";
+  });
+  const res = await app.fetch(post("/api/shape/hint", { prompt: LONG_PROMPT }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ hint: "prescribing" });
+  expect(seen).toEqual([LONG_PROMPT]);
+});
+
+test("POST /api/shape/hint is null when unwired or the prompt is too short — never asks", async () => {
+  expect(
+    await (await hintApp().fetch(post("/api/shape/hint", { prompt: LONG_PROMPT }))).json(),
+  ).toEqual({
+    hint: null,
+  });
+  let asked = 0;
+  const app = hintApp(async () => {
+    asked++;
+    return "prescribing";
+  });
+  expect(await (await app.fetch(post("/api/shape/hint", { prompt: "fix it" }))).json()).toEqual({
+    hint: null,
+  });
+  expect(asked).toBe(0);
+});
+
+test("POST /api/shape/hint rejects a malformed body and a non-JSON content type", async () => {
+  const app = hintApp(async () => null);
+  expect((await app.fetch(post("/api/shape/hint", { prompt: 3 }))).status).toBe(400);
+  const res = await app.fetch(
+    new Request("http://x/api/shape/hint", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ prompt: LONG_PROMPT }),
+    }),
+  );
+  expect(res.status).toBe(415);
+  expect(
+    slowRequestTimeoutSec(
+      new Request("http://x/api/shape/hint", { method: "POST" }),
+      new URL("http://x/api/shape/hint"),
+    ),
+  ).toBeNull();
+});

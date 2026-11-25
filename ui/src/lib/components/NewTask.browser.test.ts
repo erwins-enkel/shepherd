@@ -37,6 +37,7 @@ import {
   getCommands,
   uploadFile,
   shapeTask,
+  promptHint,
   composeTaskBrief,
   cancelSpawn,
   getIssue,
@@ -63,6 +64,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getCommands: vi.fn(),
     uploadFile: vi.fn(),
     shapeTask: vi.fn(),
+    promptHint: vi.fn(),
     composeTaskBrief: vi.fn(),
     cancelSpawn: vi.fn(),
     getIssue: vi.fn(),
@@ -98,6 +100,7 @@ const mockInitEmptyCommit = vi.mocked(initEmptyCommit);
 const mockGetCommands = vi.mocked(getCommands);
 const mockUploadFile = vi.mocked(uploadFile);
 const mockShapeTask = vi.mocked(shapeTask);
+const mockPromptHint = vi.mocked(promptHint);
 const mockComposeTaskBrief = vi.mocked(composeTaskBrief);
 const mockCancelSpawn = vi.mocked(cancelSpawn);
 const mockGetIssue = vi.mocked(getIssue);
@@ -186,6 +189,8 @@ beforeEach(async () => {
   mockGetCommands.mockReset();
   mockUploadFile.mockReset();
   mockShapeTask.mockReset();
+  mockPromptHint.mockReset();
+  mockPromptHint.mockResolvedValue(null);
   mockComposeTaskBrief.mockReset();
   mockCancelSpawn.mockReset();
   mockCancelSpawn.mockResolvedValue(true);
@@ -5481,6 +5486,23 @@ describe("NewTask shape round", () => {
 
   beforeEach(() => {
     mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+  });
+
+  const PRESCRIBING = "Change parseConfig() in src/config.ts to cache the result in a Map.";
+
+  it("hints at Shape when the judge reads a settled prompt as prescribing", async () => {
+    mockPromptHint.mockResolvedValue("prescribing");
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: PRESCRIBING }) });
+    await expect
+      .poll(() => document.querySelector(".coach-hint")?.textContent, { timeout: 4000 })
+      .toContain(m.newtask_coach_hint());
+    expect(mockPromptHint).toHaveBeenCalledWith(PRESCRIBING, expect.any(AbortSignal));
+  });
+
+  it("shows no hint when the judge has none", async () => {
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: PRESCRIBING }) });
+    await expect.poll(() => mockPromptHint.mock.calls.length, { timeout: 4000 }).toBe(1);
+    expect(document.querySelector(".coach-hint")).toBeNull();
   });
 
   it("is disabled until there is a prompt to shape, and never runs by itself", async () => {

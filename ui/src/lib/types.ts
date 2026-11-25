@@ -3616,10 +3616,19 @@ export interface TaskBriefDraft {
   nonGoals: string[];
 }
 
+/** The round's verdict on the rough ask as written (#4177); mirrors the server's ShapeVerdict.
+ *  Open enums: an unknown value from a newer server is ignored by the renderer. */
+export interface ShapeVerdict {
+  style: "prescribing" | "describing" | (string & {});
+  missing: ("symptom" | "outcome" | "acceptance" | (string & {}))[];
+}
+
 /** A shaped round: what the helper understood, plus the questions only the operator can settle. */
 export interface ShapeRound {
   draft: TaskBriefDraft;
   block: Extract<VisualBlock, { type: "question-form" }>;
+  /** Absent when the helper wrote none (or an unusable one), and from older servers. */
+  verdict?: ShapeVerdict;
 }
 
 // ── environment-readiness diagnostics (issue #623) ──────────────────────────

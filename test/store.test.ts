@@ -389,6 +389,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -432,6 +433,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -472,6 +474,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -515,6 +518,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -555,6 +559,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -580,6 +585,7 @@ test("repo_config: preWarmEpicLandingCi defaults off, round-trips through set/ge
     ...store.getRepoConfig("/repo/prewarm"),
     preWarmEpicLandingCi: true,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
   });
@@ -594,6 +600,16 @@ test("repo_config: epicStacksEnabled defaults off, round-trips through set/getRe
     epicStacksEnabled: true,
   });
   expect(store.getRepoConfig("/repo/stacks").epicStacksEnabled).toBe(true);
+});
+
+test("repo_config: claudeShipStewardDefer defaults off, round-trips through set/getRepoConfig (#4146)", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/steward").claudeShipStewardDefer).toBe(false);
+  store.setRepoConfig("/repo/steward", {
+    ...store.getRepoConfig("/repo/steward"),
+    claudeShipStewardDefer: true,
+  });
+  expect(store.getRepoConfig("/repo/steward").claudeShipStewardDefer).toBe(true);
 });
 
 test("repo_config: browserAllowedHosts defaults to [], round-trips through set/getRepoConfig", () => {
@@ -817,6 +833,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

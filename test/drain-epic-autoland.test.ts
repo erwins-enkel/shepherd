@@ -145,6 +145,7 @@ function makeHarness(opts: {
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: opts.mergeWithoutCi ?? false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

@@ -10,7 +10,7 @@
   import type { DrainStatus, GitState, Session } from "#lib/types.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { reviews, planGates } from "#lib/reviews.svelte.js";
+  import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
   import { reviewFeedback } from "#lib/review-feedback.svelte.js";
   import { criticChip } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
@@ -23,6 +23,7 @@
 
   let {
     sessionId,
+    repoPath = "",
     mobile = false,
     planPhase = null,
     drain = null,
@@ -33,6 +34,8 @@
     empty = $bindable(true),
   }: {
     sessionId: string;
+    /** The session's repo; reads its per-repo Claude Ship Steward-defer rule (#4146). */
+    repoPath?: string;
     mobile?: boolean;
     planPhase?: Session["planPhase"];
     /** Live drain status for this session's repo (the epic-stopped rail mark). */
@@ -345,8 +348,14 @@
       />
       <!-- #4126: PR review feedback waiting for the agent; opens ReviewFeedbackDialog. -->
       <ReviewFeedbackBadge {sessionId} {git} variant="rail" />
-      <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI. -->
-      <ClaudeShipBadge {git} variant="rail" />
+      <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI.
+           #4146: "deferring" while the repo leaves this PR's rebase/CI fixes to PR Steward. -->
+      <ClaudeShipBadge
+        {git}
+        variant="rail"
+        deferring={repoConfig.claudeShipStewardDeferOn(repoPath) &&
+          git?.claudeShip?.stewardWatching === true}
+      />
 
       {#if err}
         <span class="err" role="alert" title={err}>{err}</span>

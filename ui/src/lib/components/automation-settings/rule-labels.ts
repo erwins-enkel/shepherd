@@ -34,6 +34,8 @@ export function ruleName(key: RuleField): string {
       return m.automation_prewarm_epic_ci_name();
     case "epicStacksEnabled":
       return m.automation_epic_stacks_name();
+    case "claudeShipStewardDefer":
+      return m.automation_claude_ship_steward_defer_name();
     case "autoLabel":
       return m.drain_label_label();
     case "defaultModel":

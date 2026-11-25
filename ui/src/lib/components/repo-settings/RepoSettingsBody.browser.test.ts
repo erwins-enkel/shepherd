@@ -795,6 +795,7 @@ describe("RepoSettingsBody — lock reasons (#3444)", () => {
       claudeReviewSkipsCritic: reason,
       mergeWithoutCi: reason,
       manualStepsIssueEnabled: reason,
+      claudeShipStewardDefer: reason,
       epicStacksEnabled: reason,
       preWarmEpicLandingCi: reason,
       epicClaimAutoRelease: reason,

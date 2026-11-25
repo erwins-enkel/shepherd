@@ -981,6 +981,7 @@ function defaultRepoConfig() {
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

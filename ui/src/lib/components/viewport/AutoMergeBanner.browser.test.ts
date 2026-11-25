@@ -96,6 +96,13 @@ describe("AutoMergeBanner", () => {
     expect(h.owned()).toBe(false);
   });
 
+  it("PR Steward fixing it (#4146): calm Shepherd strip naming Steward", async () => {
+    mount("steward_watching");
+    await expect.poll(() => banner()?.dataset.owner).toBe("shepherd");
+    expect(banner()!.textContent).toContain(m.automergebanner_shepherd_lead());
+    expect(banner()!.textContent).toContain(m.automergebanner_steward_watching());
+  });
+
   it("autopilot handed back: amber operator strip saying so, no dimming", async () => {
     const h = mount("checks_failed", { handedBack: true });
     await expect.poll(() => banner()?.dataset.owner).toBe("operator");

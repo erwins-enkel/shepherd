@@ -31,6 +31,7 @@ import {
 } from "./codex-activity";
 import { checksCleared } from "./checks-gate";
 import { failingChecks } from "./ci-steer";
+import { stewardDefers } from "./forge/claude-ship";
 import { isDefiniteConflict } from "./pr-conflict";
 import { stuckOnPrompt } from "./critic-stuck";
 import type { BlockShape } from "./blocked";
@@ -2184,8 +2185,11 @@ export class ReviewService extends ReviewerRuns<InFlight> {
         return f.priorRound;
     }
     // #3426: CI red on the head this critic reviewed (finalize's live read) → the CI steerers held
-    // it for us; carry it in this one steer.
-    const ciRed = live?.headSha === f.headSha && live.checks === "failure";
+    // it for us; carry it in this one steer — unless PR Steward owns this PR's CI (#4146).
+    const ciRed =
+      live?.headSha === f.headSha &&
+      live.checks === "failure" &&
+      !stewardDefers(this.deps.store.getRepoConfig(f.repoPath), live);
     let delivered = false;
     try {
       delivered = await this.deps.autoAddress!(

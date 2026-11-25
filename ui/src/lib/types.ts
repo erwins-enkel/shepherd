@@ -1488,6 +1488,9 @@ export interface RepoConfig {
   /** After 30 minutes with no session or PR, the drain releases the claim label on the running
    *  epic's next child (#4025). Default off — a person may hold the label by hand. */
   epicClaimAutoRelease: boolean;
+  /** While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send no
+   *  rebase, CI-fix or base-moved steer for it so only one agent pushes (#4146). Default off. */
+  claudeShipStewardDefer: boolean;
   /** Let the merge train and epic auto-land merge in a GitHub repo where no workflow runs on PRs (#3104).
    *  Default off — without CI those autonomous merges hold. */
   mergeWithoutCi: boolean;
@@ -1555,6 +1558,7 @@ export type MergeWaitCode =
   | "approval_pending"
   | "code_review_pending"
   | "code_review_failed"
+  | "steward_watching"
   | "behind"
   | "rebase_cap"
   | "signoff"

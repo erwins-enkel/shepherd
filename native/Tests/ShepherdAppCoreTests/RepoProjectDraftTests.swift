@@ -8,7 +8,7 @@ struct RepoProjectDraftTests {
         autoAddressEnabled: false, autopilotEnabled: false, planGateEnabled: false, autoDrainEnabled: false,
         autoMergeEnabled: false, buildQueueEnabled: false, draftMode: false, signoffAuthority: "either",
         manualStepsIssueEnabled: false, preWarmEpicLandingCi: false, epicStacksEnabled: false,
-        autoLabel: "shepherd", defaultModel: "inherit", defaultEffort: "inherit")
+        claudeShipStewardDefer: false, autoLabel: "shepherd", defaultModel: "inherit", defaultEffort: "inherit")
 
     @Test func twoEditsBecomeOneSparseProjectPatch() throws {
         var draft = RepoProjectDraft(rules: Self.rules, leader: "mac")

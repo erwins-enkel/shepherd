@@ -180,6 +180,7 @@ function makeHarness(
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicClaimAutoRelease: false,
+    claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: opts.epicStacksEnabled ?? false,
     sharedBrowserEnabled: false,

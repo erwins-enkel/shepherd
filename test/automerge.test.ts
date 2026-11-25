@@ -1,4 +1,4 @@
-import { test, expect, mock, spyOn } from "bun:test";
+import { describe, test, expect, mock, spyOn } from "bun:test";
 import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
 import { CHECKS_ABSENT_MS } from "../src/automerge-core";
 import {
@@ -163,6 +163,72 @@ test("behind → steers a rebase + bumps the counter, does NOT merge", async () 
   // it across gates doesn't spuriously trip the runaway cap.
   expect((apState as any).mock.calls[0]).toEqual(["s1", { stepCount: 0 }]);
   expect(merge.mock.calls.length).toBe(0);
+});
+
+describe("PR Steward defer (#4146)", () => {
+  const dirtyPr = (stewardWatching: boolean) => ({
+    s1: {
+      state: "open",
+      checks: "none",
+      mergeable: false,
+      mergeStateStatus: "dirty",
+      number: 7,
+      headSha: "h1",
+      claudeShip: { stewardWatching },
+    },
+  });
+  const harness = (defer: boolean, pr: () => Record<string, unknown>) => {
+    const reply = mock(() => true);
+    const emitStatus = mock(() => {});
+    const d = deps({
+      prCache: { snapshot: pr } as any,
+      service: {
+        archive: mock(() => 1),
+        reply,
+        resume: mock(() => true),
+        resolveMerging: mock(() => {}),
+      } as any,
+      emitStatus,
+    });
+    d.store.getRepoConfig = () =>
+      ({
+        autoMergeEnabled: true,
+        criticEnabled: false,
+        autopilotEnabled: true,
+        claudeShipStewardDefer: defer,
+      }) as any;
+    return { d, reply, emitStatus };
+  };
+
+  test("on + Steward watching → no rebase steer, wait reads steward_watching", async () => {
+    const { d, reply, emitStatus } = harness(true, () => dirtyPr(true));
+    await new AutoMergeService(d).pump("/r");
+    expect(reply).not.toHaveBeenCalled();
+    const waits = (emitStatus as any).mock.calls.flatMap((c: any[]) => c[0]?.waiting ?? []);
+    expect(waits).toContainEqual(expect.objectContaining({ code: "steward_watching" }));
+  });
+
+  test("label removed or setting off → the conflict rebase steer is sent", async () => {
+    for (const [defer, watching] of [
+      [true, false],
+      [false, true],
+    ] as const) {
+      const { d, reply } = harness(defer, () => dirtyPr(watching));
+      await new AutoMergeService(d).pump("/r");
+      expect(reply).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("Steward starts watching during the capacity wait → no steer", async () => {
+    let watching = false;
+    const { d, reply } = harness(true, () => dirtyPr(watching));
+    d.capacity = async () => {
+      watching = true;
+      return true;
+    };
+    await new AutoMergeService(d).pump("/r");
+    expect(reply).not.toHaveBeenCalled();
+  });
 });
 
 test("forge.merge throws (non-conflict) → fail-closed: not archived", async () => {

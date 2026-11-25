@@ -45,6 +45,8 @@ describe("waitOwner", () => {
     "behind",
     "conflict",
     "not_mergeable",
+    // #4146: Claude's PR Steward fixes it; nothing for the operator to do.
+    "steward_watching",
   ])("%s is Shepherd's", (code) => expect(waitOwner(code, false)).toBe("shepherd"));
 
   it.each<MergeWaitCode>([

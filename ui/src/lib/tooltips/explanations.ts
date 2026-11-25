@@ -1433,8 +1433,12 @@ export function reviewFeedbackBadgeExplanation(
 }
 
 /** Hover explanation for the Claude Ship badge (#4145): what Claude Ship is doing on the PR,
- *  then what Shepherd does about it. Rows are the three parts, absent checks omitted. */
-export function claudeShipExplanation(signal: ClaudeShipSignal): TooltipExplanation {
+ *  then what Shepherd does about it. Rows are the three parts, absent checks omitted.
+ *  `deferring` (#4146) adds why Shepherd's rebase / CI-fix steers are paused. */
+export function claudeShipExplanation(
+  signal: ClaudeShipSignal,
+  deferring = false,
+): TooltipExplanation {
   const rows: TooltipRow[] = [
     signal.stewardWatching
       ? { text: m.tooltip_claude_ship_steward_watching(), tone: "warn" }
@@ -1448,6 +1452,14 @@ export function claudeShipExplanation(signal: ClaudeShipSignal): TooltipExplanat
     sections: [
       { label: m.tooltip_claude_ship_doing(), text: "", rows },
       { label: m.tooltip_claude_ship_shepherd(), text: m.tooltip_claude_ship_shepherd_body() },
+      ...(deferring
+        ? [
+            {
+              label: m.tooltip_claude_ship_deferring(),
+              text: m.tooltip_claude_ship_deferring_body(),
+            },
+          ]
+        : []),
     ],
   };
 }

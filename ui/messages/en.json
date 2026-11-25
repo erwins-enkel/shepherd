@@ -9396,5 +9396,13 @@
   "automergebanner_code_review_pending": "waiting for the Claude Code Review check",
   "automergebanner_code_review_failed": "the Claude Code Review check failed — a push that addresses it re-runs the review",
   "feat_claude_ship_skip_critic_title": "Claude Code Review can replace the Critic",
-  "feat_claude_ship_skip_critic_body": "A new per-repo switch under Review: on commits that Claude Code Review already reviews, Shepherd skips its own Critic, so you don't pay for two reviews. Full auto-merge then waits for the Claude Code Review check instead of a Critic verdict."
+  "feat_claude_ship_skip_critic_body": "A new per-repo switch under Review: on commits that Claude Code Review already reviews, Shepherd skips its own Critic, so you don't pay for two reviews. Full auto-merge then waits for the Claude Code Review check instead of a Critic verdict.",
+  "claude_ship_badge_deferring": "Steward fixes",
+  "tooltip_claude_ship_deferring": "Shepherd steers paused",
+  "tooltip_claude_ship_deferring_body": "While PR Steward watches this PR, Shepherd sends no rebase or CI-fix steer, so only one agent pushes. Removing the claude-pr-steward-watching label resumes them.",
+  "automergebanner_steward_watching": "Claude's PR Steward is fixing the conflict or failing CI itself — Shepherd stays out",
+  "automation_claude_ship_steward_defer_name": "Leave fixes to Claude's PR Steward",
+  "automation_claude_ship_steward_defer_desc": "While PR Steward watches a PR, Shepherd sends no rebase or CI-fix steer, so only one agent pushes. Removing the claude-pr-steward-watching label resumes them. Needed outside GitHub App mode.",
+  "feat_claude_ship_steward_defer_title": "Leave PR fixes to Claude's PR Steward",
+  "feat_claude_ship_steward_defer_body": "A new per-repo rule in the Merge settings, “Leave fixes to Claude's PR Steward” (off by default). While it is on and Claude Ship's PR Steward watches a PR (label claude-pr-steward-watching), Shepherd sends no rebase, CI-fix or base-moved steer for that PR, so only one agent pushes. The Claude Ship badge then reads “Steward fixes”, and full auto-merge shows that Steward handles the conflict or red CI. Removing the label restores Shepherd's steers."
 }

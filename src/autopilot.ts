@@ -10,6 +10,7 @@ import { codeReviewGate, criticBlocksRebaseUnderCodeReview } from "./forge/claud
 import { checksCleared } from "./checks-gate";
 import { isConflicting, isDefiniteConflict } from "./pr-conflict";
 import { OWNERSHIP_TTL_MS } from "./automerge-core";
+import { stewardDefers } from "./forge/claude-ship";
 import { ciStartupSteer } from "./ci-startup-failure";
 import { DRAFT_PR_NOTE } from "./service";
 import { resumeThenSteer } from "./resume-then-steer";
@@ -114,7 +115,8 @@ type CiSkipReason =
   | "working"
   | "background-busy"
   | "critic-reviewing"
-  | "operator-ci-restart";
+  | "operator-ci-restart"
+  | "steward-watching";
 
 export const CI_FIX_STEER = [
   "You're in autopilot and CI is failing on your open pull request. Fix it: find the failing",
@@ -958,6 +960,7 @@ export class AutopilotService {
   private considerCi(s: Session, git: GitState): void {
     const skip = (reason: CiSkipReason) => void this.skipCi(s, git, reason, false);
     if (s.mergingSince !== null) return skip("merging"); // merge train owns this session; don't double-steer its rebase
+    if (this.stewardOwns(s, git)) return skip("steward-watching"); // #4146: Steward fixes CI; ciNudged stays unset so label removal re-steers
     if (ciHandedBack(s)) return skip(parkedReason(s)); // already handed back; waits for operator
     if (this.pending.has(s.id)) return skip("pending-classify"); // a classify (gate/done path) is mid-flight
     if (this.deps.ciRestartHeld?.(s.id)) return skip("operator-ci-restart"); // ciNudged stays unset: the tick re-engages after the hold
@@ -1045,7 +1048,8 @@ export class AutopilotService {
     if (ciHandedBack(s)) return this.skipCi(s, git, parkedReason(s), false); // already handed back; waits for operator
     if (this.pending.has(id)) return this.skipCi(s, git, "pending-classify", false); // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
     if (!git) return false;
-    if (this.deps.ciRestartHeld?.(id)) return this.skipCi(s, git, "operator-ci-restart", true); // the operator's cancel reads red: claim (no classify) without steering
+    const held = this.claimedRedHold(s, git);
+    if (held) return this.skipCi(s, git, held, true);
     // Non-full-auto: the merge train never touches it, so this idle backstop is the only actor
     // left once considerCi's one-shot edge steer is spent. A rebase actor that takes it
     // (reEngageRebase, red+behind) goes first: return false so tick() falls through to it.
@@ -1081,6 +1085,14 @@ export class AutopilotService {
     // before classify) but don't steer, exactly like the mergingSince guard above.
     if (this.ownedByRebaser(s, git)) return this.skipCi(s, git, "owned-by-rebaser", true);
     return this.steerCiFix(s, git);
+  }
+
+  /** A red PR reEngageCi claims (no classify) without steering, bumping or pausing: PR Steward
+   *  fixes its CI (#4146), or the operator's CI-restart cancel reads red (#2863). */
+  private claimedRedHold(s: Session, git: GitState): CiSkipReason | null {
+    if (this.stewardOwns(s, git)) return "steward-watching";
+    if (this.deps.ciRestartHeld?.(s.id)) return "operator-ci-restart";
+    return null;
   }
 
   /** The shared tail of reEngageCi: hand back at the step cap, else count the attempt and steer
@@ -1142,6 +1154,8 @@ export class AutopilotService {
       const cur = this.deps.store.get(s.id);
       if (!cur || cur.status === "archived" || !ciReclaimable(cur)) return;
       if (this.working(cur)) return void this.skipWorking(cur, git);
+      const live = this.deps.prGit(s.id);
+      if (this.stewardOwns(cur, live)) return void this.skipCi(cur, git, "steward-watching", false);
       await this.steerReclaimed(cur, git);
     } finally {
       this.pending.delete(s.id);
@@ -1319,6 +1333,19 @@ export class AutopilotService {
     return this.enabled(s) && !s.autopilotPaused && !s.autopilotComplete;
   }
 
+  /** review.ts's behind hold: {@link rebasesWhenBehind}, except while PR Steward owns the PR
+   *  (#4146) — no Shepherd rebase comes then, so the critic must keep reviewing. Kept apart from
+   *  rebasesWhenBehind, which also tells base-drift a rebase actor owns the PR. */
+  holdsCriticWhenBehind(s: Session): boolean {
+    return this.rebasesWhenBehind(s) && !this.stewardOwns(s, this.deps.prGit(s.id));
+  }
+
+  /** #4146: the repo defers to Claude Ship's PR Steward and Steward watches this PR, so Shepherd
+   *  sends it no CI-fix or rebase steer — two agents pushing to one branch would clobber. */
+  private stewardOwns(s: Session, git: GitState | null | undefined): boolean {
+    return stewardDefers(this.deps.store.getRepoConfig(s.repoPath), git);
+  }
+
   /** True when a rebase actor has ALREADY taken this red session (conflicting or behind), so the
    *  CI-fix loop must stand down rather than double-steer it: a red run on a stale base is wasted
    *  work, and the rebase re-runs CI anyway.
@@ -1362,8 +1389,8 @@ export class AutopilotService {
     if (s.autopilotPaused || s.autopilotComplete) return null; // handed back / terminal
     if (this.pending.has(s.id)) return null; // a classify (onDone/onBlock) is mid-flight — don't race it
     if (this.deps.fullAuto(s.id)) return null; // full-auto is the merge train's job, not autopilot's
-    const git = this.deps.prGit(s.id);
-    if (!git || git.state !== "open") return null;
+    const git = this.openPrForRebase(s);
+    if (!git) return null;
     const conflict = isDefiniteConflict(git);
     // Draft waiver (Defect B): a rebase alone can't make a BEHIND draft mergeable, but it does
     // unblock a CONFLICTING one — GitHub reports DIRTY for those (DRAFT masks BEHIND, not DIRTY).
@@ -1374,6 +1401,14 @@ export class AutopilotService {
     // wasted, and the rebase re-runs it.
     if (!checksCleared(git.checks, git.noCi ?? false) && !rebaseUrgent(git)) return null;
     return this.rebaseReviewPassed(s, git) ? git : null;
+  }
+
+  /** The cached open PR a rebase may target — null without one, or while PR Steward owns it
+   *  (#4146): Steward resolves conflicts itself, and a rebase + force-push would race its push. */
+  private openPrForRebase(s: Session): GitState | null {
+    const git = this.deps.prGit(s.id);
+    if (!git || git.state !== "open") return null;
+    return this.stewardOwns(s, git) ? null : git;
   }
 
   /** Review gate for a rebase steer. Critic off → nothing to wait for.

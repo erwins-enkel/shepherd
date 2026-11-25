@@ -135,3 +135,15 @@ export function criticBlocksRebaseUnderCodeReview(
       v.findings.length > 0)
   );
 }
+
+/** True when Shepherd must stand back on this PR (#4146): the repo opted in to
+ *  `claudeShipStewardDefer` and PR Steward is watching the open PR. Steward resolves conflicts
+ *  and CI itself, so a Shepherd rebase/CI-fix steer would make two agents push to one branch. */
+export function stewardDefers(
+  cfg: { claudeShipStewardDefer: boolean },
+  git: { state?: string; claudeShip?: ClaudeShipSignal } | null | undefined,
+): boolean {
+  return (
+    cfg.claudeShipStewardDefer && git?.state === "open" && git.claudeShip?.stewardWatching === true
+  );
+}

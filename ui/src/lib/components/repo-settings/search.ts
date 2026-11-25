@@ -229,6 +229,12 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
     },
     {
       section: "merge",
+      field: "claudeShipStewardDefer",
+      name: m.automation_claude_ship_steward_defer_name(),
+      description: m.automation_claude_ship_steward_defer_desc(),
+    },
+    {
+      section: "merge",
       field: "roles.reviewer",
       name: m.roles_reviewer_label(),
       description: m.automation_roles_hint(),

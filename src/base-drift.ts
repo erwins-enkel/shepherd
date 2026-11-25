@@ -13,9 +13,10 @@ import { isUsagePaused } from "./schedule-pause";
  *  sessions whose PR already merged or closed (a manual session isn't reaped on merge, and its own
  *  squash commit on the base is never in HEAD — it would be told to rebase work that landed), and
  *  sessions whose open PR a rebase actor already owns (merge train / autopilot rebase steer) —
- *  those get their own rebase steer, so this would only double it. The fetch and log take a while
- *  and the PR cache lags a merge, so right before steering the PR is re-polled and the session
- *  re-read: one that merged, started a turn or was archived meanwhile is left alone. */
+ *  those get their own rebase steer, so this would only double it — and sessions whose PR Claude
+ *  Ship's PR Steward owns under the repo's `claudeShipStewardDefer` (#4146). The fetch and log
+ *  take a while and the PR cache lags a merge, so right before steering the PR is re-polled and
+ *  the session re-read: one that merged, started a turn or was archived meanwhile is left alone. */
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import { fenceUntrusted } from "./untrusted";
@@ -42,6 +43,10 @@ export interface BaseDriftDeps {
   steer(id: string, text: string): Promise<boolean>;
   /** True when a rebase actor owns this session's open PR. */
   rebaseOwned(s: Session): boolean;
+  /** True while Claude Ship's PR Steward owns the PR under the repo's `claudeShipStewardDefer`
+   *  (#4146): the notice asks for a rebase + force-push, which would race Steward's pushes.
+   *  Omitted → never. */
+  stewardDefers?(s: Session): boolean;
   /** The session's cached PR state; undefined when unknown. */
   prState(id: string): "none" | "open" | "merged" | "closed" | undefined;
   /** Awaited, undebounced PR re-poll (PrPoller.pollNow): the cache lags a merge by minutes. */
@@ -92,7 +97,7 @@ export class BaseDriftService {
       const tips = new Map<string, Promise<string | null>>();
       for (const s of this.deps.store.list({ activeOnly: true })) {
         if (!eligible(s) || this.settled(s.id) || this.throttled(s.id)) continue;
-        if (this.deps.rebaseOwned(s)) continue;
+        if (this.handsOff(s)) continue;
         const key = `${s.repoPath}\0${s.baseBranch}`;
         if (!tips.has(key)) tips.set(key, this.deps.git.baseTip(s.repoPath, s.baseBranch));
         const tip = await tips.get(key)!;
@@ -108,7 +113,12 @@ export class BaseDriftService {
     // best-effort: a failed re-poll leaves the cached PR state, still re-checked below
     if (!this.settled(id)) await this.deps.refreshPr(id).catch(() => undefined);
     const s = this.deps.store.get(id);
-    return !!s && eligible(s) && !this.settled(id) && !this.deps.rebaseOwned(s);
+    return !!s && eligible(s) && !this.settled(id) && !this.handsOff(s);
+  }
+
+  /** Someone else rebases this PR: a Shepherd rebase actor, or PR Steward (#4146). */
+  private handsOff(s: Session): boolean {
+    return this.deps.rebaseOwned(s) || (this.deps.stewardDefers?.(s) ?? false);
   }
 
   private settled(id: string): boolean {

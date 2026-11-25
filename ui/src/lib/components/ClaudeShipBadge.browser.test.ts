@@ -41,6 +41,7 @@ describe("ClaudeShipBadge (#4145)", () => {
     expect(desc).toContain(m.tooltip_claude_ship_steward_watching());
     expect(desc).toContain(m.tooltip_claude_ship_review_passed());
     expect(desc).toContain(m.tooltip_claude_ship_shepherd_body());
+    expect(desc).not.toContain(m.tooltip_claude_ship_deferring());
   });
 
   it("reads 'awaiting approval' in amber while Claude Approvals waits", async () => {
@@ -55,5 +56,31 @@ describe("ClaudeShipBadge (#4145)", () => {
     const desc = badge.element().getAttribute("aria-description") ?? "";
     expect(desc).toContain(m.tooltip_claude_ship_approvals_waiting());
     expect(desc).toContain(m.tooltip_claude_ship_steward_idle());
+  });
+
+  it("reads 'Steward fixes' and explains the paused steers while deferring (#4146)", async () => {
+    render(ClaudeShipBadge, {
+      git: git({ claudeShip: { stewardWatching: true } }),
+      deferring: true,
+    });
+    const badge = page.getByRole("img", { name: m.claude_ship_badge_deferring() });
+    await expect.element(badge).toHaveTextContent(m.claude_ship_badge_deferring());
+    expect(badge.element().classList.contains("waiting")).toBe(false);
+    const desc = badge.element().getAttribute("aria-description") ?? "";
+    expect(desc).toContain(m.tooltip_claude_ship_deferring());
+    expect(desc).toContain(m.tooltip_claude_ship_deferring_body());
+    expect(desc).toContain(m.tooltip_claude_ship_shepherd_body());
+  });
+
+  it("keeps 'awaiting approval' ahead of deferring", async () => {
+    render(ClaudeShipBadge, {
+      git: git({ claudeShip: { stewardWatching: true, approvals: "pending" } }),
+      deferring: true,
+    });
+    const badge = page.getByRole("img", { name: m.claude_ship_badge_waiting() });
+    await expect.element(badge).toBeVisible();
+    expect(badge.element().classList.contains("waiting")).toBe(true);
+    const desc = badge.element().getAttribute("aria-description") ?? "";
+    expect(desc).toContain(m.tooltip_claude_ship_deferring());
   });
 });

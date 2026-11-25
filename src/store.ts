@@ -748,6 +748,9 @@ export interface RepoConfig {
   /** Release an orphaned claim that has blocked the running epic's next child for 30 min
    *  (#4025). Default OFF — a person may hold the label by hand. */
   epicClaimAutoRelease: boolean;
+  /** While Claude Ship's PR Steward watches a PR (`claude-pr-steward-watching`), send it no
+   *  rebase, CI-fix or base-moved steer so only one agent pushes (#4146). Default OFF. */
+  claudeShipStewardDefer: boolean;
   /** Let the merge train and epic auto-land merge into the default branch in a GitHub repo that
    *  has no PR-triggered workflow (#3104, #3221). Default OFF — without CI those autonomous merges hold. */
   mergeWithoutCi: boolean;
@@ -1305,6 +1308,7 @@ type RepoCfgRow = {
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
   epicClaimAutoRelease: number;
+  claudeShipStewardDefer: number;
   mergeWithoutCi: number;
   epicStacksEnabled: number;
   sharedBrowserEnabled: number;
@@ -1624,6 +1628,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
     epicClaimAutoRelease: !!r.epicClaimAutoRelease,
+    claudeShipStewardDefer: !!r.claudeShipStewardDefer,
     mergeWithoutCi: !!r.mergeWithoutCi,
     epicStacksEnabled: !!r.epicStacksEnabled,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
@@ -1674,6 +1679,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
     Number(Boolean(cfg.epicClaimAutoRelease)),
+    Number(Boolean(cfg.claudeShipStewardDefer)),
     Number(Boolean(cfg.mergeWithoutCi)),
     Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.sharedBrowserEnabled)),
@@ -3088,7 +3094,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-                manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
+                manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
                 pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve
          FROM repo_config WHERE repoPath = ?`,
       )
@@ -3103,8 +3109,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -3132,6 +3138,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
          epicClaimAutoRelease = excluded.epicClaimAutoRelease,
+         claudeShipStewardDefer = excluded.claudeShipStewardDefer,
          mergeWithoutCi = excluded.mergeWithoutCi,
          epicStacksEnabled = excluded.epicStacksEnabled,
          sharedBrowserEnabled = excluded.sharedBrowserEnabled,
@@ -8297,6 +8304,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("preWarmEpicLandingCi", `preWarmEpicLandingCi INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; auto-release an orphaned claim blocking a running epic (#4025)
     add("epicClaimAutoRelease", `epicClaimAutoRelease INTEGER NOT NULL DEFAULT 0`);
+    // default OFF — opt-in; no rebase/CI-fix steers while Claude's PR Steward watches (#4146)
+    add("claudeShipStewardDefer", `claudeShipStewardDefer INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; let autonomous merges land in a repo with no CI (#3104)
     add("mergeWithoutCi", `mergeWithoutCi INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; stack epic children onto their predecessor's PR branch (#2069)

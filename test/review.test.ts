@@ -163,6 +163,8 @@ function makeDeps(
   over: any,
   opts: {
     autoAddressEnabled?: boolean;
+    /** Repo claudeShipStewardDefer (#4146); default false. */
+    stewardDefer?: boolean;
     autoAddressReturns?: boolean;
     comments?: PrComment[];
     prStatus?: () => Promise<PrStatus>;
@@ -230,6 +232,7 @@ function makeDeps(
       getRepoConfig: () => ({
         criticEnabled: true,
         autoAddressEnabled: opts.autoAddressEnabled ?? false,
+        claudeShipStewardDefer: opts.stewardDefer ?? false,
       }),
       // Plan provenance. The DEFAULT is "a gate approved exactly what the working file says", i.e.
       // the ordinary post-gate session — so every test that injects `readPlan` keeps seeing the
@@ -1460,6 +1463,7 @@ describe("combined CI + findings steer (#3426)", () => {
       readVerdict?: () => any;
       autoAddressReturns?: boolean;
       autoAddressEnabled?: boolean;
+      stewardDefer?: boolean;
     } = {},
   ) {
     const ciSteered: { id: string; sha: string }[] = [];
@@ -1471,6 +1475,7 @@ describe("combined CI + findings steer (#3426)", () => {
       {
         autoAddressEnabled: opts.autoAddressEnabled ?? true,
         autoAddressReturns: opts.autoAddressReturns,
+        stewardDefer: opts.stewardDefer,
         prStatus: async () => live,
       },
     );
@@ -1489,6 +1494,17 @@ describe("combined CI + findings steer (#3426)", () => {
     expect(ciSteered).toEqual([{ id: "s1", sha: "abc" }]);
     expect(reviews["s1"]?.addressRound).toBe(1);
     expect(svc.ciSteerHeld("s1", "abc")).toBe(false);
+  });
+
+  test("#4146: PR Steward owns the red CI → findings steer without the CI clause, no onCiSteered", async () => {
+    const watched = { ...RED_LIVE, claudeShip: { stewardWatching: true } } as PrStatus;
+    const { svc, steers, ciSteered } = run(watched, { stewardDefer: true });
+    await svc.consider(session({ status: "idle" }), { ...OPEN_GREEN, checks: "pending" });
+    await svc.tick();
+    expect(steers).toHaveLength(1);
+    expect(steers[0]!.text).toContain("src/a.ts: fix the bug");
+    expect(steers[0]!.text).not.toContain("CI is ALSO failing");
+    expect(ciSteered).toEqual([]);
   });
 
   test("findings + live CI pending → plain findings steer, no onCiSteered", async () => {

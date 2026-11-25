@@ -140,6 +140,8 @@ function harness(opts: {
   criticReviewing?: (id: string, headSha: string) => boolean;
   /** The ciRestartHeld dep (#2863: an operator CI restart is in progress); omit = unset. */
   ciRestartHeld?: (id: string) => boolean;
+  /** Repo claudeShipStewardDefer (#4146), read live; default false. */
+  stewardDefer?: boolean;
 }) {
   let cur = opts.session;
   let prOpen = opts.openPr ?? false;
@@ -167,6 +169,7 @@ function harness(opts: {
           autopilotEnabled: opts.repoEnabled ?? false,
           draftMode: opts.repoDraftMode ?? false,
           repoMode: opts.repoMode ?? "forge",
+          claudeShipStewardDefer: opts.stewardDefer ?? false,
         }) as any,
       setAutopilotState: (
         _id: string,
@@ -3696,4 +3699,96 @@ test("#3831 reclaim: a soft-paused session on a start-failure head is reclaimed 
   await flush();
   expect(h.events.filter((e) => e.steer === ciStartupSteer(startupRed()))).toHaveLength(1);
   expect(ciSteers(h.events)).toHaveLength(0);
+});
+
+// ── #4146: PR Steward defer ──────────────────────────────────────────────────────────────────
+
+const watched = { claudeShip: { stewardWatching: true } };
+
+test("#4146: Steward watching + defer on → no CI-fix steer on the edge; label removal re-steers", async () => {
+  const h = harness({ session: sess({ status: "idle" }), repoEnabled: true, stewardDefer: true });
+  h.svc.onGit("s1", git(watched));
+  await flush();
+  expect(h.events.some((e) => e.steer === CI_FIX_STEER)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+  h.svc.onGit("s1", git()); // same red head, label gone
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+});
+
+test("#4146: defer off → a Steward-watched red PR is steered as before", async () => {
+  const h = harness({ session: sess({ status: "idle" }), repoEnabled: true });
+  h.svc.onGit("s1", git(watched));
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("#4146: idle tick on a Steward-watched red PR claims without steering, bumping or pausing", async () => {
+  const o = {
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    stewardDefer: true,
+    prGit: git(watched) as GitState | null,
+  };
+  const h = harness(o);
+  for (let i = 0; i < 12; i++) h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+  expect(h.state().autopilotPaused).toBe(false);
+  o.prGit = git(); // label removed
+  h.svc.tick();
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+});
+
+test("#4146: conflicting PR under Steward → no rebase steer on edge or tick; label removal steers", async () => {
+  const o = {
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    stewardDefer: true,
+    prGit: dirtyGit(watched) as GitState | null,
+    review: null,
+  };
+  const h = harness(o);
+  h.svc.onGit("s1", dirtyGit(watched));
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  o.prGit = dirtyGit();
+  await h.svc.tick();
+  await flush();
+  const steer = h.events.find((e) => typeof e.steer === "string")?.steer as string;
+  expect(steer).toContain("merge conflicts");
+});
+
+test("#4146: a behind PR under Steward gets no rebase steer", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    stewardDefer: true,
+    prGit: git({ checks: "success", mergeStateStatus: "behind", ...watched }),
+    review: null,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("#4146: holdsCriticWhenBehind drops under Steward; rebasesWhenBehind (base-drift) does not", () => {
+  const o = {
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    fullAuto: true,
+    stewardDefer: true,
+    prGit: git({ checks: "success", ...watched }) as GitState | null,
+  };
+  const h = harness(o);
+  expect(h.svc.rebasesWhenBehind(h.state())).toBe(true);
+  expect(h.svc.holdsCriticWhenBehind(h.state())).toBe(false);
+  o.prGit = git({ checks: "success" });
+  expect(h.svc.holdsCriticWhenBehind(h.state())).toBe(true);
 });

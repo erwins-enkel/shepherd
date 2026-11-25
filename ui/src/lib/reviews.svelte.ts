@@ -409,6 +409,7 @@ const OVERLAY_MAPS = {
   manualStepsIssueEnabled: "manualStepsIssue",
   preWarmEpicLandingCi: "preWarmEpicLandingCi",
   epicClaimAutoRelease: "epicClaimAutoRelease",
+  claudeShipStewardDefer: "claudeShipStewardDefer",
   mergeWithoutCi: "mergeWithoutCi",
   epicStacksEnabled: "epicStacks",
   sharedBrowserEnabled: "sharedBrowser",
@@ -458,6 +459,7 @@ export class RepoConfigStore {
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
   epicClaimAutoRelease = $state<Record<string, boolean>>({}); // drain releases an orphaned epic-child claim after 30 min (default off, #4025)
+  claudeShipStewardDefer = $state<Record<string, boolean>>({}); // no rebase/CI-fix steer while PR Steward watches (default off, #4146)
   mergeWithoutCi = $state<Record<string, boolean>>({}); // autonomous merges in a no-CI repo (default off, #3104)
   noPrCi = $state<Record<string, boolean>>({}); // derived: no workflow runs on PRs (read-only, #3221)
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
@@ -536,6 +538,10 @@ export class RepoConfigStore {
     this.epicClaimAutoRelease = {
       ...this.epicClaimAutoRelease,
       [repoPath]: c.epicClaimAutoRelease,
+    };
+    this.claudeShipStewardDefer = {
+      ...this.claudeShipStewardDefer,
+      [repoPath]: c.claudeShipStewardDefer,
     };
     this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: c.mergeWithoutCi };
     this.noPrCi = { ...this.noPrCi, [repoPath]: c.noPrCi ?? false };
@@ -867,6 +873,12 @@ export class RepoConfigStore {
     await this.write(repoPath, { manualStepsIssueEnabled: !this.manualStepsIssueOn(repoPath) });
   }
 
+  async toggleClaudeShipStewardDefer(repoPath: string) {
+    await this.write(repoPath, {
+      claudeShipStewardDefer: !this.claudeShipStewardDeferOn(repoPath),
+    });
+  }
+
   async togglePreWarmEpicLandingCi(repoPath: string) {
     await this.write(repoPath, { preWarmEpicLandingCi: !this.preWarmEpicLandingCiOn(repoPath) });
   }
@@ -990,6 +1002,10 @@ export class RepoConfigStore {
 
   manualStepsIssueOn(repoPath: string): boolean {
     return this.manualStepsIssue[repoPath] ?? false;
+  }
+
+  claudeShipStewardDeferOn(repoPath: string): boolean {
+    return this.claudeShipStewardDefer[repoPath] ?? false;
   }
 
   preWarmEpicLandingCiOn(repoPath: string): boolean {

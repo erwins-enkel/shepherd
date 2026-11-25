@@ -10,6 +10,7 @@ import {
   criticBlocksUnderCodeReview,
   sameClaudeShip,
   splitClaudeShipRollup,
+  stewardDefers,
 } from "../src/forge/claude-ship";
 import type { RollupEntry } from "../src/forge/types";
 
@@ -169,4 +170,17 @@ describe("Code Review stand-in (#4147)", () => {
     expect(criticBlocksRebaseUnderCodeReview(v("commented", "h1", []))).toBe(false);
     expect(criticBlocksRebaseUnderCodeReview(v("error", "h1", ["x"]))).toBe(false);
   });
+});
+
+test("stewardDefers: only with the repo opt-in AND Steward watching an open PR (#4146)", () => {
+  const on = { claudeShipStewardDefer: true };
+  const off = { claudeShipStewardDefer: false };
+  const watched = { state: "open", claudeShip: { stewardWatching: true } };
+  expect(stewardDefers(on, watched)).toBe(true);
+  expect(stewardDefers(off, watched)).toBe(false);
+  expect(stewardDefers(on, { state: "open", claudeShip: { stewardWatching: false } })).toBe(false);
+  expect(stewardDefers(on, { state: "open" })).toBe(false);
+  expect(stewardDefers(on, { ...watched, state: "merged" })).toBe(false);
+  expect(stewardDefers(on, null)).toBe(false);
+  expect(stewardDefers(on, undefined)).toBe(false);
 });

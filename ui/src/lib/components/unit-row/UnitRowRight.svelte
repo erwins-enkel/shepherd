@@ -90,6 +90,11 @@
   let previewWrapEl = $state<HTMLElement | null>(null);
   const previewOpenMode = $derived(repoConfig.previewOpenModeForLoaded(session.repoPath));
   const previewBusy = $derived(previewPort != null && previewOpenMode === null);
+  // #4146: the repo leaves this PR's rebase / CI fixes to Claude's PR Steward while it watches.
+  const stewardDeferring = $derived(
+    repoConfig.claudeShipStewardDeferOn(session.repoPath) &&
+      git?.claudeShip?.stewardWatching === true,
+  );
 
   function choosePreview(target: "inline" | "tab") {
     onpreview?.(session.id, target);
@@ -248,8 +253,9 @@
     <CriticBadge sessionId={session.id} tip interactive={badgesInteractive} prUrl={git?.url} />
     <!-- #4126: PR review feedback waiting for the agent; additive, never the status badge. -->
     <ReviewFeedbackBadge sessionId={session.id} {git} interactive={feedbackInteractive} />
-    <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI. -->
-    <ClaudeShipBadge {git} />
+    <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI.
+         #4146: "deferring" while the repo leaves this PR's rebase/CI fixes to PR Steward. -->
+    <ClaudeShipBadge {git} deferring={stewardDeferring} />
     <BuildQueueBadge
       sessionId={session.id}
       planPhase={session.planPhase}

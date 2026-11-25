@@ -268,8 +268,12 @@ function storedReport(over: Partial<SteeringReport> & { id: string }): SteeringR
 describe("SteeringReportService weekly digest (#4176)", () => {
   it("runs a weekly report when due and hands an ok report to onWeeklyReady", async () => {
     const h = harness(typed(6));
+    expect(h.service.snapshot()).toMatchObject({ trend: [], unread: false });
     expect(await h.service.tickWeekly()).toBe("ran");
     expect(h.inserted.at(-1)?.trigger).toBe("weekly");
+    // The derived trend/unread cache is dropped after the insert.
+    expect(h.service.snapshot()).toMatchObject({ unread: true });
+    expect(h.service.snapshot().trend).toHaveLength(1);
     expect(h.ready.map((r) => r.id)).toEqual([h.inserted.at(-1)!.id]);
   });
 

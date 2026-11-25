@@ -56,7 +56,7 @@ import type { Session } from "./types";
 export const STEERING_LABEL = "steering ";
 
 /** Settings key: id of the newest weekly report the operator has opened (#4176 unread dot). */
-export const STEERING_SEEN_SETTING = "steeringReportSeenId";
+const STEERING_SEEN_SETTING = "steeringReportSeenId";
 
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const SESSION_CAP = 60;
@@ -168,6 +168,7 @@ function trimDigest(digest: SteeringDigest, n: number): SteeringDigest {
 
 export class SteeringReportService {
   private running = false;
+  private weeklyCache: { trend: SteeringTrendPoint[]; newestId: string | null } | null = null;
   private readonly now: () => number;
   private readonly emit: (event: SteeringEvent) => void;
 
@@ -182,21 +183,33 @@ export class SteeringReportService {
     trend: SteeringTrendPoint[];
     unread: boolean;
   } {
-    const store = this.deps.store;
-    const weekly = store.listSteeringReports("weekly");
-    const newest = weekly.find(isDigest);
+    const { trend, newestId } = this.weekly();
     return {
       running: this.running,
-      report: store.latestSteeringReport(),
-      trend: steeringTrend(weekly),
-      unread: !!newest && store.getSetting(STEERING_SEEN_SETTING) !== newest.id,
+      report: this.deps.store.latestSteeringReport(),
+      trend,
+      unread: newestId !== null && this.deps.store.getSetting(STEERING_SEEN_SETTING) !== newestId,
     };
   }
 
   /** The operator opened the report: the newest weekly digest is no longer unread. */
   markSeen(): void {
-    const newest = this.deps.store.listSteeringReports("weekly").find(isDigest);
-    if (newest) this.deps.store.setSetting(STEERING_SEEN_SETTING, newest.id);
+    const { newestId } = this.weekly();
+    if (newestId) this.deps.store.setSetting(STEERING_SEEN_SETTING, newestId);
+  }
+
+  /** Trend + newest weekly digest id, derived once: every client GETs the snapshot on boot, and
+   *  parsing up to 52 report bodies each time would sit on the loop. This service is the only
+   *  writer of reports, so {@link run} drops the cache after each insert. */
+  private weekly(): { trend: SteeringTrendPoint[]; newestId: string | null } {
+    if (!this.weeklyCache) {
+      const reports = this.deps.store.listSteeringReports("weekly");
+      this.weeklyCache = {
+        trend: steeringTrend(reports),
+        newestId: reports.find(isDigest)?.id ?? null,
+      };
+    }
+    return this.weeklyCache;
   }
 
   /** The hourly weekly check (#4176): run when due, unless a run is in flight or usage is held. */
@@ -236,6 +249,7 @@ export class SteeringReportService {
     } catch (err) {
       console.warn(`[steering] could not persist report ${report.id}: ${errorText(err)}`);
     }
+    this.weeklyCache = null;
     this.running = false;
     this.emit({ running: false, id: report.id, status: report.status });
     if (trigger === "weekly" && isDigest(report)) {

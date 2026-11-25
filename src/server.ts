@@ -1153,8 +1153,7 @@ export interface AppDeps {
   /** Force-regenerate a session recap on demand (the /recap/regenerate route). */
   recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
   /** Steering report (#4175/#4176): latest stored report + trend/unread, single-flight manual run,
-   *  mark-seen. Absent in tests
-   *  that skip it; the routes then answer 503. */
+   *  mark-seen. Absent in tests that skip it; the routes then answer 503. */
   steering?: Pick<SteeringReportService, "snapshot" | "start" | "markSeen">;
   /** Live hold-reason snapshot keyed by session id; absent in tests that skip it. */
   holds?: { snapshot(): Record<string, import("./types").HoldReason> };

@@ -155,6 +155,22 @@ it("machine limits save immediately while rules stay staged", async () => {
   ).toBe("repo");
 });
 
+it("review feedback rows render once, under this machine", async () => {
+  setup();
+  await expect.element(page.getByText("abc123", { exact: true })).toBeVisible();
+  await open("review");
+  for (const field of ["reviewFeedbackMode", "reviewFeedbackResolve"]) {
+    await expect.poll(() => document.querySelectorAll(`[data-field="${field}"]`).length).toBe(1);
+    expect(
+      document
+        .querySelector(`[data-field="${field}"]`)
+        ?.closest("[data-settings-layer]")
+        ?.getAttribute("data-settings-layer"),
+    ).toBe("rechner");
+  }
+  expect(document.querySelectorAll('[data-field="criticEnabled"]')).toHaveLength(1);
+});
+
 it("offline ownership pauses visibly and a confirmed takeover joins other rules in one write", async () => {
   setup("abc123", true);
   await expect

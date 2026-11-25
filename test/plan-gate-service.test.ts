@@ -2037,13 +2037,18 @@ test("bootRecovery: consider() before recoverAtBoot() is deferred, then replayed
 
 test("recoverAtBoot: a consider() during adoption leaves the adopted orphan the only reviewer", async () => {
   const listing = Promise.withResolvers<never[]>();
+  const started: string[] = [];
   const h = harness({
     store: {
       get: () => planningSession(),
-      listReviewerSpawns: () => [orphanSpawn()],
+      // distinct from createDetached's "/wt-detached", so a fresh reviewer can't pass for the orphan
+      listReviewerSpawns: () => [orphanSpawn({ worktreePath: "/wt-orphan" })],
     },
     herdr: {
-      start: async () => ({ terminalId: "t-new" }),
+      start: async (_l: string, cwd: string) => {
+        started.push(cwd);
+        return { terminalId: "t-new" };
+      },
       async stop() {},
       listAsync: () => listing.promise,
     },
@@ -2054,8 +2059,9 @@ test("recoverAtBoot: a consider() during adoption leaves the adopted orphan the 
   await recovering;
   await drainReplay();
 
-  expect(h.started).toHaveLength(0); // the replay found the adopted run in flight
-  expect(h.svc.inflightWorktrees()).toEqual(["/wt-detached"]); // the orphan's worktree
+  expect(started).toEqual([]); // the replay found the adopted run in flight
+  expect(h.recordedSpawns).toEqual([]); // no second reviewer row
+  expect(h.svc.inflightWorktrees()).toEqual(["/wt-orphan"]); // the orphan's worktree
   expect(h.removed).toEqual([]); // gc spared it
 });
 

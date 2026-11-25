@@ -10,8 +10,8 @@ const SRC = join(import.meta.dirname, "..");
 
 /** Bindings that are app-authored or already validated: `commitUrl` is REPO_URL + a build sha,
  *  `previewUrl` is built locally from the preview slot, `entry.ctaUrl` is the compiled feature
- *  catalog, `openPrUrl` (CriticBadge) and `safeRunUrl` (PulseActionBanner) are derived via
- *  firstSafeHttpUrl, and `seg.href` comes from textLinks' http(s)-only matcher. ALL_CAPS
+ *  catalog, `openPrUrl` (CriticBadge), `safeRunUrl` (PulseActionBanner) and `safePrUrl`
+ *  (ReviewFeedbackDialog) are derived via firstSafeHttpUrl, and `seg.href` comes from textLinks' http(s)-only matcher. ALL_CAPS
  *  constants never match the pattern. */
 const EXEMPT = new Set([
   "commitUrl",
@@ -19,6 +19,7 @@ const EXEMPT = new Set([
   "entry.ctaUrl",
   "openPrUrl",
   "safeRunUrl",
+  "safePrUrl",
   "seg.href",
 ]);
 

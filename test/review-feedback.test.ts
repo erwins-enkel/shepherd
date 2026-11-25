@@ -161,6 +161,7 @@ function harness(
       store.update(s.id, { status });
       events.emit("session:status", { id: s.id, status });
     },
+    newSession: () => events.emit("session:new", store.get(s.id)),
     reviewingDone: () => events.emit("session:reviewing", { id: s.id, reviewing: false }),
     archive: () => {
       store.update(s.id, { status: "archived" });
@@ -377,6 +378,43 @@ test("archive → restore → fetch: handled feedback stays handled (#4144)", as
   expect(h.sent).toHaveLength(2);
   expect(h.sent[1]).not.toContain("ic:1");
   expect(h.store.listPendingReviewFeedback(h.id)).toEqual([]);
+});
+
+test("restore without a PR change re-shows what was pending at archive (#4144)", async () => {
+  const h = harness({ autopilot: false });
+  h.feedback.items.push(h.item());
+  h.pushGit("u1");
+  await settle();
+  h.archive();
+  h.emitted.length = 0;
+
+  // SessionService.restore → server emits session:new; the poller sends no session:git for an
+  // unchanged PR.
+  h.store.update(h.id, { status: "idle" });
+  h.newSession();
+  expect(h.emitted.at(-1)?.pending.map((r) => r.id)).toEqual(["review:1"]);
+  expect(h.svc.pendingAll()[h.id]?.items).toHaveLength(1);
+  expect(await h.svc.sendNow(h.id)).toBe("sent"); // the PR is still known
+});
+
+test("restore in autopilot flushes what was pending at archive", async () => {
+  const h = harness({ status: "running" });
+  h.feedback.items.push(h.item());
+  h.setStatus("running");
+  h.pushGit("u1");
+  await settle();
+  h.archive();
+  h.store.update(h.id, { status: "idle" });
+  h.newSession();
+  await settle();
+  expect(h.emitted.some((e) => e.pending.length === 1)).toBe(true);
+  expect(h.sent).toHaveLength(1);
+});
+
+test("session:new for a session with nothing pending emits nothing", () => {
+  const h = harness();
+  h.newSession();
+  expect(h.emitted).toEqual([]);
 });
 
 test("a red autopilot PR holds the feedback steer until CI is green and the agent idles (#4144)", async () => {

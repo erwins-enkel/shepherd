@@ -203,6 +203,7 @@ export class ReviewFeedbackService {
       const { id, reviewing } = data as { id: string; reviewing: boolean };
       if (!reviewing) void this.tryFlush(id);
     } else if (event === "session:archived") this.#onArchived((data as { id: string }).id);
+    else if (event === "session:new") this.#onNew((data as { id: string }).id);
   }
 
   #onGit(id: string, git: GitState): void {
@@ -222,14 +223,23 @@ export class ReviewFeedbackService {
     void this.tryFlush(id);
   }
 
-  /** Rows stay (#4144): a restore must not resend or re-show what was already handled. */
+  /** Rows stay (#4144): a restore must not resend or re-show what was already handled. So does the
+   *  last PR state: the poller keeps its cache too and re-emits `session:git` only on a change. */
   #onArchived(id: string): void {
     const timer = this.#deferred.get(id);
     if (timer !== undefined) this.#timers.clearTimeout(timer);
-    for (const m of [this.#git, this.#keys, this.#lastFetchAt, this.#deferred, this.#status])
-      m.delete(id);
+    for (const m of [this.#keys, this.#lastFetchAt, this.#deferred, this.#status]) m.delete(id);
     for (const m of [this.#idleEdgeAt, this.#autoPaused]) m.delete(id);
     this.#refetch.delete(id);
+  }
+
+  /** A restore announces the session again (`session:new`): show what was still pending at
+   *  archive — the UI dropped it then — and let it flush (#4144). A fresh session has no rows. */
+  #onNew(id: string): void {
+    if (this.#deps.store.get(id)?.status === "archived") return;
+    if (this.#deps.store.listPendingReviewFeedback(id).length === 0) return;
+    this.#emitState(id);
+    void this.tryFlush(id);
   }
 
   /** A merged or closed PR takes its waiting feedback with it (#4144): nothing to address. */

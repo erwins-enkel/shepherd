@@ -768,7 +768,9 @@ export class HerdStore {
         // #2225: an archived session's amendments are gone from the snapshot too (the server's
         // snapshot is active-only), and nothing renders them once the row leaves the Herd.
         amendments.drop(ev.data.id);
-        reviewFeedback.drop(ev.data.id); // #4126: the server drops an archived session's rows
+        // #4126/#4144: an archived session shows no review feedback; a restore re-emits
+        // session:review-feedback for what was still pending.
+        reviewFeedback.drop(ev.data.id);
         this.clearDraftReconcileToast(ev.data.id);
         break;
       case "session:working-blocked":

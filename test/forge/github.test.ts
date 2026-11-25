@@ -4806,6 +4806,7 @@ const FEEDBACK_RESPONSE = {
         reviewThreads: {
           nodes: [
             {
+              id: "PRRT_kwA1",
               isResolved: true,
               path: "src/a.ts",
               line: 42,
@@ -4898,6 +4899,7 @@ test("listPrFeedback: one GraphQL call, normalized items (#4126)", async () => {
       line: 42,
       parentReviewId: "review:12",
       resolved: true,
+      threadId: "PRRT_kwA1",
     },
     {
       id: "rc:22",
@@ -4929,6 +4931,44 @@ test("listPrFeedback: a missing PR yields no items; GraphQL backoff throws witho
   blockGraphql();
   try {
     await expect(forge.listPrFeedback(1)).rejects.toThrow("graphql rate limit backoff");
+    expect(calls.length).toBe(1);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("replyAndResolveThread: one GraphQL call, both mutations, raw-string variables (#4139)", async () => {
+  const { run, calls } = fakeRunner({ "api graphql": '{"data":{"reply":{},"resolve":{}}}' });
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.replyAndResolveThread("PRRT_1", "true");
+  expect(calls.length).toBe(1);
+  const call = calls[0]!;
+  expect(call.slice(0, 2)).toEqual(["api", "graphql"]);
+  expect(call).toContain("thread=PRRT_1");
+  expect(call[call.indexOf("body=true") - 1]).toBe("-f"); // never -F: no coercion
+  expect(call[call.indexOf("thread=PRRT_1") - 1]).toBe("-f");
+  const query = call.find((a) => a.startsWith("query="))!;
+  expect(query).toContain(
+    "addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread",
+  );
+  expect(query.indexOf("addPullRequestReviewThreadReply")).toBeLessThan(
+    query.indexOf("resolveReviewThread(input:{threadId:$thread})"),
+  );
+});
+
+test("replyAndResolveThread: GraphQL errors throw; backoff throws without a call (#4139)", async () => {
+  const { run, calls } = fakeRunner({
+    "api graphql": '{"data":{"reply":null},"errors":[{"message":"Resource not accessible"}]}',
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  await expect(forge.replyAndResolveThread("PRRT_1", "x")).rejects.toThrow(
+    "Resource not accessible",
+  );
+  blockGraphql();
+  try {
+    await expect(forge.replyAndResolveThread("PRRT_1", "x")).rejects.toThrow(
+      "graphql rate limit backoff",
+    );
     expect(calls.length).toBe(1);
   } finally {
     unblockGraphql();

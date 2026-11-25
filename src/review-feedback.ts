@@ -8,17 +8,21 @@
 import type { EventHub } from "./events";
 import type { GitForge, GitState, PrFeedbackItem } from "./forge/types";
 import { steerable } from "./ci-steer";
+import { classifyGhError } from "./forge/gh-attempt";
 import {
   AUTO_WINDOW_MS,
   MAX_STEER_ITEMS,
   REVIEW_FEEDBACK_PRESET_BOTS,
+  addressedVerdict,
   autoSendAllowed,
   buildReviewFeedbackSteer,
   isPrimed,
   preFilter,
   primeCutoff,
+  resolveReplyBody,
   steerConsumed,
   withinAutoCap,
+  type AddressedVerdict,
   type ReviewFeedbackMode,
 } from "./review-feedback-core";
 import type { ReviewFeedbackRow, SessionStore } from "./store";
@@ -42,6 +46,21 @@ export type ReviewFeedbackSendRefusal =
 
 export type ReviewFeedbackSendOutcome = "sent" | ReviewFeedbackSendRefusal;
 
+/** One item of a {@link ReviewFeedbackService.markAddressed} call and what came of it. */
+export interface AddressedItemResult {
+  id: string;
+  result: "resolved" | Exclude<AddressedVerdict, "ok"> | "error";
+  error?: string;
+}
+
+/** {@link ReviewFeedbackService.markAddressed} outcome. `ok: false` refuses the whole call with an
+ *  agent-facing `error`; otherwise `results` holds one entry per item. */
+export interface MarkAddressedOutcome {
+  ok: boolean;
+  error?: string;
+  results: AddressedItemResult[];
+}
+
 export type ReviewFeedbackStore = Pick<
   SessionStore,
   | "get"
@@ -52,6 +71,8 @@ export type ReviewFeedbackStore = Pick<
   | "listPendingReviewFeedbackAll"
   | "markReviewFeedbackSent"
   | "markReviewFeedbackDismissed"
+  | "getReviewFeedbackItems"
+  | "markReviewFeedbackResolved"
   | "reviewFeedbackAutoSentSince"
   | "reviewFeedbackActivatedAt"
 >;
@@ -75,6 +96,9 @@ export interface ReviewFeedbackDeps {
   /** A critic run on this head is in flight (ReviewService.ciSteerHeld). */
   criticHeld: (id: string, headSha: string) => boolean;
   emit: (payload: ReviewFeedbackEvent) => void;
+  /** Poll the session's PR now and return the fresh state (#4139): the resolve gate must see a
+   *  push the poller has not announced yet. Absent or failing ⇒ the last `session:git`. */
+  freshGit?: (id: string) => Promise<GitState | undefined>;
   /** The persisted PR cache at attach time (PrPoller.snapshot()): no refetch of unchanged PRs. */
   seed?: Record<string, GitState>;
   now?: () => number;
@@ -110,11 +134,37 @@ function busy(status: SessionStatus | undefined): boolean {
   return status === "running" || status === "blocked";
 }
 
+/** The forge call {@link ReviewFeedbackService.markAddressed} needs, or the refusal. */
+type AddressTarget = { error: string } | { reply: NonNullable<GitForge["replyAndResolveThread"]> };
+
+/** One thread to reply on and resolve: its addressed items and the reply (last note wins). */
+interface ThreadPlan {
+  itemIds: string[];
+  reply: string;
+}
+
 /** What an automatic flush would send, or why it must wait. */
 type FlushPlan =
   | { kind: "hold" }
   | { kind: "capped" }
   | { kind: "send"; prNumber: number; items: ReviewFeedbackRow[] };
+
+/** Single-line, redacted, capped failure text: agent-facing, so never the raw argv. */
+function errorText(err: unknown): string {
+  return classifyGhError("cli", err).detail;
+}
+
+/** Add an addressed item to its thread's plan; a later note for the same thread wins. */
+function planThread(
+  threads: Map<string, ThreadPlan>,
+  threadId: string,
+  item: { id: string; reply: string },
+): void {
+  const plan = threads.get(threadId) ?? { itemIds: [], reply: "" };
+  plan.itemIds.push(item.id);
+  plan.reply = item.reply;
+  threads.set(threadId, plan);
+}
 
 export class ReviewFeedbackService {
   readonly #deps: ReviewFeedbackDeps;
@@ -187,6 +237,99 @@ export class ReviewFeedbackService {
     return this.#deliver(id, git.number, items, "operator");
   }
 
+  /**
+   * The agent declares steered inline comments addressed (#4139): for each item whose head moved
+   * since the steer, reply on its thread (the note, the fixing commit, a marker) and resolve it,
+   * one forge call per thread. Reads the PR fresh first. Never throws; a forge error leaves the
+   * item sent. The pending list is unchanged, so nothing is emitted.
+   */
+  async markAddressed(
+    id: string,
+    items: { id: string; reply: string }[],
+  ): Promise<MarkAddressedOutcome> {
+    try {
+      return await this.#markAddressed(id, items);
+    } catch (err) {
+      console.warn(`[review-feedback] mark addressed for ${id}:`, err);
+      return {
+        ok: false,
+        error: `Could not resolve review threads: ${errorText(err)}`,
+        results: [],
+      };
+    }
+  }
+
+  async #markAddressed(
+    id: string,
+    items: { id: string; reply: string }[],
+  ): Promise<MarkAddressedOutcome> {
+    const target = this.#addressTarget(id);
+    if ("error" in target) return { ok: false, error: target.error, results: [] };
+    const git = await this.#freshGit(id);
+    if (git?.state !== "open" || git.number === undefined)
+      return { ok: false, error: "This session has no open PR.", results: [] };
+    const stored = this.#deps.store.getReviewFeedbackItems(
+      id,
+      items.map((i) => i.id),
+    );
+    const rows = new Map(stored.map((r) => [r.id, r]));
+    const byItem = new Map<string, AddressedItemResult>();
+    const threads = new Map<string, ThreadPlan>();
+    for (const item of items) {
+      const row = rows.get(item.id);
+      const verdict = addressedVerdict(row, git.headSha);
+      if (verdict !== "ok") byItem.set(item.id, { id: item.id, result: verdict });
+      else if (row?.threadId) planThread(threads, row.threadId, item);
+    }
+    const head = git.headSha ?? "";
+    for (const [threadId, plan] of threads)
+      for (const r of await this.#resolveThread(id, target.reply, threadId, plan, head))
+        byItem.set(r.id, r);
+    const missing = (itemId: string): AddressedItemResult => ({ id: itemId, result: "unknown" });
+    return { ok: true, results: items.map((i) => byItem.get(i.id) ?? missing(i.id)) };
+  }
+
+  /** The session's resolve forge call, or why the agent may not resolve threads here. */
+  #addressTarget(id: string): AddressTarget {
+    const s = this.#deps.store.get(id);
+    if (!s || s.status === "archived") return { error: "This session is not live." };
+    if (!this.#resolveOn(s))
+      return { error: "Resolving review threads is not enabled for this repo." };
+    const forge = this.#deps.resolveForge(s.repoPath);
+    if (!forge?.replyAndResolveThread)
+      return { error: "This repo's forge cannot resolve review threads." };
+    return { reply: forge.replyAndResolveThread.bind(forge) };
+  }
+
+  /** The PR state polled now when the dep allows, else the last `session:git`. */
+  async #freshGit(id: string): Promise<GitState | undefined> {
+    try {
+      const git = await this.#deps.freshGit?.(id);
+      if (git) this.#git.set(id, git);
+    } catch (err) {
+      console.warn(`[review-feedback] fresh PR read for ${id}:`, err);
+    }
+    return this.#git.get(id);
+  }
+
+  async #resolveThread(
+    id: string,
+    reply: NonNullable<GitForge["replyAndResolveThread"]>,
+    threadId: string,
+    plan: ThreadPlan,
+    headSha: string,
+  ): Promise<AddressedItemResult[]> {
+    try {
+      await reply(threadId, resolveReplyBody(plan.reply, headSha));
+    } catch (err) {
+      console.warn(`[review-feedback] resolve thread for ${id}:`, err);
+      const error = errorText(err);
+      return plan.itemIds.map((itemId) => ({ id: itemId, result: "error", error }));
+    }
+    this.#deps.store.markReviewFeedbackResolved(id, plan.itemIds, this.#now());
+    return plan.itemIds.map((itemId) => ({ id: itemId, result: "resolved" }));
+  }
+
   dismiss(id: string, itemIds: string[]): void {
     this.#deps.store.markReviewFeedbackDismissed(id, itemIds);
     this.#emitState(id);
@@ -256,6 +399,12 @@ export class ReviewFeedbackService {
 
   #mode(s: Session): ReviewFeedbackMode {
     return this.#deps.store.getRepoConfig(s.repoPath).reviewFeedbackMode ?? "autopilot";
+  }
+
+  /** The repo opted in to resolving addressed threads (#4139); never on a lightweight repo. */
+  #resolveOn(s: Session): boolean {
+    const cfg = this.#deps.store.getRepoConfig(s.repoPath);
+    return cfg.reviewFeedbackResolve === true && cfg.repoMode !== "lightweight";
   }
 
   /** An open PR on a live session in a GitHub repo whose mode is not `off`. */
@@ -388,9 +537,11 @@ export class ReviewFeedbackService {
     this.#flushing.add(id);
     // Only what the steer shows is marked sent; overflow stays pending for the next one.
     const batch = items.slice(0, MAX_STEER_ITEMS);
+    const s = this.#deps.store.get(id);
+    const resolve = !!s && this.#resolveOn(s);
     let sent: boolean;
     try {
-      sent = await this.#deps.reply(id, buildReviewFeedbackSteer(prNumber, batch));
+      sent = await this.#deps.reply(id, buildReviewFeedbackSteer(prNumber, batch, { resolve }));
     } catch (err) {
       console.warn(`[review-feedback] steer for ${id}:`, err);
       return "failed";
@@ -403,6 +554,7 @@ export class ReviewFeedbackService {
       batch.map((i) => i.id),
       by,
       this.#now(),
+      this.#git.get(id)?.headSha,
     );
     this.#emitState(id);
     return "sent";

@@ -785,6 +785,9 @@ export interface RepoConfig {
   /** #4126: review-bot logins whose feedback counts without a write check. Reads always fill it
    *  (default: the preset). Omitted on a write → unchanged. */
   reviewFeedbackBots?: string[];
+  /** #4139: reply on and resolve inline threads the agent declares addressed (default false).
+   *  Reads always fill it. Omitted on a write → unchanged. */
+  reviewFeedbackResolve?: boolean;
 }
 
 /** A repo's own coding CLI, default model, effort and execution effort (#3447), as stored —
@@ -1233,10 +1236,18 @@ type ReviewFeedbackDbRow = {
   status: string;
   sentAt: number | null;
   sentBy: string | null;
+  threadId: string | null;
 };
 
 const REVIEW_FEEDBACK_COLS = `itemId, kind, author, isBot, reviewState, path, line,
-  parentReviewId, body, createdAt, status, sentAt, sentBy`;
+  parentReviewId, body, createdAt, status, sentAt, sentBy, threadId`;
+
+/** A stored item plus the resolve bookkeeping (#4139): the head it was steered at, and when its
+ *  thread was resolved. Internal: never part of the pending list. */
+export interface ReviewFeedbackState extends ReviewFeedbackRow {
+  sentHeadSha: string | null;
+  resolvedAt: number | null;
+}
 
 /** Optional item fields are present only when stored, matching the forge's shape. */
 function reviewFeedbackFromRow(r: ReviewFeedbackDbRow): ReviewFeedbackRow {
@@ -1255,6 +1266,7 @@ function reviewFeedbackFromRow(r: ReviewFeedbackDbRow): ReviewFeedbackRow {
   if (r.path !== null) row.path = r.path;
   if (r.kind === "rc") row.line = r.line;
   if (r.parentReviewId) row.parentReviewId = r.parentReviewId;
+  if (r.threadId) row.threadId = r.threadId;
   return row;
 }
 
@@ -1301,6 +1313,7 @@ type RepoCfgRow = {
   skillAllowlist: string | null;
   reviewFeedbackMode: string;
   reviewFeedbackBots: string | null;
+  reviewFeedbackResolve: number;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -1570,6 +1583,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       skillAllowlist: null,
       reviewFeedbackMode: "autopilot",
       reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+      reviewFeedbackResolve: false,
     };
   }
   return {
@@ -1619,6 +1633,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     reviewFeedbackBots: parseNullableStringListJson(r.reviewFeedbackBots) ?? [
       ...REVIEW_FEEDBACK_PRESET_BOTS,
     ],
+    reviewFeedbackResolve: !!r.reviewFeedbackResolve,
   };
 }
 
@@ -1665,6 +1680,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     nullableStringListJson(cfg.skillAllowlist),
     cfg.reviewFeedbackMode ?? "autopilot",
     reviewFeedbackBotsJson(cfg.reviewFeedbackBots),
+    Number(Boolean(cfg.reviewFeedbackResolve)),
     Date.now(),
   ];
 }
@@ -2521,6 +2537,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       body TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL,
       sentAt INTEGER, sentBy TEXT,
       PRIMARY KEY (sessionId, itemId))`);
+    // #4139: resolve bookkeeping; a table created by #4126 lacks these.
+    this.addMissingColumns("review_feedback", {
+      threadId: "TEXT",
+      sentHeadSha: "TEXT",
+      resolvedAt: "INTEGER",
+    });
     this.db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, [
       REVIEW_FEEDBACK_ACTIVATED_KEY,
       String(Date.now()),
@@ -3006,7 +3028,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
-                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots
+                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -3020,8 +3042,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -3062,6 +3084,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          skillAllowlist = excluded.skillAllowlist,
          reviewFeedbackMode = excluded.reviewFeedbackMode,
          reviewFeedbackBots = excluded.reviewFeedbackBots,
+         reviewFeedbackResolve = excluded.reviewFeedbackResolve,
          updatedAt = excluded.updatedAt`,
       repoConfigParams(repoPath, cfg),
     );
@@ -3069,12 +3092,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** #4126: a write that omits the review-feedback fields keeps the stored values. */
   private withStoredReviewFeedback(repoPath: string, cfg: RepoConfig): RepoConfig {
-    if (cfg.reviewFeedbackMode !== undefined && cfg.reviewFeedbackBots !== undefined) return cfg;
+    if (
+      cfg.reviewFeedbackMode !== undefined &&
+      cfg.reviewFeedbackBots !== undefined &&
+      cfg.reviewFeedbackResolve !== undefined
+    )
+      return cfg;
     const stored = this.getLocalRepoConfig(repoPath);
     return {
       ...cfg,
       reviewFeedbackMode: cfg.reviewFeedbackMode ?? stored.reviewFeedbackMode,
       reviewFeedbackBots: cfg.reviewFeedbackBots ?? stored.reviewFeedbackBots,
+      reviewFeedbackResolve: cfg.reviewFeedbackResolve ?? stored.reviewFeedbackResolve,
     };
   }
 
@@ -5609,8 +5638,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const res = this.db.run(
       `INSERT OR IGNORE INTO review_feedback
          (sessionId, itemId, kind, author, isBot, reviewState, path, line, parentReviewId, body,
-          createdAt, status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          createdAt, status, threadId)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         sessionId,
         item.id,
@@ -5624,6 +5653,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         item.body,
         item.createdAt,
         status,
+        item.threadId ?? null,
       ],
     );
     return res.changes > 0;
@@ -5667,19 +5697,54 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return out;
   }
 
-  /** Marks the given PENDING items sent; other statuses are left alone. */
+  /** Marks the given PENDING items sent at `headSha` (the PR head they were steered at); other
+   *  statuses are left alone. */
   markReviewFeedbackSent(
     sessionId: string,
     itemIds: string[],
     sentBy: "auto" | "operator",
     at: number,
+    headSha?: string,
   ): void {
-    this.updatePendingReviewFeedback(sessionId, itemIds, "sent", sentBy, at);
+    this.updatePendingReviewFeedback(sessionId, itemIds, "sent", sentBy, at, headSha ?? null);
+  }
+
+  /** The given items of one session, any status, with their resolve bookkeeping (#4139).
+   *  Unknown ids are absent. */
+  getReviewFeedbackItems(sessionId: string, itemIds: string[]): ReviewFeedbackState[] {
+    if (itemIds.length === 0) return [];
+    const rows = this.db
+      .query(
+        `SELECT ${REVIEW_FEEDBACK_COLS}, sentHeadSha, resolvedAt FROM review_feedback
+         WHERE sessionId = ? AND itemId IN (${itemIds.map(() => "?").join(",")})
+         ORDER BY createdAt, itemId`,
+      )
+      .all(sessionId, ...itemIds) as (ReviewFeedbackDbRow & {
+      sentHeadSha: string | null;
+      resolvedAt: number | null;
+    })[];
+    return rows.map((r) => ({
+      ...reviewFeedbackFromRow(r),
+      sentHeadSha: r.sentHeadSha,
+      resolvedAt: r.resolvedAt,
+    }));
+  }
+
+  /** Stamps the given SENT, not yet resolved items resolved at `at` (#4139). */
+  markReviewFeedbackResolved(sessionId: string, itemIds: string[], at: number): void {
+    if (itemIds.length === 0) return;
+    const q = this.db.query(
+      `UPDATE review_feedback SET resolvedAt = ?
+       WHERE sessionId = ? AND itemId = ? AND status = 'sent' AND resolvedAt IS NULL`,
+    );
+    this.db.transaction(() => {
+      for (const itemId of itemIds) q.run(at, sessionId, itemId);
+    })();
   }
 
   /** Marks the given PENDING items dismissed; other statuses are left alone. */
   markReviewFeedbackDismissed(sessionId: string, itemIds: string[]): void {
-    this.updatePendingReviewFeedback(sessionId, itemIds, "dismissed", null, null);
+    this.updatePendingReviewFeedback(sessionId, itemIds, "dismissed", null, null, null);
   }
 
   private updatePendingReviewFeedback(
@@ -5688,14 +5753,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     status: "sent" | "dismissed",
     sentBy: "auto" | "operator" | null,
     at: number | null,
+    headSha: string | null,
   ): void {
     if (itemIds.length === 0) return;
     const q = this.db.query(
-      `UPDATE review_feedback SET status = ?, sentBy = ?, sentAt = ?
+      `UPDATE review_feedback SET status = ?, sentBy = ?, sentAt = ?, sentHeadSha = ?
        WHERE sessionId = ? AND itemId = ? AND status = 'pending'`,
     );
     this.db.transaction(() => {
-      for (const itemId of itemIds) q.run(status, sentBy, at, sessionId, itemId);
+      for (const itemId of itemIds) q.run(status, sentBy, at, headSha, sessionId, itemId);
     })();
   }
 
@@ -8154,6 +8220,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #4126: review-feedback steer mode + bot allowlist (JSON string array, NULL = preset).
     add("reviewFeedbackMode", `reviewFeedbackMode TEXT NOT NULL DEFAULT 'autopilot'`);
     add("reviewFeedbackBots", `reviewFeedbackBots TEXT`);
+    // #4139: opt-in reply + resolve of inline threads the agent declares addressed.
+    add("reviewFeedbackResolve", `reviewFeedbackResolve INTEGER NOT NULL DEFAULT 0`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

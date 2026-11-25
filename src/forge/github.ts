@@ -54,7 +54,11 @@ import { headBatcherFor, headKey } from "./github-head-batch";
 import { currentGhCaller } from "./gh-caller";
 import { readEpicStructureByParts } from "./epic-structure";
 import { downloadGithubArtifactZip } from "./github-artifact";
-import { PR_FEEDBACK_QUERY, parsePrFeedback } from "./github-pr-feedback";
+import {
+  PR_FEEDBACK_QUERY,
+  REPLY_AND_RESOLVE_THREAD_MUTATION,
+  parsePrFeedback,
+} from "./github-pr-feedback";
 import { Semaphore } from "../semaphore";
 import { backoffDelay, sleep as defaultSleep } from "../async";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
@@ -3273,6 +3277,27 @@ export class GithubForge implements GitForge {
       `query=${withRateLimit(PR_FEEDBACK_QUERY)}`,
     ]);
     return parsePrFeedback(out);
+  }
+
+  /** Reply on a review thread and resolve it in one GraphQL call (#4139): both mutations,
+   *  aliased, run in order. Throws under the GraphQL backoff, on a host error, and on any GraphQL
+   *  `errors` entry (a failed reply or resolve). */
+  async replyAndResolveThread(threadId: string, body: string): Promise<void> {
+    if (graphRateLimit.blocked()) throw new Error("graphql rate limit backoff");
+    const out = await this.run([
+      "api",
+      "graphql",
+      // -f keeps both raw strings: a body like "true" or "123" must not be coerced.
+      "-f",
+      `thread=${threadId}`,
+      "-f",
+      `body=${body}`,
+      "-f",
+      `query=${REPLY_AND_RESOLVE_THREAD_MUTATION}`,
+    ]);
+    const res = JSON.parse(out || "null") as { errors?: { message?: string }[] } | null;
+    if (res?.errors?.length)
+      throw new Error(`review thread reply/resolve failed: ${res.errors[0]?.message ?? "unknown"}`);
   }
 
   /** `login` holds admin or write on the repo (GitHub reports maintain as write, triage as read).

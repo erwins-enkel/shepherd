@@ -60,6 +60,8 @@ function harness(
     autopilot?: boolean;
     status?: SessionStatus;
     seedUpdatedAt?: string;
+    resolve?: boolean;
+    repoMode?: "forge" | "lightweight";
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -77,6 +79,12 @@ function harness(
   store.update(s.id, { status: opts.status ?? "idle" });
   if (opts.mode)
     store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), reviewFeedbackMode: opts.mode });
+  if (opts.resolve !== undefined || opts.repoMode)
+    store.setRepoConfig("/r", {
+      ...store.getRepoConfig("/r"),
+      reviewFeedbackResolve: opts.resolve ?? false,
+      repoMode: opts.repoMode ?? "forge",
+    });
   const t0 = Math.max(s.createdAt, store.reviewFeedbackActivatedAt()) + 1000;
   const clock = fakeClock(t0 + 10_000);
 
@@ -84,7 +92,12 @@ function harness(
   const writers = new Set(["alice"]);
   const forgeCalls: number[] = [];
   const writeChecks: string[] = [];
+  const resolveCalls: [string, string][] = [];
   const forge = {
+    replyAndResolveThread: async (threadId: string, body: string) => {
+      resolveCalls.push([threadId, body]);
+      if (st.resolveError) throw st.resolveError;
+    },
     listPrFeedback: async (n: number) => {
       forgeCalls.push(n);
       return structuredClone(feedback);
@@ -101,6 +114,10 @@ function harness(
     steerAt: undefined as number | undefined,
     critic: null as string | null,
     autopilot: opts.autopilot ?? true,
+    resolveError: null as Error | null,
+    /** What `freshGit` answers: a state, a failure, or nothing. */
+    fresh: undefined as GitState | Error | undefined,
+    freshCalls: 0,
   };
   const emitted: ReviewFeedbackEvent[] = [];
   const git = (updatedAt: string, headSha = "abc1234", over: Partial<GitState> = {}): GitState =>
@@ -125,6 +142,11 @@ function harness(
     autopilotOn: () => st.autopilot,
     criticHeld: (_id, head) => st.critic === head,
     emit: (e) => emitted.push(e),
+    freshGit: async () => {
+      st.freshCalls++;
+      if (st.fresh instanceof Error) throw st.fresh;
+      return st.fresh;
+    },
     seed: opts.seedUpdatedAt ? { [s.id]: git(opts.seedUpdatedAt) } : undefined,
     now: clock.now,
     timers: clock.timers,
@@ -150,6 +172,8 @@ function harness(
     feedback,
     forgeCalls,
     writeChecks,
+    resolveCalls,
+    git,
     sent,
     st,
     emitted,
@@ -606,4 +630,149 @@ test("a steer carries at most MAX_STEER_ITEMS; the overflow stays pending for th
   expect(h.sent).toHaveLength(1);
   expect(h.sent[0]).not.toContain("more — see the PR");
   expect(h.pending()).toHaveLength(5);
+});
+
+// ── resolve addressed threads (#4139) ─────────────────────────────────────────
+
+/** An inline comment on thread `thread`, steered at head `abc1234`. */
+async function steeredInline(h: ReturnType<typeof harness>, ids: [string, string][]) {
+  for (const [id, thread] of ids)
+    h.feedback.items.push(
+      h.item({
+        id,
+        kind: "rc",
+        reviewState: undefined,
+        path: "src/a.ts",
+        line: 3,
+        threadId: thread,
+      }),
+    );
+  h.pushGit("u1", "abc1234");
+  await settle();
+  expect(h.sent).toHaveLength(1);
+}
+
+test("resolve on: the steer shows inline ids; sent rows remember the head", async () => {
+  const h = harness({ resolve: true });
+  h.feedback.items.push(h.item());
+  await steeredInline(h, [["rc:5", "T1"]]);
+  expect(h.sent[0]).toContain("src/a.ts:3 [id rc:5]:");
+  expect(h.sent[0]).toContain("`review_feedback_addressed`");
+  expect(h.sent[0]).not.toContain("[id review:1]");
+  const [row] = h.store.getReviewFeedbackItems(h.id, ["rc:5"]);
+  expect(row).toMatchObject({ status: "sent", threadId: "T1", sentHeadSha: "abc1234" });
+});
+
+test("resolve off or lightweight: the steer carries no ids and markAddressed refuses", async () => {
+  for (const opts of [{}, { resolve: true, repoMode: "lightweight" as const }]) {
+    const h = harness(opts);
+    await steeredInline(h, [["rc:5", "T1"]]);
+    expect(h.sent[0]).not.toContain("[id");
+    expect(h.sent[0]).not.toContain("review_feedback_addressed");
+    h.st.fresh = h.git("u2", "def5678");
+    const out = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("not enabled");
+    expect(h.resolveCalls).toEqual([]);
+  }
+});
+
+test("markAddressed: cached head stale but freshGit moved ⇒ replies + resolves", async () => {
+  const h = harness({ resolve: true });
+  await steeredInline(h, [["rc:5", "T1"]]);
+  h.st.fresh = h.git("u2", "def5678abc"); // the push the poller has not announced yet
+  const out = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed the check" }]);
+  expect(out).toEqual({ ok: true, results: [{ id: "rc:5", result: "resolved" }] });
+  expect(h.st.freshCalls).toBe(1);
+  expect(h.resolveCalls).toEqual([
+    ["T1", "Fixed the check\n\nAddressed in def5678.\n\n<!-- shepherd:review-feedback -->"],
+  ]);
+  expect(h.store.getReviewFeedbackItems(h.id, ["rc:5"])[0]?.resolvedAt).toBe(h.clock.now());
+  // A second declaration finds it resolved; nothing is posted twice.
+  const again = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "x" }]);
+  expect(again.results).toEqual([{ id: "rc:5", result: "already-resolved" }]);
+  expect(h.resolveCalls).toHaveLength(1);
+});
+
+test("markAddressed: freshGit throwing falls back to the cached head", async () => {
+  const h = harness({ resolve: true });
+  await steeredInline(h, [["rc:5", "T1"]]);
+  h.st.fresh = new Error("gh down");
+  const stale = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(stale.results).toEqual([{ id: "rc:5", result: "not-pushed" }]);
+  h.pushGit("u2", "def5678");
+  await settle();
+  const moved = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(moved.results).toEqual([{ id: "rc:5", result: "resolved" }]);
+  expect(h.resolveCalls).toHaveLength(1);
+});
+
+test("markAddressed: not pushed ⇒ not-pushed, no forge call; bad ids get their verdict", async () => {
+  const h = harness({ resolve: true });
+  h.feedback.items.push(h.item());
+  await steeredInline(h, [["rc:5", "T1"]]);
+  h.st.fresh = h.git("u1", "abc1234");
+  const out = await h.svc.markAddressed(h.id, [
+    { id: "rc:5", reply: "Fixed" },
+    { id: "review:1", reply: "Fixed" },
+    { id: "rc:404", reply: "Fixed" },
+  ]);
+  expect(out).toEqual({
+    ok: true,
+    results: [
+      { id: "rc:5", result: "not-pushed" },
+      { id: "review:1", result: "not-inline" },
+      { id: "rc:404", result: "unknown" },
+    ],
+  });
+  expect(h.resolveCalls).toEqual([]);
+});
+
+test("markAddressed: one forge call per thread, last note wins", async () => {
+  const h = harness({ resolve: true });
+  await steeredInline(h, [
+    ["rc:5", "T1"],
+    ["rc:6", "T1"],
+    ["rc:7", "T2"],
+  ]);
+  h.st.fresh = h.git("u2", "def5678");
+  const out = await h.svc.markAddressed(h.id, [
+    { id: "rc:5", reply: "first" },
+    { id: "rc:7", reply: "other" },
+    { id: "rc:6", reply: "second" },
+  ]);
+  expect(out.results.map((r) => r.result)).toEqual(["resolved", "resolved", "resolved"]);
+  expect(h.resolveCalls.map(([t, body]) => [t, body.split("\n")[0]])).toEqual([
+    ["T1", "second"],
+    ["T2", "other"],
+  ]);
+});
+
+test("markAddressed: a forge error leaves the row sent and unresolved; never throws", async () => {
+  const h = harness({ resolve: true });
+  await steeredInline(h, [["rc:5", "T1"]]);
+  h.st.fresh = h.git("u2", "def5678");
+  h.st.resolveError = new Error("HTTP 502");
+  const before = h.emitted.length;
+  const out = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(out.ok).toBe(true);
+  expect(out.results).toEqual([{ id: "rc:5", result: "error", error: "HTTP 502" }]);
+  expect(h.store.getReviewFeedbackItems(h.id, ["rc:5"])[0]).toMatchObject({
+    status: "sent",
+    resolvedAt: null,
+  });
+  expect(h.emitted.length).toBe(before);
+});
+
+test("markAddressed refuses without an open PR or a live session", async () => {
+  const h = harness({ resolve: true });
+  await steeredInline(h, [["rc:5", "T1"]]);
+  h.st.fresh = { ...h.git("u2", "def5678"), state: "merged" } as GitState;
+  const closed = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(closed).toEqual({ ok: false, error: "This session has no open PR.", results: [] });
+  h.store.update(h.id, { status: "archived" });
+  const gone = await h.svc.markAddressed(h.id, [{ id: "rc:5", reply: "Fixed" }]);
+  expect(gone.ok).toBe(false);
+  expect(gone.error).toContain("not live");
+  expect(h.resolveCalls).toEqual([]);
 });

@@ -10,9 +10,17 @@ export const PR_FEEDBACK_QUERY =
   "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){" +
   "pullRequest(number:$number){author{login} " +
   "reviews(last:100){nodes{databaseId author{login __typename} state body submittedAt}} " +
-  "reviewThreads(last:100){nodes{isResolved path line comments(first:50){nodes{databaseId " +
+  "reviewThreads(last:100){nodes{id isResolved path line comments(first:50){nodes{databaseId " +
   "author{login __typename} body createdAt pullRequestReview{databaseId}}}}} " +
   "comments(last:100){nodes{databaseId author{login __typename} body createdAt}}}}}";
+
+/** Reply on a review thread, then resolve it (#4139). Fields of one mutation run in order. No
+ *  `rateLimit` selection: it is a query-root field. */
+export const REPLY_AND_RESOLVE_THREAD_MUTATION =
+  "mutation($thread:ID!,$body:String!){" +
+  "reply:addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$thread,body:$body})" +
+  "{comment{id}} " +
+  "resolve:resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}";
 
 type GqlAuthor = { login?: string | null; __typename?: string | null } | null;
 
@@ -33,6 +41,7 @@ interface GqlComment {
 }
 
 interface GqlThread {
+  id?: string | null;
   isResolved?: boolean | null;
   path?: string | null;
   line?: number | null;
@@ -96,6 +105,7 @@ function threadItems(t: GqlThread): PrFeedbackItem[] {
       line: t.line ?? null,
       parentReviewId: typeof parent === "number" ? `review:${parent}` : undefined,
       resolved: t.isResolved === true,
+      threadId: t.id ?? undefined,
     });
   }
   return out;

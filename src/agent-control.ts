@@ -6,11 +6,9 @@ import {
 /**
  * The agent→server control plane as a TOOL surface (issue #2003).
  *
- * Shepherd used to teach this control plane in English: the build-queue directive spent 3,443
- * chars of system prompt explaining `curl` invocations — and baked a literal bearer token into
- * them — while the epic-authoring directive hand-wrote a JSON body the agent had to reproduce.
  * A tool whose parameters ARE the contract (`queue_step(stepId, status)` with `status`
- * enumerated) carries the same semantics in its signature, so the prose can go.
+ * enumerated) carries the semantics in its signature, so spawn directives need no prose
+ * explaining `curl` invocations or JSON bodies — and no token in prompt text.
  *
  * This module owns four things, deliberately together:
  *

@@ -4,9 +4,8 @@
  * A headless `codex exec` role is told to WRITE its result as JSON to a role-specific file
  * (`.shepherd-recap.json`, `.shepherd-review.json`, …). Codex occasionally treats "write the
  * result" as "respond with the result": it produces a complete, correct verdict as its final chat
- * message and never calls a write tool (observed live — TASK-737's recap, and `6b24a73a`). The role
- * service only reads the result file, so a correct verdict was silently discarded and the row failed
- * with `no-result`.
+ * message and never calls a write tool. A role service reading only the result file would discard
+ * that verdict and fail the row with `no-result`.
  *
  * `codex exec -o <FILE>` makes the CLI ITSELF write the agent's final message to a file, with no
  * dependence on the model choosing to call a tool — so it captures exactly that chat-only case. The
@@ -22,22 +21,21 @@
  * caller passes the exact fallback filename, and reviewer-kind spawns use a PER-SPAWN UNGUESSABLE name
  * keyed on the spawn's session id ({@link codexLastMessageFile}) — a name a PR author cannot know at
  * authoring time, so a committed copy can never match the name the real run writes and reads. The
- * disposable-tmpdir roles (recap, autopilot) run in a
- * fresh empty dir nothing else can write, so they use the fixed {@link CODEX_LAST_MESSAGE_FILE} — safe
- * there because there is no untrusted checkout to pre-seed.
+ * disposable-tmpdir roles (recap, autopilot) run in a fresh empty dir nothing else can write, so
+ * they use the fixed {@link CODEX_LAST_MESSAGE_FILE} — safe there because there is no untrusted
+ * checkout to pre-seed.
  *
  * The result file stays the PRIMARY contract; the last-message file is a FALLBACK read only when the
  * result file is absent. In the normal success case BOTH files exist — the agent writes the result
  * file mid-run and the CLI writes the last-message file (usually a "Created …" acknowledgement) at
  * exit — so preferring the result file is essential. A NON-EMPTY last-message file means the agent
  * has finished: codex ≥0.169 creates the `-o` file EMPTY at launch and fills it only at exit, so a
- * present-but-blank last-message file is "nothing written yet", never an answer. Reading that blank
- * file as a finished-but-broken verdict let the critic's stable-unparseable fail-fast kill every
- * Codex critic ~20–30 s into its run.
+ * present-but-blank last-message file is "nothing written yet", never an answer — reading it as a
+ * finished-but-broken verdict would trip the critic's stable-unparseable fail-fast mid-run.
  *
  * The helper returns raw TEXT; each caller keeps its own parse + shape validation. A prose
- * last-message that isn't a valid verdict fails that validation and fails closed exactly as before —
- * the fallback can never invent a verdict.
+ * last-message that isn't a valid verdict fails that validation and fails closed — the fallback can
+ * never invent a verdict.
  */
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";

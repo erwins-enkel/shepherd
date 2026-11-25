@@ -951,10 +951,9 @@ export class AutopilotService {
     if (this.deps.ciRestartHeld?.(s.id)) return skip("operator-ci-restart"); // ciNudged stays unset: the tick re-engages after the hold
     // Cap gate FIRST, matching reEngageCi where that order is load-bearing (there the stand-down
     // claims-without-acting, so evaluating it first would make the pause unreachable). Here both
-    // arms are plain returns, so order does not affect behaviour — they are kept in the same
-    // order anyway so the two entry points read as the mirror the comments claim, and so this
-    // stays correct if either arm ever gains a side effect. It also skips the stand-down's
-    // rebaseCandidate call for an already-capped full-auto session.
+    // arms are plain returns, but keep the mirrored order so this stays correct if either arm
+    // gains a side effect. It also skips the stand-down's rebaseCandidate call for an
+    // already-capped full-auto session.
     //
     // Once the train caps a conflicting session it stops refreshing rebaseSteeredAt, so ownership
     // lapses after OWNERSHIP_TTL_MS and the stand-down below stops firing — without this, an

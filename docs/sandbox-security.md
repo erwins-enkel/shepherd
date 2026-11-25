@@ -570,7 +570,11 @@ workspace-write` bounds what a Codex role may WRITE; it says nothing about what
 project_doc_fallback_filenames=["CLAUDE.md"]` (`src/codex-role-argv.ts`), which
   drops `$CODEX_HOME/config.toml` — MCP servers, connector apps, hooks, exec
   policy and the model/effort defaults — while re-asserting the one inheritance
-  a Claude role also has, the repo's `CLAUDE.md`.
+  a Claude role also has, the repo's `CLAUDE.md`. Auth still resolves via
+  `CODEX_HOME`, and `-m` / `-c` overrides (model, effort) still apply on top.
+  The `CLAUDE.md` fallback buys back no attack surface: it is a filename mapping
+  carrying no MCP servers, hooks, connectors or exec policy, and `AGENTS.md`
+  loads either way.
 
   **The posture is uniform across all four transient kinds; the reason is
   per-kind.** For `reviewer` and `doc` (untrusted git worktree) dropping
@@ -583,22 +587,27 @@ project_doc_fallback_filenames=["CLAUDE.md"]` (`src/codex-role-argv.ts`), which
   deny every `mcp__*` call at the call site, so a loaded server is inert —
   Codex has **no** tool allowlist, so dropping the config is the only thing
   keeping them away from the operator's servers and connectors. `--ignore-rules`
-  additionally drops **project** execpolicy `.rules`, which an untrusted PR head
-  could otherwise commit to widen what the reviewer runs unapproved.
+  drops user and — the load-bearing half — **project** execpolicy `.rules`, which
+  an untrusted PR head could otherwise commit to widen what the reviewer runs unapproved.
 
   `--skip-git-repo-check` is a precondition skip, not a control: Codex refuses to
   start outside a git repo or a `[projects.*]` trust entry, and those entries
   live in the config we just stopped loading. Without it every tmpdir role dies
-  at spawn. **Three residuals are accepted:** `$CODEX_HOME/AGENTS.md` still
+  at spawn. It is emitted for every kind so it never rests on an assumption
+  about a caller's cwd; the recorded turn context is identical with and without
+  it. **Three residuals are accepted:** `$CODEX_HOME/AGENTS.md` still
   loads (no flag drops it — symmetric with a Claude role still reading
   `~/.claude/CLAUDE.md`); there is **no `--allowedTools` analog**, so a Codex
   role can still run arbitrary shell inside its sandbox and cannot be narrowed to
   the reviewer's read-only tool set (`--sandbox read-only` would also block the
   verdict-file write the result contract needs) — this is the largest remaining
-  Claude↔Codex asymmetry; and an operator on a custom `model_provider` loses that
-  wiring, unguarded because a guard would mean re-reading the ignored config.
-  `--ephemeral` is deliberately **not** used: it would suppress the rollout files
-  role activity and token totals are read from (`src/codex-activity.ts`).
+  Claude↔Codex asymmetry; and an operator on a custom `model_provider` (or
+  `--oss`) loses that wiring, unguarded because a guard would mean re-reading the
+  ignored config. `--ephemeral` is deliberately **not** used: it would suppress
+  the rollout files role activity and token totals are read from
+  (`src/codex-activity.ts`). Neither is `--dangerously-bypass-hook-trust`: it
+  grants enabled hooks without persisted trust — the opposite of isolation;
+  `--ignore-user-config` already removes user hooks.
 
 - **Transient helpers reach outside their scratch dir only via `--add-dir`.**
   The `--allowedTools` allowlist decides WHICH tools may run, not WHERE they may

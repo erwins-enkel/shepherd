@@ -206,9 +206,7 @@ const ATTENTION_RULES: Array<{
   // KNOCK-ON, intended: because explainHold surfaces this instead of ci-red, a red+dirty session
   // also loses its row-level "Retry CI" CTA (hold-row.ts keys that on serverHold.code ===
   // "ci-red"). That is correct — a dirty PR's pull_request workflows cannot run at all, so
-  // re-running them is futile; the actionable step is the rebase this line names. Recorded here
-  // rather than only in the PR that introduced it, since this is the code that causes it and a
-  // reader hitting "why did Retry CI disappear?" will land on this rule, not on a changelog.
+  // re-running them is futile; the actionable step is the rebase this line names.
   //
   // KNOWN GAP, deliberate: isDefiniteConflict is structurally always false on Gitea and
   // LocalForge (neither sets mergeStateStatus), so a genuinely conflicting PR there gets the
@@ -227,8 +225,7 @@ const ATTENTION_RULES: Array<{
   // with git/review/gate/recap/train/block only, because deriving the flag needs a sync
   // transcript probe per running session and the live service's zero-I/O single-loop rule
   // forbids it. So this qualifier degrades to plain `!busy` and a hung conflicting session
-  // never renders THIS line. (The herd rundown used to supply the flag for its own digest;
-  // it was removed, and nothing supplies it now.)
+  // never renders THIS line.
   //
   // That is not a coverage hole: the poller fires a `shape: "stall"` block for exactly that
   // session, which reaches HoldReasonService as `c.block` and lights `blocked-decision` — Tier 1

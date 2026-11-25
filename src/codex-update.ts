@@ -142,17 +142,14 @@ export const CONVERGED_MARKER = `${CODEX_UPDATE_LOG_PREFIX} converged via channe
  * below). Neither is universally right. `codex update` SELF-SELECTS its channel, and that
  * choice can miss the install actually on PATH: on a host whose on-PATH `codex` is
  * a wrapper resolving to the npm-global copy, `codex update` may run `bun install
- * -g`, succeed, exit 0 — and change nothing the operator runs. Success therefore
- * cannot be read off the exit code; only a re-read `codex --version` that ADVANCED
- * proves an update landed.
+ * -g`, succeed, exit 0 — and change nothing the operator runs.
  *
  * So the script **tries a channel, verifies, and falls back to the other one** —
  * and shepherd REMEMBERS which one won (`preferred`, the channel memo), so the
  * next update leads with it. Steady state is therefore ONE installer run per
  * update on every host shape; the fallback fires only when the memo misses (a host
  * that changed channels), which rewrites the memo. With no memo yet, the order is
- * `codex update` then npm — the historical order, so a fresh host is never worse
- * off than before.
+ * `codex update` then npm — the historical order, so a fresh host is never worse off.
  *
  * **mise-managed codex.** If the codex actually on PATH is one mise hands out, BOTH channels above
  * are wrong: `codex update` cannot repoint a mise install, and npm would install a second codex that
@@ -186,7 +183,7 @@ export const CONVERGED_MARKER = `${CODEX_UPDATE_LOG_PREFIX} converged via channe
  * version. The script writes this file itself so the record is COMPLETE even if
  * shepherd crashes.
  *
- * @param preferred channel to try FIRST (the memo); null → historical order.
+ * @param preferred channel to try FIRST (the memo); null → `codex update`, then npm.
  */
 export function buildUpdateScript(
   logPath: string,
@@ -398,20 +395,15 @@ export interface CodexUpdateDeps {
  * updateAvailable:false, so a broken check can never raise a false badge.
  *
  * `apply()` spawns {@link buildUpdateScript} as a managed child of shepherd (no
- * shepherd restart). That script tries the two installers — `codex update` and
- * `npm install -g @openai/codex` — in the order given by the **channel memo**
- * (`readChannel`), stopping at the first one that actually moves the on-PATH
- * version; neither channel is inherently "the primary", and with a memo of `npm`
- * the run may never invoke `codex update` at all. Because the update is
+ * shepherd restart) with the **channel memo** (`readChannel`) as the first channel
+ * to try; neither channel is inherently "the primary". Because the update is
  * non-destructive, running codex panes are not interrupted.
  *
- * Success is determined by whether a re-read `codex --version` ADVANCED past the
- * prior version — channel-agnostic, so a standalone update whose version differs
- * from npm-latest still counts. On success the winning channel is persisted via
- * `writeChannel` so the next update leads with it (one installer run, not a
- * try-fail-retry). The terminal result is emitted via onDone; a non-converged
- * update carries the on-PATH binary so the modal can explain which install is
- * stuck.
+ * Success = a re-read `codex --version` ADVANCED past the prior version —
+ * channel-agnostic, so a standalone update whose version differs from npm-latest
+ * still counts. On success the winning channel is persisted via `writeChannel`. A
+ * non-converged result (onDone) carries the on-PATH binary so the modal can explain
+ * which install is stuck.
  */
 export class CodexUpdateService {
   private versionRunner: () => string;

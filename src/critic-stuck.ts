@@ -17,12 +17,10 @@ import { classifyBlocked, type BlockShape } from "./blocked";
  * advances between reads, a wedged one's cannot. Same freshness idea the poller applies to
  * spinner suppression.
  *
- * Since #2281 shape carries weight too: `classifyBlocked` reports `menu` only for a numbered run
- * that also renders dialog chrome (a caret on an option, or the key-hint footer), or for a key-hint
- * footer anchored to the pane's bottom (#3654). A printed findings list has neither. Real prompts —
- * the captured upsell pane in this module's tests included — all carry one, so every wedge this
- * exists for is still caught; what it no longer reports is a critic frozen on its own findings
- * render, previously an accepted false positive costing an early finalize.
+ * Shape carries weight too (#2281): `classifyBlocked` reports `menu` only for a numbered run that
+ * also renders dialog chrome (a caret on an option, or the key-hint footer), or for a key-hint
+ * footer anchored to the pane's bottom (#3654). A printed findings list has neither; real prompts —
+ * the captured upsell pane in this module's tests included — all carry one.
  *
  * `awaiting-input` / `stall` / `quota` shapes are deliberately NOT treated as stuck: they are
  * either legitimately mid-turn or already have their own dedicated handling, and killing a run on

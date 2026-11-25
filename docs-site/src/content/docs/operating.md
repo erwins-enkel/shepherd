@@ -406,7 +406,7 @@ starve the box. Add limits to the unit — or to a dedicated slice such as
 On a **user-scoped** install the check covers **both** units: Shepherd's own unit
 and `herdr.service`, which runs your agent sessions. herdr counts as bounded when
 `herdr.service` has a limit **or** agents actually run in the shipped
-`shepherd_agents.slice` (see below) and that slice has limits. It stays `ok` only when Shepherd is bounded *and* herdr
+`shepherd_agents.slice` (see below) and that slice has limits. It stays `ok` only when Shepherd is bounded _and_ herdr
 is not positively unbounded, and it raises a distinct warning for the case where
 Shepherd is bounded but herdr is not. A herdr that isn't a loaded user unit
 (absent, masked, or system-scoped) can't be read, so it's excluded from the
@@ -414,7 +414,7 @@ verdict rather than reported as unbounded. The check also
 **errors** when the kernel reports dangerous live memory/IO pressure (PSI), a cue
 to pause or reduce active agent sessions until the host recovers. On non-systemd
 or local dev hosts it stays quiet. Because sustained pressure is steady-state, the
-background re-check is *not* accelerated on this error — use the Diagnostics
+background re-check is _not_ accelerated on this error — use the Diagnostics
 **Re-run** button for an on-demand live reading.
 
 ### Agent sessions run in their own slice
@@ -505,11 +505,11 @@ systemctl --user set-property shepherd.service MemoryHigh=6G CPUQuota=300%
 ```
 
 Setting **any** of `MemoryHigh`, `MemoryMax`, or `CPUQuota` on a unit marks that
-unit bounded. `MemoryHigh` throttles and reclaims *before* the harder `MemoryMax`
+unit bounded. `MemoryHigh` throttles and reclaims _before_ the harder `MemoryMax`
 OOM-kill ceiling, so it's the safer first lever.
 
 On a user-scoped install the command above is not enough on its own to clear the
-**Host capacity** warning: agent sessions run under **herdr**, a *separate* unit,
+**Host capacity** warning: agent sessions run under **herdr**, a _separate_ unit,
 so a limit on `shepherd.service` alone bounds Shepherd but not the sessions that
 actually consume the box. On a provisioned host the shipped
 `shepherd_agents.slice` already bounds them. Without it, the check keeps warning
@@ -602,6 +602,7 @@ memory and swap until the host stalled.
    - Edit the list under **Settings → Resources → Counts as heavy**.
 
    Anything not recognized runs unchanged.
+
 2. **Asking first.** The runner asks Shepherd for the slot **before** the
    command starts.
    - If a slot is free, the command runs as usual.
@@ -640,8 +641,8 @@ memory and swap until the host stalled.
    - Once the brake lets go they start in the order they arrived, one at a
      time, at least 30 seconds apart. Each start is let through only after a
      fresh memory reading.
-   - A held task waits with the reason *memory pressure*. The drain shows
-     *Paused: memory pressure*.
+   - A held task waits with the reason _memory pressure_. The drain shows
+     _Paused: memory pressure_.
    - **Spawn now** on a held task starts it at once.
    - The master switch in Settings → Resources turns this off together with
      the slot.
@@ -670,6 +671,7 @@ memory and swap until the host stalled.
      their own.
 
 **Where you see it**
+
 - The **check-slot chip** in the top bar shows slots held and waiting, plus
   RAM. It opens the host popover: who holds and who waits, pressure readings,
   memory by origin, and the last check results tied to the revision they ran
@@ -681,8 +683,8 @@ memory and swap until the host stalled.
   - **▤ Checking**, with command, time and memory;
   - **◔ Waiting for check slot · Place n**, with the memory-pressure reason
     when the brake holds it.
-  A mirrored session's line names the machine whose slot it holds or waits for.
-  Session cards in the Mac app show the same line for that host's slot.
+    A mirrored session's line names the machine whose slot it holds or waits for.
+    Session cards in the Mac app show the same line for that host's slot.
 - **With machines connected**, the chip has a segment and the strip a lane for
   each machine with work, and the host popover a section per machine. A braking
   machine turns the chip red. An unreachable machine keeps its last known queue,
@@ -692,7 +694,7 @@ memory and swap until the host stalled.
 - Autopilot leaves a waiting session alone.
 
 **Defaults and switches.** With no configuration the slot count comes from the
-hardware: one slot per 6 cores *and* 32 GiB of RAM, never fewer than one, so a
+hardware: one slot per 6 cores _and_ 32 GiB of RAM, never fewer than one, so a
 12-core / 64 GiB host gets two and a 16-core / 30 GiB host one. **Settings →
 Resources** changes the master switch, slot count, wait behaviour, heavy list
 and brake at runtime. A change applies to the next start; running jobs keep
@@ -704,6 +706,7 @@ the same way. If none is free, it prints the place and estimate and exits 75
 without queuing.
 
 **Limits.**
+
 - Commands the detection doesn't recognize run unmanaged.
 - If the server can't be reached, the runner runs the command unmanaged rather
   than blocking the agent.
@@ -904,6 +907,16 @@ typed yourself in the window, the report shows its tables but no findings. With 
 and no steers of your own, no helper runs at all. Reports are kept on the server (the newest 52). The `/prompt-retro` skill runs the
 same retro inside a session.
 
+Shepherd also writes the report once a week on its own. It checks every hour and runs when the
+newest weekly report is 7 days old (a failed one is retried after a day). While **Hold new tasks
+during high usage** is holding, the weekly run waits until usage drops. When a weekly report is
+ready, a push notification brings its headline finding (on the device's agent notifications), and
+a blue dot marks the gear menu's Usage row and the Steering tab until you open it. Tapping the
+notification opens Usage on the Steering tab. Below the report, the **Weekly trend** follows four
+numbers across the weekly reports: the share of your typed prompts labelled prescribing, and the
+per-session median of corrections, critic rounds and CI rounds. Reports from **Run now** stay out
+of the trend because their windows overlap the weekly ones.
+
 ## Operator Assistant
 
 The **Operator Assistant** is an interactive Claude or Codex session that Shepherd runs for you and grounds
@@ -1034,14 +1047,14 @@ asks. A conversation started before this arrived picks it up after **New convers
 The assistant runs in Claude's default permission mode. **Settings → Assistant** sets how
 far it goes, one row each:
 
-| Row | Covers | Levels |
-| --- | --- | --- |
-| Shell commands | Commands it runs on this node to diagnose | Off · Ask for every command · Reads run, the rest asks · Run everything |
-| Steering & answers | Send a message into a session, answer a plan's open questions | Off · Ask first · Allowed |
-| Start sessions | Start a new session in a repo, as New Task: its own worktree from the repo's default branch (or one it names), your default model and effort, and the repo's plan gate, autopilot and usage hold | Off · Ask first · Allowed |
-| Control sessions | Interrupt, resume, relaunch or archive a session, or re-run its PR review | Off · Ask first · Allowed |
-| Approvals & merge | Start an approved plan, approve a build queue, mark a PR ready, merge a PR | Off · Ask first · Allowed |
-| Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, creating, editing, deleting or running a repo schedule, filing issues in a repo or in Shepherd's own repo | Off · Ask first · Allowed |
+| Row                | Covers                                                                                                                                                                                                                                                                                                      | Levels                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Shell commands     | Commands it runs on this node to diagnose                                                                                                                                                                                                                                                                   | Off · Ask for every command · Reads run, the rest asks · Run everything |
+| Steering & answers | Send a message into a session, answer a plan's open questions                                                                                                                                                                                                                                               | Off · Ask first · Allowed                                               |
+| Start sessions     | Start a new session in a repo, as New Task: its own worktree from the repo's default branch (or one it names), your default model and effort, and the repo's plan gate, autopilot and usage hold                                                                                                            | Off · Ask first · Allowed                                               |
+| Control sessions   | Interrupt, resume, relaunch or archive a session, or re-run its PR review                                                                                                                                                                                                                                   | Off · Ask first · Allowed                                               |
+| Approvals & merge  | Start an approved plan, approve a build queue, mark a PR ready, merge a PR                                                                                                                                                                                                                                  | Off · Ask first · Allowed                                               |
+| Automation         | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, creating, editing, deleting or running a repo schedule, filing issues in a repo or in Shepherd's own repo | Off · Ask first · Allowed                                               |
 
 - **The default** lets read-only commands run (grep, cat, git log, ps, systemctl status …)
   and starting a session, and has every other action ask first. It answers with the new

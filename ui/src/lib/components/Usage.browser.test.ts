@@ -143,12 +143,16 @@ vi.mock("#lib/api.js", async () => {
     ),
     getPromptBudgets: vi.fn(() => Promise.resolve(inlinePromptBudgets)),
     getDeliveryMetrics: vi.fn((range: UsageRange) => Promise.resolve({ ...inlineDelivery, range })),
-    getSteeringReport: vi.fn(() => Promise.resolve({ running: false, report: null })),
+    getSteeringReport: vi.fn(() =>
+      Promise.resolve({ running: false, report: null, trend: [], unread: false }),
+    ),
     runSteeringReport: vi.fn(),
+    markSteeringReportSeen: vi.fn(() => Promise.resolve()),
   };
 });
 
 const { default: Usage } = await import("./Usage.svelte");
+const { steeringReport } = await import("#lib/steering-report.svelte.js");
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -209,6 +213,32 @@ describe("Usage modal component", () => {
 
     await expect.element(page.getByText(m.usage_steering_none())).toBeInTheDocument();
     expect(document.querySelector(".range-row"), "no range row on the Steering tab").toBeNull();
+  });
+
+  it("initialTab='steering' opens on the Steering lens (the weekly push deep link)", async () => {
+    render(Usage, { onclose: vi.fn(), initialTab: "steering" });
+    await expect.element(page.getByText(m.usage_steering_none())).toBeInTheDocument();
+    const active = document.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
+    expect(active?.textContent?.trim()).toBe(m.usage_steering_tab());
+  });
+
+  it("an unread weekly digest dots the Steering tab until the lens opens", async () => {
+    steeringReport.unread = true;
+    vi.mocked(api.getSteeringReport).mockResolvedValueOnce({
+      running: false,
+      report: null,
+      trend: [],
+      unread: true,
+    });
+    render(Usage, { onclose: vi.fn() });
+    await expect.element(page.getByText(m.usage_steering_tab_unread())).toBeInTheDocument();
+    expect(document.querySelector(".unread-dot")).not.toBeNull();
+    const steeringBtn = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent?.includes(m.usage_steering_tab()),
+    );
+    steeringBtn!.click();
+    await vi.waitFor(() => expect(api.markSteeringReportSeen).toHaveBeenCalled());
+    await vi.waitFor(() => expect(document.querySelector(".unread-dot")).toBeNull());
   });
 
   it("clicking the Limits tab swaps to Limits lens and hides range selector", async () => {

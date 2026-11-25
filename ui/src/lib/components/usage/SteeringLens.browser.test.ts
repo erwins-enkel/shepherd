@@ -2,12 +2,13 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { SteeringReport, SteeringReportSnapshot } from "#lib/types.js";
+import type { SteeringReport, SteeringReportSnapshot, SteeringTrendPoint } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 const api = vi.hoisted(() => ({
   getSteeringReport: vi.fn<() => Promise<SteeringReportSnapshot>>(),
   runSteeringReport: vi.fn<() => Promise<{ running: true }>>(),
+  markSteeringReportSeen: vi.fn<() => Promise<void>>(),
 }));
 vi.mock("#lib/api.js", async (orig) => ({ ...((await orig()) as object), ...api }));
 
@@ -93,8 +94,12 @@ beforeEach(() => {
   steeringReport.loaded = false;
   steeringReport.loadError = false;
   steeringReport.runError = false;
+  steeringReport.trend = [];
+  steeringReport.unread = false;
   api.getSteeringReport.mockReset();
   api.runSteeringReport.mockReset();
+  api.markSteeringReportSeen.mockReset();
+  api.markSteeringReportSeen.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -104,7 +109,7 @@ afterEach(() => {
 
 describe("SteeringLens", () => {
   it("renders an ok report: header, tables, intents, findings, examples with repo", async () => {
-    await mount({ running: false, report: report() });
+    await mount({ running: false, report: report(), trend: [], unread: false });
 
     await expect.element(page.getByText(m.usage_steering_sessions({ n: 7 }))).toBeVisible();
     // terminal + relaunch + noop; unarchived/out-of-window are not "skipped".
@@ -143,7 +148,7 @@ describe("SteeringLens", () => {
   });
 
   it("dims thin rows and labels them", async () => {
-    await mount({ running: false, report: report() });
+    await mount({ running: false, report: report(), trend: [], unread: false });
     const rows = document.querySelectorAll("table")[0].querySelectorAll("tbody tr");
     expect(rows[0].classList.contains("thin")).toBe(false);
     expect(rows[1].classList.contains("thin")).toBe(true);
@@ -155,6 +160,8 @@ describe("SteeringLens", () => {
     await mount({
       running: false,
       report: report({ status: "thin", labels: { ...report().labels!, findings: [] } }),
+      trend: [],
+      unread: false,
     });
     await expect.element(page.getByText(m.usage_steering_thin())).toBeVisible();
     expect(document.querySelectorAll("table").length).toBe(3);
@@ -165,6 +172,8 @@ describe("SteeringLens", () => {
     await mount({
       running: false,
       report: report({ status: "empty", labels: null, tables: null }),
+      trend: [],
+      unread: false,
     });
     await expect.element(page.getByText(m.usage_steering_empty())).toBeVisible();
     expect(document.querySelector("table")).toBeNull();
@@ -174,6 +183,8 @@ describe("SteeringLens", () => {
     await mount({
       running: false,
       report: report({ status: "failed", error: "timeout", labels: null, tables: null }),
+      trend: [],
+      unread: false,
     });
     await expect
       .element(page.getByText(m.usage_steering_err_timeout(), { exact: false }))
@@ -189,6 +200,8 @@ describe("SteeringLens", () => {
         labels: null,
         tables: null,
       }),
+      trend: [],
+      unread: false,
     });
     await expect
       .element(page.getByText(m.usage_steering_err_generic(), { exact: false }))
@@ -199,14 +212,14 @@ describe("SteeringLens", () => {
   });
 
   it("no report yet offers a run CTA", async () => {
-    await mount({ running: false, report: null });
+    await mount({ running: false, report: null, trend: [], unread: false });
     await expect.element(page.getByText(m.usage_steering_none())).toBeVisible();
     expect(document.querySelectorAll("button.primary").length).toBe(2);
   });
 
   it("Run now posts, shows running, and renders the report when the event lands", async () => {
     api.runSteeringReport.mockResolvedValue({ running: true });
-    await mount({ running: false, report: null });
+    await mount({ running: false, report: null, trend: [], unread: false });
 
     await page.getByRole("button", { name: m.usage_steering_run() }).first().click();
     expect(api.runSteeringReport).toHaveBeenCalledOnce();
@@ -214,7 +227,12 @@ describe("SteeringLens", () => {
     await vi.waitFor(() => expect(run.disabled).toBe(true));
     expect(run.textContent).toContain(m.usage_steering_running());
 
-    api.getSteeringReport.mockResolvedValue({ running: false, report: report() });
+    api.getSteeringReport.mockResolvedValue({
+      running: false,
+      report: report(),
+      trend: [],
+      unread: false,
+    });
     steeringReport.apply({ running: false, id: report().id, status: report().status });
     await vi.waitFor(() => expect(run.disabled).toBe(false));
     await expect.element(page.getByText(m.usage_steering_by_style())).toBeVisible();
@@ -223,7 +241,7 @@ describe("SteeringLens", () => {
   it("Copy writes the rewrite to the clipboard and confirms", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     vi.spyOn(navigator, "clipboard", "get").mockReturnValue({ writeText } as unknown as Clipboard);
-    await mount({ running: false, report: report() });
+    await mount({ running: false, report: report(), trend: [], unread: false });
 
     await page
       .getByRole("button", { name: m.usage_steering_copy_aria({ desig: "TASK-1" }) })
@@ -232,5 +250,62 @@ describe("SteeringLens", () => {
     await expect
       .element(page.getByRole("button", { name: m.usage_steering_copy_aria({ desig: "TASK-1" }) }))
       .toHaveTextContent(m.usage_steering_copied());
+  });
+
+  const point = (i: number, over: Partial<SteeringTrendPoint> = {}): SteeringTrendPoint => ({
+    reportId: `w${i}`,
+    createdAt: Date.UTC(2026, 10, 3 + 7 * i),
+    windowEnd: Date.UTC(2026, 10, 3 + 7 * i),
+    n: 6,
+    prescribingShare: 0.5,
+    medianCorrections: 1,
+    medianReview: 2,
+    medianCi: 1,
+    ...over,
+  });
+
+  it("renders the weekly trend: four sparklines with the newest values", async () => {
+    const trend = [point(0), point(1, { prescribingShare: 0.25, medianCorrections: 0.5 })];
+    await mount({ running: false, report: report(), trend, unread: false });
+
+    await expect
+      .element(page.getByRole("heading", { name: m.usage_steering_trend_heading() }))
+      .toBeVisible();
+    const rows = [...document.querySelectorAll(".steering-trend .row")];
+    expect(rows.map((r) => r.getAttribute("data-trend"))).toEqual([
+      "prescribing",
+      "corrections",
+      "review",
+      "ci",
+    ]);
+    expect(rows.map((r) => r.querySelector(".value")?.textContent?.trim())).toEqual([
+      "25%",
+      "0.5",
+      "2",
+      "1",
+    ]);
+    expect(document.querySelectorAll(".steering-trend svg").length).toBe(4);
+  });
+
+  it("explains that the trend needs two weekly reports", async () => {
+    await mount({ running: false, report: report(), trend: [point(0)], unread: false });
+    await expect.element(page.getByText(m.usage_steering_trend_empty())).toBeVisible();
+    expect(document.querySelectorAll(".steering-trend svg").length).toBe(0);
+  });
+
+  it("hides the trend with no weekly report", async () => {
+    await mount({ running: false, report: report(), trend: [], unread: false });
+    expect(document.querySelector(".steering-trend")).toBeNull();
+  });
+
+  it("opening the lens marks an unread weekly digest seen", async () => {
+    await mount({ running: false, report: report(), trend: [], unread: true });
+    await vi.waitFor(() => expect(api.markSteeringReportSeen).toHaveBeenCalledOnce());
+    expect(steeringReport.unread).toBe(false);
+  });
+
+  it("does not post seen when nothing is unread", async () => {
+    await mount({ running: false, report: report(), trend: [], unread: false });
+    expect(api.markSteeringReportSeen).not.toHaveBeenCalled();
   });
 });

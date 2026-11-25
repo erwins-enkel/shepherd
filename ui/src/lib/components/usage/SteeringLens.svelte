@@ -7,10 +7,17 @@
   import InfoTip from "#lib/components/InfoTip.svelte";
   import { steeringReport } from "#lib/steering-report.svelte.js";
   import SteeringReportBody from "./SteeringReportBody.svelte";
+  import SteeringTrend from "./SteeringTrend.svelte";
   import { failureText, skippedCount, steeringExplanation } from "./steering";
 
   onMount(() => {
     steeringReport.load();
+  });
+
+  // Opening the lens reads the weekly digest (#4176): clear the unread dots, including for a
+  // digest that lands while the lens is open.
+  $effect(() => {
+    if (steeringReport.unread) void steeringReport.markSeen();
   });
 
   const report = $derived(steeringReport.report);
@@ -97,6 +104,10 @@
       <p class="notice thin" role="note">{m.usage_steering_thin()}</p>
     {/if}
     <SteeringReportBody {report} tables={report.tables} />
+  {/if}
+
+  {#if steeringReport.trend.length > 0}
+    <SteeringTrend trend={steeringReport.trend} />
   {/if}
 </div>
 

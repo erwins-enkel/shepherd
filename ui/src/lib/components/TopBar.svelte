@@ -61,7 +61,8 @@
   import TopBarGear from "./top-bar/TopBarGear.svelte";
   import TopBarMobileSheet from "./top-bar/TopBarMobileSheet.svelte";
   import TopBarStatusLine from "./top-bar/TopBarStatusLine.svelte";
-  import { diagnosticsPip, type GearPipTier } from "./top-bar/gear-pip";
+  import { diagnosticsPip, withSteeringPip, type GearPipTier } from "./top-bar/gear-pip";
+  import { steeringReport } from "#lib/steering-report.svelte.js";
 
   type TallyStatus = "running" | "idle" | "blocked";
 
@@ -840,12 +841,15 @@
   // (red/yellow, shared with the phone's Menu tab via diagnosticsPip), then blue "info"
   // for updates / What's-New. (A phone has no gear here — its Menu tab carries the pip.)
   const gearPipTier = $derived<GearPipTier>(
-    !foldBadges
-      ? null
-      : (diagnosticsPip(diagnosticsOverall) ??
-          (updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew
-            ? "info"
-            : null)),
+    withSteeringPip(
+      !foldBadges
+        ? null
+        : (diagnosticsPip(diagnosticsOverall) ??
+            (updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew
+              ? "info"
+              : null)),
+      steeringReport.unread,
+    ),
   );
   // The gear ALWAYS toggles the menu (design handoff 3b/3c): the telemetry popover /
   // sheet now carries the identity header, usage gauge, docs and support rows, so it
@@ -1069,9 +1073,9 @@
       />
       <div class="conn tip" class:offline data-tip={connText} aria-label={connText}>
         <span class="dot" class:on={live}>{live ? "●" : "○"}</span>
-        {#if offline}<span class="conn-label"
-            >{unreachable ? m.topbar_conn_offline() : m.topbar_conn_reconnecting()}</span
-          >{/if}
+        {#if offline}<span class="conn-label">
+            {unreachable ? m.topbar_conn_offline() : m.topbar_conn_reconnecting()}
+          </span>{/if}
       </div>
       {#if !foldBadges}<TopBarBadges
           {compactBadges}

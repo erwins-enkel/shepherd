@@ -1701,6 +1701,12 @@ export async function runSteeringReport(): Promise<{ running: true }> {
   throw await failed(r, "steering report run");
 }
 
+/** The operator opened the steering report: clear the weekly digest's unread flag (#4176). */
+export async function markSteeringReportSeen(): Promise<void> {
+  const r = await fetch("/api/steering/report/seen", { method: "POST" });
+  if (!r.ok) throw await failed(r, "steering report seen");
+}
+
 export async function getUsageTimeline(range: UsageRange): Promise<UsageTimeline> {
   const r = await fetch(`/api/usage/timeline?range=${range}`);
   if (!r.ok) throw await failed(r, "timeline");

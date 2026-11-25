@@ -1,6 +1,6 @@
 // Display helpers for the Steering lens (#4175). Kept out of the components so their templates
 // stay shallow and the mapping is unit-checkable.
-import type { SteeringIntent, SteeringReport } from "#lib/types.js";
+import type { SteeringIntent, SteeringReport, SteeringTrendPoint } from "#lib/types.js";
 import type { TooltipExplanation } from "#lib/tooltips/content.js";
 import { m } from "#lib/paraglide/messages.js";
 
@@ -55,6 +55,74 @@ export function steeringExplanation(): TooltipExplanation {
       { label: m.usage_steering_style_prescribing(), text: m.usage_steering_explain_prescribing() },
       { label: m.usage_steering_style_describing(), text: m.usage_steering_explain_describing() },
       { label: m.usage_steering_explain_shows_label(), text: m.usage_steering_explain_shows() },
+    ],
+  };
+}
+
+/** One trend sparkline: its plotted points (nulls dropped) and the newest value, formatted. */
+export interface SteeringTrendRow {
+  key: "prescribing" | "corrections" | "review" | "ci";
+  label: string;
+  points: { t: number; v: number }[];
+  latest: string;
+  /** Fixed 0–100 for the share, so weeks compare on one scale; medians auto-scale. */
+  domain?: { min: number; max: number };
+}
+
+/** The four trend rows over weekly digests (#4176). Plotted by report date; the share in percent. */
+export function steeringTrendRows(trend: SteeringTrendPoint[]): SteeringTrendRow[] {
+  const series = (
+    pick: (p: SteeringTrendPoint) => number | null,
+    scale = 1,
+  ): { t: number; v: number }[] =>
+    trend.flatMap((p) => {
+      const v = pick(p);
+      return v == null ? [] : [{ t: p.createdAt, v: v * scale }];
+    });
+  const last = (pts: { v: number }[]) => pts.at(-1)?.v ?? null;
+  const share = series((p) => p.prescribingShare, 100);
+  const corrections = series((p) => p.medianCorrections);
+  const review = series((p) => p.medianReview);
+  const ci = series((p) => p.medianCi);
+  const med = (v: number | null) => (v == null ? "—" : median(v));
+  const shareLast = last(share);
+  return [
+    {
+      key: "prescribing",
+      label: m.usage_steering_trend_prescribing(),
+      points: share,
+      latest: shareLast == null ? "—" : `${Math.round(shareLast)}%`,
+      domain: { min: 0, max: 100 },
+    },
+    {
+      key: "corrections",
+      label: m.usage_steering_trend_corrections(),
+      points: corrections,
+      latest: med(last(corrections)),
+    },
+    {
+      key: "review",
+      label: m.usage_steering_trend_review(),
+      points: review,
+      latest: med(last(review)),
+    },
+    { key: "ci", label: m.usage_steering_trend_ci(), points: ci, latest: med(last(ci)) },
+  ];
+}
+
+export function steeringTrendExplanation(): TooltipExplanation {
+  return {
+    title: m.usage_steering_trend_heading(),
+    summary: m.usage_steering_trend_explain_summary(),
+    sections: [
+      {
+        label: m.usage_steering_trend_explain_reports_label(),
+        text: m.usage_steering_trend_explain_reports(),
+      },
+      {
+        label: m.usage_steering_trend_explain_metrics_label(),
+        text: m.usage_steering_trend_explain_metrics(),
+      },
     ],
   };
 }

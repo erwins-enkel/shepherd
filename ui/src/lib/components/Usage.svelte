@@ -20,6 +20,8 @@
   } from "#lib/api.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { MediaQuery } from "svelte/reactivity";
+  import { untrack } from "svelte";
+  import { steeringReport } from "#lib/steering-report.svelte.js";
   import { swipeBack } from "#lib/components/swipe-back.js";
   import { formatTokenLabel } from "#lib/format.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -35,7 +37,14 @@
 
   import ModelsLens from "#lib/components/usage/ModelsLens.svelte";
 
-  let { onclose }: { onclose?: () => void } = $props();
+  let {
+    onclose,
+    initialTab,
+  }: {
+    onclose?: () => void;
+    /** Opening lens (a deep link: the weekly steering push opens "steering"); default Spend. */
+    initialTab?: "steering";
+  } = $props();
 
   // Phone (full-screen card): a rightward swipe closes, like Settings and the command bar.
   const phone = new MediaQuery("(max-width: 768px)");
@@ -53,7 +62,7 @@
     | "limits"
     | "github";
 
-  let tab = $state<Tab>("spend");
+  let tab = $state<Tab>(untrack(() => initialTab) ?? "spend");
   let range = $state<UsageRange>("7d");
 
   let breakdown = $state<UsageBreakdown | null>(null);
@@ -321,7 +330,10 @@
         use:coachTarget={"steering-report"}
         onclick={() => (tab = "steering")}
       >
-        {m.usage_steering_tab()}
+        {m.usage_steering_tab()}{#if steeringReport.unread}<span
+            class="unread-dot"
+            aria-hidden="true"
+          ></span><span class="sr-only">{m.usage_steering_tab_unread()}</span>{/if}
       </button>
       <button
         type="button"
@@ -571,6 +583,29 @@
     transition:
       color 0.12s ease,
       background 0.12s ease;
+  }
+
+  /* Weekly steering digest not opened yet (#4176): the gear pip's blue "info" dot. */
+  .unread-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 4px;
+    vertical-align: super;
+    border-radius: 50%;
+    background: var(--color-blue);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
   .seg-btn:last-child {

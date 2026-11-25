@@ -144,6 +144,7 @@ const LOCAL_CONFIG_METADATA = {
     skillAllowlist: "rechner",
     reviewFeedbackMode: "rechner",
     reviewFeedbackBots: "rechner",
+    reviewFeedbackResolve: "rechner",
   },
 };
 
@@ -199,6 +200,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
     automationConfirmed: false,
     automationRowExists: false,
   });
@@ -297,6 +299,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -349,6 +352,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -411,6 +415,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
     automationConfirmed: false,
     automationRowExists: true,
   });

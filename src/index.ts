@@ -2669,6 +2669,11 @@ const reviewFeedback = new ReviewFeedbackService({
   autopilotOn: (s) => effectiveAutopilot(s, store.getRepoConfig(s.repoPath).autopilotEnabled),
   criticHeld: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
   emit: (payload) => events.emit("session:review-feedback", payload),
+  // #4139: the resolve gate reads the PR fresh (undebounced, serialized behind in-flight polls).
+  freshGit: async (id) => {
+    await prPoller.pollNow(id);
+    return prPoller.get(id);
+  },
   seed: prPoller.snapshot(),
 });
 reviewFeedback.attach(events);

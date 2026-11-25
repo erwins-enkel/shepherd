@@ -401,6 +401,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -481,6 +482,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -561,6 +563,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     skillAllowlist: null,
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+    reviewFeedbackResolve: false,
   });
 });
 

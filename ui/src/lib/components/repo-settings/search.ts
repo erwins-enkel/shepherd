@@ -191,6 +191,12 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
       fallbackField: "reviewFeedbackMode",
     },
     {
+      section: "review",
+      field: "reviewFeedbackResolve",
+      name: m.reposettings_review_resolve_name(),
+      description: m.reposettings_review_resolve_desc(),
+    },
+    {
       section: "merge",
       field: "draftMode",
       name: m.reposettings_merge_mode_name(),

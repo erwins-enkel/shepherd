@@ -18,6 +18,20 @@ export const REVIEW_FEEDBACK_PRESET_BOTS = [
  *  session's effective autopilot is on; `always` auto-send in attended sessions too. */
 export type ReviewFeedbackMode = "off" | "manual" | "autopilot" | "always";
 
+/** Resolving addressed threads (#4139) is live: the repo opted in, review feedback is not `off`
+ *  (its absent mode reads as the `autopilot` default), and the repo is not lightweight. */
+export function reviewFeedbackResolveOn(cfg: {
+  reviewFeedbackResolve?: boolean;
+  reviewFeedbackMode?: ReviewFeedbackMode;
+  repoMode?: string;
+}): boolean {
+  return (
+    cfg.reviewFeedbackResolve === true &&
+    (cfg.reviewFeedbackMode ?? "autopilot") !== "off" &&
+    cfg.repoMode !== "lightweight"
+  );
+}
+
 /** Lowercased, trimmed, without GitHub's trailing `[bot]`. */
 export function normalizeBotLogin(login: string): string {
   return login
@@ -121,11 +135,17 @@ function where(item: PrFeedbackItem): string {
   return item.line != null ? `${path}:${item.line}` : path;
 }
 
-function itemBlock(n: number, item: PrFeedbackItem): string {
+/** An inline comment whose thread Shepherd can resolve once the agent declares it addressed. */
+function resolvable(item: PrFeedbackItem): boolean {
+  return item.kind === "rc" && !!item.threadId;
+}
+
+function itemBlock(n: number, item: PrFeedbackItem, resolve: boolean): string {
   const who = `@${oneLine(item.author)}${item.isBot ? " (bot)" : ""}`;
+  const tag = resolve && resolvable(item) ? ` [id ${oneLine(item.id)}]` : "";
   const body =
     item.body.length > MAX_BODY_CHARS ? `${item.body.slice(0, MAX_BODY_CHARS)}…` : item.body;
-  return `${n}. ${who} — ${where(item)}:\n${fenceUntrusted(FENCE_LABEL, body)}`;
+  return `${n}. ${who} — ${where(item)}${tag}:\n${fenceUntrusted(FENCE_LABEL, body)}`;
 }
 
 /** Input order, with each inline comment moved right after its parent review when that review is
@@ -141,18 +161,74 @@ function grouped(items: PrFeedbackItem[]): PrFeedbackItem[] {
   });
 }
 
+/** Header sentence of a steer whose inline comments carry ids (#4139). */
+const RESOLVE_HINT =
+  " After pushing the fix for an inline comment marked [id …], call the " +
+  "`review_feedback_addressed` tool with its id and a one-line reply; skip that for points " +
+  "you disagree with.";
+
 /** The one batched steer for `items` on PR #`prNumber`. Fixed English: agent-facing, not i18n.
- *  Trusted lines name each item; every body travels in its own untrusted fence. */
-export function buildReviewFeedbackSteer(prNumber: number, items: PrFeedbackItem[]): string {
+ *  Trusted lines name each item; every body travels in its own untrusted fence. With `resolve`
+ *  (#4139), resolvable inline comments show their id and the header says how to declare them
+ *  addressed. */
+export function buildReviewFeedbackSteer(
+  prNumber: number,
+  items: PrFeedbackItem[],
+  opts: { resolve?: boolean } = {},
+): string {
   const ordered = grouped(items);
   const shown = ordered.slice(0, MAX_STEER_ITEMS);
+  const resolve = opts.resolve === true && shown.some(resolvable);
   const header =
     `Shepherd: new review feedback on PR #${prNumber} from people or review bots with standing ` +
     "on this repo. Address each valid point in this PR, then commit & push. If you disagree " +
     "with a point, don't silently skip it — reply on the PR with " +
-    `\`gh pr comment ${prNumber} --body "…"\` explaining why.`;
-  const blocks = shown.map((item, i) => itemBlock(i + 1, item));
+    `\`gh pr comment ${prNumber} --body "…"\` explaining why.` +
+    (resolve ? RESOLVE_HINT : "");
+  const blocks = shown.map((item, i) => itemBlock(i + 1, item, resolve));
   const rest = ordered.length - shown.length;
   if (rest > 0) blocks.push(`+${rest} more — see the PR.`);
   return [header, ...blocks].join("\n\n");
+}
+
+/** Longest agent note a resolve reply carries. */
+export const MAX_REPLY_CHARS = 1000;
+/** Hidden marker on Shepherd's resolve replies: {@link isShepherdAuthored} skips them. */
+const REPLY_MARKER = "<!-- shepherd:review-feedback -->";
+
+/** The reply Shepherd posts before resolving a thread (#4139): the agent's note (one line, at most
+ *  {@link MAX_REPLY_CHARS}), the fixing commit, and the marker. */
+export function resolveReplyBody(note: string, headSha: string): string {
+  const text = note.replace(/\p{Cc}+/gu, " ").trim();
+  const capped = text.length > MAX_REPLY_CHARS ? `${text.slice(0, MAX_REPLY_CHARS)}…` : text;
+  const sha = `Addressed in ${headSha.slice(0, 7)}.`;
+  return [capped, sha, REPLY_MARKER].filter(Boolean).join("\n\n");
+}
+
+/** The stored state {@link addressedVerdict} reads. */
+export interface AddressedRow {
+  kind: PrFeedbackItem["kind"];
+  threadId?: string;
+  status: string;
+  sentHeadSha: string | null;
+  resolvedAt: number | null;
+}
+
+/** Why an addressed declaration can't resolve its thread, or `ok`. */
+export type AddressedVerdict =
+  "ok" | "unknown" | "not-sent" | "not-inline" | "already-resolved" | "not-pushed";
+
+/** Whether the agent may have an item's thread resolved (#4139): it must be a steered inline
+ *  comment, not yet resolved, and the PR head must have moved since the steer. */
+export function addressedVerdict(
+  row: AddressedRow | undefined,
+  currentHeadSha: string | undefined,
+): AddressedVerdict {
+  if (!row) return "unknown";
+  if (row.status !== "sent") return "not-sent";
+  if (row.kind !== "rc" || !row.threadId) return "not-inline";
+  if (row.resolvedAt !== null) return "already-resolved";
+  if (!row.sentHeadSha || !currentHeadSha || row.sentHeadSha === currentHeadSha)
+    return "not-pushed";
+  return "ok";
 }

@@ -3025,9 +3025,14 @@ export async function retractAmendment(
   return r.json() as Promise<{ amendment: TaskAmendment }>;
 }
 
-/** Every session's pending PR review feedback (#4126); sessions with nothing pending are absent. */
-export async function getPendingReviewFeedback(): Promise<Record<string, ReviewFeedbackPending>> {
-  return getJson("/api/review-feedback/pending", "review feedback");
+/** Every session's pending PR review feedback (#4126); sessions with nothing pending are absent.
+ *  With `host` (a machine's instance ID) it is that machine's snapshot, read through the
+ *  coordinator (#4139). */
+export async function getPendingReviewFeedback(
+  host?: string,
+): Promise<Record<string, ReviewFeedbackPending>> {
+  const query = host ? `?host=${encodeURIComponent(host)}` : "";
+  return getJson(`/api/review-feedback/pending${query}`, "review feedback");
 }
 
 const REVIEW_FEEDBACK_REFUSALS: readonly ReviewFeedbackSendRefusal[] = [
@@ -3505,6 +3510,7 @@ export type RepoConfigPatch = Partial<
     | "previewOpenMode"
     | "reviewFeedbackMode"
     | "reviewFeedbackBots"
+    | "reviewFeedbackResolve"
   >
 > & { automationConfirmed?: boolean; leitrechner?: string | null };
 

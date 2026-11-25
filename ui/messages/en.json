@@ -9308,5 +9308,20 @@
   "tooltip_claude_ship_shepherd": "What Shepherd does",
   "tooltip_claude_ship_shepherd_body": "Its checks count as review gates, not CI: no CI-fix steer for them, and the merge train waits while Claude Approvals does.",
   "feat_claude_ship_coexistence_title": "Shepherd recognizes Claude Ship",
-  "feat_claude_ship_coexistence_body": "On a GitHub PR where Anthropic's Claude Ship is active, a Claude Ship badge appears on the card and in the PR rail. Its Code Review and Approvals checks no longer count as failing CI, so the agent isn't told to fix them, and full auto-merge waits while Claude Approvals waits on a human."
+  "feat_claude_ship_coexistence_body": "On a GitHub PR where Anthropic's Claude Ship is active, a Claude Ship badge appears on the card and in the PR rail. Its Code Review and Approvals checks no longer count as failing CI, so the agent isn't told to fix them, and full auto-merge waits while Claude Approvals waits on a human.",
+  "reposettings_review_resolve_name": "Resolve addressed threads",
+  "reposettings_review_resolve_desc": "Reply on an inline comment's thread and resolve it once the agent has pushed its fix.",
+  "reposettings_review_resolve_needs_feedback": "Needs review feedback switched on",
+  "tooltip_review_resolve_title": "Resolve addressed threads",
+  "tooltip_review_resolve_summary": "Closes the loop on inline review comments: once the agent has fixed one, Shepherd replies on its thread and resolves it.",
+  "tooltip_review_resolve_what": "What happens",
+  "tooltip_review_resolve_what_body": "Shepherd posts the agent's one-line note and the commit that fixed it as a reply on the thread, then marks the thread resolved.",
+  "tooltip_review_resolve_when": "When",
+  "tooltip_review_resolve_when_body": "Only after the agent has pushed a new commit since the comment was sent and declares that comment addressed. Points it disagrees with stay open.",
+  "tooltip_review_resolve_cost": "Consequences",
+  "tooltip_review_resolve_cost_body": "The reply is public and posted under the GitHub account Shepherd is signed in with, usually yours. Only inline review comment threads are resolved, never reviews or PR conversation comments. GitHub only.",
+  "tooltip_review_resolve_resume": "Running sessions",
+  "tooltip_review_resolve_resume_body": "A session started before you switched this on can't resolve threads until you resume it.",
+  "feat_review_feedback_resolve_title": "Addressed review threads get resolved",
+  "feat_review_feedback_resolve_body": "Switch on Repo settings › Review › Resolve addressed threads, and once the agent has pushed a fix for an inline review comment, Shepherd replies on the thread with the agent's note and the commit, then resolves it. The reply is posted under your GitHub account. Off by default; GitHub only."
 }

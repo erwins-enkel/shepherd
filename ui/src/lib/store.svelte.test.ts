@@ -2144,6 +2144,36 @@ test("session:review-feedback routes to its store; archiving drops the entry (#4
   expect("s1" in reviewFeedback.map).toBe(false);
 });
 
+test("a mirrored session's review feedback goes to the remote map, never the local one (#4139)", () => {
+  const s = new HerdStore();
+  reviewFeedback.remote = {};
+  const host = { instanceId: "m2", name: "B", platform: "linux" };
+  const connection = { state: "connected" as const, since: 1 };
+  const item = {
+    id: "rc:1",
+    kind: "rc" as const,
+    author: "alice",
+    isBot: false,
+    body: "fix",
+    createdAt: 1000,
+    status: "pending" as const,
+    sentAt: null,
+    sentBy: null,
+  };
+  s.apply({
+    event: "remote:sessions",
+    data: { instanceId: "m2", sessions: [{ id: "r1", host, connection } as Session] },
+  });
+  s.apply({
+    event: "session:review-feedback",
+    data: { id: "r1", pending: [item], autoPaused: false, host, connection } as never,
+  });
+  expect(reviewFeedback.items("r1").map((i) => i.id)).toEqual(["rc:1"]);
+  expect("r1" in reviewFeedback.map).toBe(false);
+  s.apply({ event: "session:archived", data: { id: "r1", host, connection } as never });
+  expect(reviewFeedback.items("r1")).toEqual([]);
+});
+
 test("terminal owner snapshots replace stale owners and lose freshness on disconnect and foreground return", () => {
   vi.useFakeTimers();
   const state = { visibilityState: "visible" as "visible" | "hidden" };

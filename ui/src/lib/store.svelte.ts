@@ -67,6 +67,7 @@ import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
 import {
   mirroredBlockChange,
   mirroredPreviewChange,
+  mirroredReviewFeedbackChange,
   reduceRemoteSessions,
 } from "./remote-sessions";
 import { machines } from "./machines.svelte";
@@ -666,6 +667,7 @@ export class HerdStore {
     if (!remote) return this.applyLocal(ev);
     this.remoteSessions = remote;
     this.applyRemoteBlock(ev);
+    this.applyRemoteReviewFeedback(ev);
     const previewed = mirroredPreviewChange(ev);
     if (previewed) {
       this.remotePreviewTick = setKey(
@@ -693,6 +695,14 @@ export class HerdStore {
     for (const id of Object.keys(this.remoteBlocks)) {
       if (!live.includes(id)) this.remoteBlocks = dropKey(this.remoteBlocks, id);
     }
+  }
+
+  /** Track a mirrored session's review feedback (#4139), and prune sessions that left the list. */
+  private applyRemoteReviewFeedback(ev: WsEvent) {
+    const change = mirroredReviewFeedbackChange(ev);
+    if (change) reviewFeedback.applyRemote(change);
+    if (ev.event === "remote:sessions" || ev.event === "session:archived")
+      reviewFeedback.pruneRemote(this.remoteSessions.map((s) => s.id));
   }
 
   private applyLocal(ev: WsEvent) {

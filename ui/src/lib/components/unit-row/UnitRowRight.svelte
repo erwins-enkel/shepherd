@@ -76,6 +76,11 @@
   // row then has `ondecommission`); otherwise it stays visible but disabled, with the reason in
   // its tooltip.
   const badgesInteractive = $derived(!coarsePointer && !session.host);
+  // Review feedback is the exception (#4139): its send/dismiss go to the session's machine while
+  // that is connected.
+  const feedbackInteractive = $derived(
+    !coarsePointer && (!session.host || session.connection?.state === "connected"),
+  );
   const remoteTip = $derived(
     session.host && session.connection
       ? remoteSessionExplanation(session.host, session.connection, nowMs)
@@ -242,7 +247,7 @@
     <PrBadge {git} sessionId={session.id} interactive={badgesInteractive} />
     <CriticBadge sessionId={session.id} tip interactive={badgesInteractive} prUrl={git?.url} />
     <!-- #4126: PR review feedback waiting for the agent; additive, never the status badge. -->
-    <ReviewFeedbackBadge sessionId={session.id} {git} interactive={badgesInteractive} />
+    <ReviewFeedbackBadge sessionId={session.id} {git} interactive={feedbackInteractive} />
     <!-- #4145: Claude Ship acts on this PR too; its checks are review gates, not CI. -->
     <ClaudeShipBadge {git} />
     <BuildQueueBadge

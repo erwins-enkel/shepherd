@@ -74,7 +74,9 @@ import {
   type AssistantActionTool,
 } from "./operator-assistant-permissions";
 import type { PrCache } from "./pr-poller";
-import type { SessionStore } from "./store";
+import type { AddressedItemResult, ReviewFeedbackService } from "./review-feedback";
+import { MAX_REPLY_CHARS, reviewFeedbackResolveOn } from "./review-feedback-core";
+import type { RepoConfig, SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
@@ -128,6 +130,8 @@ export interface AgentControlDeps {
   ghPermissionWaitMs?: number;
   /** Is GitHub App mode configured? default `agentGhAppConfigured(process.env)`. */
   ghAppModeConfigured?: () => boolean;
+  /** Review feedback (#4139); absent ⇒ `review_feedback_addressed` answers "unavailable". */
+  reviewFeedback?: Pick<ReviewFeedbackService, "markAddressed">;
 }
 
 /** `self_status.preview`: the HUD's `PreviewReach` plus the dev port the slot proxies to. */
@@ -557,6 +561,68 @@ async function applyGhRequestPermission(
   return { ok: true, data: { status: outcome, next } };
 }
 
+// ── review feedback addressed (#4139) ────────────────────────────────────────
+
+const MAX_ADDRESSED_ITEMS = 20;
+const MAX_ADDRESSED_ID_CHARS = 64;
+
+/** What the agent should do about each per-item result; `resolved` needs nothing. */
+const ADDRESSED_NEXT: Record<Exclude<AddressedItemResult["result"], "resolved">, string> = {
+  unknown: "no such item for this session: use the id from Shepherd's review-feedback steer",
+  "not-sent": "not an item Shepherd sent you: nothing to resolve",
+  "not-inline": "only inline review comments (rc ids) can be resolved",
+  "already-resolved": "already resolved: nothing to do",
+  "not-pushed": "push the fix first, then call again",
+  error: "the forge call failed and the thread stays open: try again later",
+};
+
+/** Validated `items`, or the error the agent should correct. */
+function addressedArgs(args: Record<string, unknown>): { id: string; reply: string }[] | string {
+  const raw = args.items;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ADDRESSED_ITEMS)
+    return `items must be an array of 1 to ${MAX_ADDRESSED_ITEMS} objects`;
+  const items: { id: string; reply: string }[] = [];
+  for (const entry of raw) {
+    const { id, reply } = asRecord(entry);
+    if (typeof id !== "string" || !id.trim() || id.length > MAX_ADDRESSED_ID_CHARS)
+      return `each item needs an id (at most ${MAX_ADDRESSED_ID_CHARS} chars)`;
+    if (typeof reply !== "string") return "each item needs a reply string";
+    items.push({ id: id.trim(), reply });
+  }
+  return items;
+}
+
+/** One per-item result with the agent's next step. */
+function addressedEntry(r: AddressedItemResult): Record<string, string> {
+  if (r.result === "resolved") return { id: r.id, result: r.result };
+  const next = ADDRESSED_NEXT[r.result];
+  return { id: r.id, result: r.result, next: r.error ? `${r.error}; ${next}` : next };
+}
+
+/** `review_feedback_addressed`: have Shepherd reply on and resolve the threads of inline comments
+ *  whose fix the agent pushed. An `isError` result only when the call was refused or nothing
+ *  ended resolved; the per-item reasons ride either way. */
+async function applyReviewFeedbackAddressed(
+  deps: AgentControlDeps,
+  sessionId: string,
+  args: Record<string, unknown>,
+): Promise<ApplyResult<unknown>> {
+  if (!deps.reviewFeedback)
+    return { ok: false, status: 503, error: "review_feedback_addressed is unavailable" };
+  const items = addressedArgs(args);
+  if (typeof items === "string") return { ok: false, status: 400, error: items };
+  const outcome = await deps.reviewFeedback.markAddressed(sessionId, items);
+  if (!outcome.ok)
+    return { ok: false, status: 409, error: outcome.error ?? "could not resolve review threads" };
+  const results = outcome.results.map(addressedEntry);
+  const settled = outcome.results.some(
+    (r) => r.result === "resolved" || r.result === "already-resolved",
+  );
+  if (settled) return { ok: true, data: { results } };
+  const detail = results.map((r) => `${r.id}: ${r.result} (${r.next})`).join("; ");
+  return { ok: false, status: 409, error: `No thread resolved. ${detail}` };
+}
+
 // ── tool catalog ─────────────────────────────────────────────────────────────
 
 /** One MCP tool as `tools/list` reports it. */
@@ -801,6 +867,41 @@ const SCHEDULE_NOOP: McpTool = {
   },
 };
 
+const REVIEW_FEEDBACK_ADDRESSED: McpTool = {
+  name: "review_feedback_addressed",
+  description:
+    "Call after you've pushed the fix for an inline review comment Shepherd steered to you (an " +
+    "`rc:` id from its review-feedback steer). Shepherd replies on the comment's thread with your " +
+    "note and the fixing commit, then resolves the thread. Only list items whose fix is already " +
+    "pushed: an item still on the steered commit comes back `not-pushed`. Don't call it for " +
+    "points you disagree with or chose not to change — leave those threads open for the reviewer.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        minItems: 1,
+        maxItems: MAX_ADDRESSED_ITEMS,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: 'The item id from the steer, e.g. "rc:123".' },
+            reply: {
+              type: "string",
+              maxLength: MAX_REPLY_CHARS,
+              description: "One line for the reviewer: what you changed.",
+            },
+          },
+          required: ["id", "reply"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  },
+};
+
 const CI_DOWNLOAD: McpTool = {
   name: "ci_download",
   description:
@@ -849,6 +950,9 @@ export interface AgentCapabilities {
   /** `gh_request_permission` (#4119) — a non-plain, sandboxed Claude task session in a forge repo
    *  while GitHub App mode is configured. */
   ghPermissionRequest?: boolean;
+  /** `review_feedback_addressed` (#4139) — a non-plain session in a forge repo that opted into
+   *  resolving addressed review threads. */
+  reviewFeedbackResolve?: boolean;
 }
 
 /** An unknown session's capabilities: none. */
@@ -904,6 +1008,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.scheduleNoop) tools.push(SCHEDULE_NOOP);
   if (caps.ciDownload) tools.push(CI_DOWNLOAD);
   if (caps.ghPermissionRequest) tools.push(GH_REQUEST_PERMISSION);
+  if (caps.reviewFeedbackResolve) tools.push(REVIEW_FEEDBACK_ADDRESSED);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   if (caps.operatorCodex) tools.push(ASSISTANT_SHELL_TOOL, ASSISTANT_VIEW_TOOL);
   if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
@@ -963,6 +1068,15 @@ export function ghPermissionRequestAllowed(o: {
   );
 }
 
+/** The `reviewFeedbackResolve` rule (#4139), shared by the spawn path and the row path: the repo
+ *  opted in with review feedback on, and it has a forge with review threads. */
+export function reviewFeedbackResolveAllowed(o: {
+  plain: boolean | undefined;
+  repoConfig: Pick<RepoConfig, "reviewFeedbackResolve" | "reviewFeedbackMode" | "repoMode">;
+}): boolean {
+  return !o.plain && reviewFeedbackResolveOn(o.repoConfig);
+}
+
 /** A stored session's capabilities; an unknown session has none. Reads the session's PERSISTED
  *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
@@ -1000,6 +1114,7 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
       agentProvider: session.agentProvider,
       appModeConfigured: (deps.ghAppModeConfigured ?? agentGhAppConfigured)(),
     }),
+    reviewFeedbackResolve: reviewFeedbackResolveAllowed({ plain: session.plain, repoConfig }),
   };
 }
 
@@ -1109,6 +1224,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   ci_download: (deps, id, args, signal) => applyCiDownload(deps, id, args, signal),
   gh_request_permission: (deps, id, args, signal) =>
     applyGhRequestPermission(deps, id, args, signal),
+  review_feedback_addressed: (deps, id, args) => applyReviewFeedbackAddressed(deps, id, args),
   herd_status: (deps, id, args) => applyHerdStatus(deps, args, assistantScope(deps, id)),
   repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),

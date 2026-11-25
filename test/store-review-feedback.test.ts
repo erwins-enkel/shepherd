@@ -1,4 +1,8 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PrFeedbackItem } from "../src/forge/types";
 import { REVIEW_FEEDBACK_PRESET_BOTS } from "../src/review-feedback-core";
 import { SessionStore } from "../src/store";
@@ -170,4 +174,95 @@ test("repo_config: bad stored review-feedback values hydrate to the defaults", (
   const cfg = store.getRepoConfig("/repo");
   expect(cfg.reviewFeedbackMode).toBe("autopilot");
   expect(cfg.reviewFeedbackBots).toEqual([...REVIEW_FEEDBACK_PRESET_BOTS]);
+});
+
+// ── resolve bookkeeping (#4139) ──────────────────────────────────────────────
+
+test("review_feedback: threadId round-trips; sent rows keep their head; resolve only from sent", () => {
+  const store = new SessionStore(":memory:");
+  const threaded = { ...inline, threadId: "PRRT_1" };
+  for (const item of [review, threaded, convo])
+    store.insertReviewFeedbackIfAbsent("s1", item, "pending");
+  expect(store.listPendingReviewFeedback("s1")[1]).toEqual({
+    ...threaded,
+    status: "pending",
+    sentAt: null,
+    sentBy: null,
+  });
+
+  store.markReviewFeedbackSent("s1", ["rc:2"], "auto", 5000, "abc1234");
+  store.markReviewFeedbackSent("s1", ["review:1"], "operator", 5000);
+  store.markReviewFeedbackResolved("s1", ["rc:2", "review:1", "ic:3", "rc:404"], 6000);
+  store.markReviewFeedbackResolved("s1", ["rc:2"], 7000); // already resolved: stamp kept
+  expect(store.getReviewFeedbackItems("s1", ["rc:2", "review:1", "ic:3", "rc:404"])).toEqual([
+    {
+      ...review,
+      status: "sent",
+      sentAt: 5000,
+      sentBy: "operator",
+      sentHeadSha: null,
+      resolvedAt: 6000,
+    },
+    {
+      ...threaded,
+      status: "sent",
+      sentAt: 5000,
+      sentBy: "auto",
+      sentHeadSha: "abc1234",
+      resolvedAt: 6000,
+    },
+    {
+      ...convo,
+      status: "pending",
+      sentAt: null,
+      sentBy: null,
+      sentHeadSha: null,
+      resolvedAt: null,
+    },
+  ]);
+  expect(store.getReviewFeedbackItems("s2", ["rc:2"])).toEqual([]);
+  expect(store.getReviewFeedbackItems("s1", [])).toEqual([]);
+});
+
+test("review_feedback: a #4126 table gains threadId / sentHeadSha / resolvedAt on open", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-review-feedback-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE review_feedback (
+      sessionId TEXT NOT NULL, itemId TEXT NOT NULL, kind TEXT NOT NULL, author TEXT NOT NULL,
+      isBot INTEGER NOT NULL, reviewState TEXT, path TEXT, line INTEGER, parentReviewId TEXT,
+      body TEXT NOT NULL, createdAt INTEGER NOT NULL, status TEXT NOT NULL,
+      sentAt INTEGER, sentBy TEXT,
+      PRIMARY KEY (sessionId, itemId))`);
+    raw.run(`INSERT INTO review_feedback (sessionId, itemId, kind, author, isBot, path, line, body,
+      createdAt, status, sentAt, sentBy) VALUES ('s1', 'rc:2', 'rc', 'bob', 0, 'a.ts', 1, 'nit',
+      1, 'sent', 2, 'auto')`);
+    raw.close();
+
+    const store = new SessionStore(dbPath);
+    expect(store.getReviewFeedbackItems("s1", ["rc:2"])[0]).toMatchObject({
+      status: "sent",
+      sentHeadSha: null,
+      resolvedAt: null,
+    });
+    expect(store.getReviewFeedbackItems("s1", ["rc:2"])[0]?.threadId).toBeUndefined();
+    store.insertReviewFeedbackIfAbsent("s1", { ...inline, id: "rc:9", threadId: "T9" }, "pending");
+    expect(store.listPendingReviewFeedback("s1")[0]?.threadId).toBe("T9");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repo_config: reviewFeedbackResolve defaults off, persists, and an omitting write keeps it", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo").reviewFeedbackResolve).toBe(false);
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), reviewFeedbackResolve: true });
+  expect(store.getRepoConfig("/repo").reviewFeedbackResolve).toBe(true);
+  const partial = { ...store.getRepoConfig("/repo"), criticEnabled: false };
+  delete partial.reviewFeedbackResolve;
+  store.setRepoConfig("/repo", partial);
+  expect(store.getRepoConfig("/repo").reviewFeedbackResolve).toBe(true);
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), reviewFeedbackResolve: false });
+  expect(store.getRepoConfig("/repo").reviewFeedbackResolve).toBe(false);
 });

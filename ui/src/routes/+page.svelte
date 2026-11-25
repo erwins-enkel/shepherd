@@ -113,6 +113,7 @@
     mirroredNeedsYou,
     projectKeySlug,
     remoteBlocksReadKey,
+    connectedMachineReads,
     type MachineFilter,
   } from "#lib/remote-sessions.js";
   import { machines } from "#lib/machines.svelte.js";
@@ -1017,6 +1018,18 @@
     return () => {
       current = false;
     };
+  });
+  // Each connected machine's pending review feedback (#4139) is read once per machine connection
+  // and per reopened socket of this page; later changes arrive as relayed frames.
+  const remoteFeedbackReads = $derived(
+    connectedMachineReads(store.remoteSessions, store.connectionEpoch),
+  );
+  $effect(() => {
+    reviewFeedback.syncMachines(remoteFeedbackReads, (host) =>
+      untrack(() =>
+        store.remoteSessions.filter((s) => s.host?.instanceId === host).map((s) => s.id),
+      ),
+    );
   });
   // Every session's open question, listed beside the selected one's in that dialog.
   const pendingAsks = $derived(pendingAskEntries(store.sessions, store.blocks));

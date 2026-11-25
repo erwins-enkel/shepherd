@@ -53,6 +53,12 @@ import {
   type TerminalSink,
 } from "./terminal";
 
+/** Relayed frames the clients keep beside the session rows, never in them. */
+const SIDE_MAP_EVENTS: ReadonlySet<string> = new Set([
+  "session:activity",
+  "session:review-feedback",
+]);
+
 /** Backoff for re-probing a machine whose socket dropped; the regular 60 s round takes over after. */
 const RECHECK_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
 
@@ -605,8 +611,8 @@ export class RemoteSessionMirror {
     else this.patch(link, frame.event, data);
     // A relayed row change can make the clients differ from the last full snapshot. Its next
     // replacement must correct that even if the machine returns the old full snapshot again.
-    // Activity lives in a separate client map and never changes the mirrored session rows.
-    if (frame.event !== "session:activity") link.publishedSessions = undefined;
+    // Activity and review feedback live in separate client maps and never change the rows.
+    if (!SIDE_MAP_EVENTS.has(frame.event)) link.publishedSessions = undefined;
     this.emit(frame.event, this.annotate(link, data));
   }
 

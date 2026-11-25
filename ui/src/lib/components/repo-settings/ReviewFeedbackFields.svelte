@@ -3,6 +3,7 @@
   import {
     reviewFeedbackBotsExplanation,
     reviewFeedbackModeExplanation,
+    reviewFeedbackResolveExplanation,
   } from "#lib/tooltips/explanations.js";
   import { REVIEW_FEEDBACK_PRESET_BOTS, checkReviewBot } from "#lib/list-entries.js";
   import type { ReviewFeedbackMode } from "#lib/types.js";
@@ -12,7 +13,8 @@
   import "../automation-settings/automation-fields.css";
 
   // Review feedback (#4126): whether PR comments from people with write access and allowlisted
-  // review bots reach the task agent, and which bots count. GitHub only.
+  // review bots reach the task agent, and which bots count. GitHub only. Resolve (#4139): reply on
+  // and resolve an inline thread once the agent has pushed its fix and declared it addressed.
   let { repoPath, armCoachmarks = false }: { repoPath: string; armCoachmarks?: boolean } = $props();
   const repoConfig = useRepoConfig();
 
@@ -32,6 +34,14 @@
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
   const mode = $derived(repoConfig.reviewFeedbackModeFor(repoPath));
   const bots = $derived(repoConfig.reviewFeedbackBotsFor(repoPath));
+  const resolve = $derived(repoConfig.reviewFeedbackResolveFor(repoPath));
+  const resolveLocked = $derived(
+    lightweight
+      ? m.automation_lightweight_unavailable()
+      : mode === "off"
+        ? m.reposettings_review_resolve_needs_feedback()
+        : undefined,
+  );
   const isPreset = $derived(
     bots.length === REVIEW_FEEDBACK_PRESET_BOTS.length &&
       REVIEW_FEEDBACK_PRESET_BOTS.every((b) => bots.includes(b)),
@@ -65,6 +75,18 @@
     </select>
   {/snippet}
 </RepoSettingRow>
+<RepoSettingRow
+  field="reviewFeedbackResolve"
+  glyph="✓"
+  name={m.reposettings_review_resolve_name()}
+  desc={m.reposettings_review_resolve_desc()}
+  explanation={reviewFeedbackResolveExplanation()}
+  indent
+  locked={resolveLocked}
+  checked={resolve && !resolveLocked}
+  ontoggle={() => repoConfig.setReviewFeedbackResolve(repoPath, !resolve)}
+  coach={armCoachmarks ? "review-feedback-resolve" : ""}
+/>
 {#if mode !== "off" && !lightweight}
   <RepoSettingRow
     field="reviewFeedbackBots"

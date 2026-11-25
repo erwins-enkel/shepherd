@@ -750,6 +750,8 @@ export interface PrFeedbackItem {
   parentReviewId?: string;
   /** Kind `rc` only: the comment's thread is resolved. */
   resolved?: boolean;
+  /** Kind `rc` only: the review thread's GraphQL node id (#4139), the resolve target. */
+  threadId?: string;
 }
 
 /** A PR's review feedback plus its author, from {@link GitForge.listPrFeedback}. */
@@ -870,6 +872,9 @@ export interface GitForge {
   /** Whether `login` has write (or admin) permission on the repo. Fails closed: any error
    *  resolves false. Optional: absent ⇒ no human feedback counts as having standing. */
   hasWriteAccess?(login: string): Promise<boolean>;
+  /** Reply `body` on review thread `threadId`, then resolve it (#4139). Rejects on a host error
+   *  or under the GraphQL backoff. Optional: only GitHub implements it; absent ⇒ no resolving. */
+  replyAndResolveThread?(threadId: string, body: string): Promise<void>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** Whether the operator has push access to the repo on this host. Gates the
    *  gitignore-adopt flow (no push → it can't open the adopt PR; the caller shows

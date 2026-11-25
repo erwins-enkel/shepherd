@@ -795,6 +795,7 @@ describe("RepoSettingsBody — lock reasons (#3444)", () => {
       epicStacksEnabled: reason,
       preWarmEpicLandingCi: reason,
       epicClaimAutoRelease: reason,
+      reviewFeedbackResolve: reason,
     });
     await visit("merge");
     const draft = page.getByRole("radio", { name: m.reposettings_merge_mode_draft(), exact: true });

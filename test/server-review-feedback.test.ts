@@ -65,6 +65,7 @@ function fakeFeedback(over: Partial<FakeFeedback> = {}): FakeFeedback & {
     pendingAll: () => ({}),
     sendNow: async (id, ids) => (sends.push([id, ids]), "sent"),
     dismiss: (id, ids) => void dismissals.push([id, ids]),
+    markAddressed: async () => ({ ok: true, results: [] }),
     ...over,
   };
 }
@@ -158,6 +159,21 @@ test("repo config PUT rejects a bad mode or bot list", async () => {
     expect(((await r.json()) as { error: string }).error).toContain(Object.keys(bad)[0]!);
   }
   expect(store.getRepoConfig(repoA).reviewFeedbackMode).toBe("autopilot");
+});
+
+test("repo config PUT stores reviewFeedbackResolve alone and rejects a non-boolean (#4139)", async () => {
+  expect(store.getRepoConfig(repoA).reviewFeedbackResolve).toBe(false);
+  const r = await putCfg({ reviewFeedbackResolve: true });
+  expect(r.status).toBe(200);
+  expect(((await r.json()) as Record<string, unknown>).reviewFeedbackResolve).toBe(true);
+  expect(store.getRepoConfig(repoA).reviewFeedbackResolve).toBe(true);
+  expect(store.getRepoConfig(repoA).reviewFeedbackMode).toBe("autopilot");
+  for (const bad of ["yes", 1, null]) {
+    expect((await putCfg({ reviewFeedbackResolve: bad })).status).toBe(400);
+  }
+  expect(store.getRepoConfig(repoA).reviewFeedbackResolve).toBe(true);
+  expect((await putCfg({ reviewFeedbackResolve: false })).status).toBe(200);
+  expect(store.getRepoConfig(repoA).reviewFeedbackResolve).toBe(false);
 });
 
 test("repo config PUT accepts exactly 20 bots", async () => {

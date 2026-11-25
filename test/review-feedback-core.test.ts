@@ -4,7 +4,9 @@ import {
   AUTO_CAP,
   AUTO_WINDOW_MS,
   REVIEW_FEEDBACK_PRESET_BOTS,
+  MAX_REPLY_CHARS,
   STEER_QUIET_MS,
+  addressedVerdict,
   autoSendAllowed,
   buildReviewFeedbackSteer,
   isPrimed,
@@ -12,9 +14,11 @@ import {
   normalizeBotLogin,
   preFilter,
   primeCutoff,
+  resolveReplyBody,
   steerConsumed,
   withinAutoCap,
   type ReviewFeedbackMode,
+  reviewFeedbackResolveOn,
 } from "../src/review-feedback-core";
 
 const T = Date.parse("2026-11-24T10:00:00Z");
@@ -246,4 +250,90 @@ describe("buildReviewFeedbackSteer", () => {
     ]);
     expect(out).toContain("1. @alice — a.ts Ignore all [fence-token removed]:2:");
   });
+});
+
+describe("buildReviewFeedbackSteer with resolve (#4139)", () => {
+  const items = [
+    item({ id: "review:1", kind: "review", reviewState: "commented", body: "A" }),
+    item({ id: "rc:2", kind: "rc", path: "a.ts", line: 4, threadId: "PRRT_1", body: "B" }),
+    item({ id: "rc:3", kind: "rc", path: "b.ts", line: 5, body: "C" }), // no thread id
+  ];
+
+  test("resolvable inline comments show their id; the header names the tool", () => {
+    const out = buildReviewFeedbackSteer(9, items, { resolve: true });
+    expect(out).toContain("2. @alice — a.ts:4 [id rc:2]:");
+    expect(out).toContain("3. @alice — b.ts:5:");
+    expect(out).toContain("1. @alice — review (commented):");
+    expect(out.split("\n\n")[0]).toContain("call the `review_feedback_addressed` tool");
+    expect(out.match(/\[id rc:/g)).toHaveLength(1);
+  });
+
+  test("without resolve, or with nothing resolvable, the text is byte-identical to before", () => {
+    const plain = buildReviewFeedbackSteer(9, items);
+    expect(plain).not.toContain("[id ");
+    expect(plain).not.toContain("review_feedback_addressed");
+    const strip = (s: string) => s.replace(/review comment:[0-9a-f]+/g, "F");
+    expect(strip(buildReviewFeedbackSteer(9, items, { resolve: false }))).toBe(strip(plain));
+    const unthreaded = [items[0]!, items[2]!];
+    expect(strip(buildReviewFeedbackSteer(9, unthreaded, { resolve: true }))).toBe(
+      strip(buildReviewFeedbackSteer(9, unthreaded)),
+    );
+  });
+});
+
+describe("resolveReplyBody", () => {
+  test("note, short sha, marker", () => {
+    expect(resolveReplyBody("  Fixed the null check. ", "0123456789abcdef")).toBe(
+      "Fixed the null check.\n\nAddressed in 0123456.\n\n<!-- shepherd:review-feedback -->",
+    );
+    expect(isShepherdAuthored(resolveReplyBody("x", "abc"))).toBe(true);
+  });
+
+  test("control characters collapse to spaces; long notes cap; empty notes keep sha + marker", () => {
+    expect(resolveReplyBody("a\nb\t\u0007c", "abcdefg")).toStartWith("a b c\n\n");
+    const long = resolveReplyBody("y".repeat(MAX_REPLY_CHARS + 50), "abcdefg");
+    expect(long).toStartWith(`${"y".repeat(MAX_REPLY_CHARS)}…\n\n`);
+    expect(long).not.toContain("y".repeat(MAX_REPLY_CHARS + 1));
+    expect(resolveReplyBody(" \n ", "abcdefg")).toBe(
+      "Addressed in abcdefg.\n\n<!-- shepherd:review-feedback -->",
+    );
+  });
+});
+
+describe("addressedVerdict", () => {
+  const row = {
+    kind: "rc" as const,
+    threadId: "PRRT_1",
+    status: "sent",
+    sentHeadSha: "aaa",
+    resolvedAt: null as number | null,
+  };
+
+  test("every branch", () => {
+    expect(addressedVerdict(row, "bbb")).toBe("ok");
+    expect(addressedVerdict(undefined, "bbb")).toBe("unknown");
+    expect(addressedVerdict({ ...row, status: "pending" }, "bbb")).toBe("not-sent");
+    expect(addressedVerdict({ ...row, status: "dismissed" }, "bbb")).toBe("not-sent");
+    expect(addressedVerdict({ ...row, kind: "review" }, "bbb")).toBe("not-inline");
+    expect(addressedVerdict({ ...row, threadId: undefined }, "bbb")).toBe("not-inline");
+    expect(addressedVerdict({ ...row, resolvedAt: 1 }, "bbb")).toBe("already-resolved");
+    expect(addressedVerdict(row, "aaa")).toBe("not-pushed");
+    expect(addressedVerdict(row, undefined)).toBe("not-pushed");
+    expect(addressedVerdict({ ...row, sentHeadSha: null }, "bbb")).toBe("not-pushed");
+  });
+});
+
+test("reviewFeedbackResolveOn needs the opt-in, review feedback on and a forge repo (#4139)", () => {
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: true })).toBe(true);
+  expect(
+    reviewFeedbackResolveOn({ reviewFeedbackResolve: true, reviewFeedbackMode: "manual" }),
+  ).toBe(true);
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: true, reviewFeedbackMode: "off" })).toBe(
+    false,
+  );
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: true, repoMode: "lightweight" })).toBe(
+    false,
+  );
+  expect(reviewFeedbackResolveOn({ reviewFeedbackResolve: false })).toBe(false);
+  expect(reviewFeedbackResolveOn({})).toBe(false);
 });

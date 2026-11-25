@@ -1302,11 +1302,12 @@ export interface AppDeps {
       parent: number,
     ): Promise<import("./drain").RepairLandingCiResult>;
   };
-  /** #4126: pending PR review feedback per session, and the operator's send / dismiss. Absent in
-   *  tests that don't exercise it. */
+  /** #4126: pending PR review feedback per session, the operator's send / dismiss, and the agent's
+   *  addressed declaration (#4139, `review_feedback_addressed`). Absent in tests that don't
+   *  exercise it. */
   reviewFeedback?: Pick<
     import("./review-feedback").ReviewFeedbackService,
-    "pendingAll" | "sendNow" | "dismiss"
+    "pendingAll" | "sendNow" | "dismiss" | "markAddressed"
   >;
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
@@ -3576,6 +3577,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "claudeAiConnectorsEnabled",
   "hidden",
   "pinned",
+  "reviewFeedbackResolve",
 ] as const;
 
 type RepoCfgBody = {
@@ -3619,6 +3621,7 @@ type RepoCfgBody = {
   previewOpenMode?: unknown;
   reviewFeedbackMode?: unknown;
   reviewFeedbackBots?: unknown;
+  reviewFeedbackResolve?: unknown;
   automationConfirmed?: unknown;
   leitrechner?: unknown;
 };
@@ -3779,6 +3782,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       previewOpenMode?: "ask" | "inline" | "tab";
       reviewFeedbackMode?: ReviewFeedbackMode;
       reviewFeedbackBots?: string[];
+      reviewFeedbackResolve?: boolean;
       automationConfirmed?: boolean;
     }
   | Response
@@ -3830,7 +3834,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, automationConfirmed, leitrechner",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, automationConfirmed, leitrechner",
       },
       400,
     );
@@ -3877,6 +3881,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     previewOpenMode,
     reviewFeedbackMode,
     reviewFeedbackBots,
+    reviewFeedbackResolve: body.reviewFeedbackResolve as boolean | undefined,
     automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }

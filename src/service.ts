@@ -56,6 +56,7 @@ import {
   browserLoginAllowed,
   ciDownloadAllowed,
   ghPermissionRequestAllowed,
+  reviewFeedbackResolveAllowed,
   hasAgentTools,
   isNonCodeMode,
   OPERATOR_ASSISTANT_CAPABILITIES,
@@ -4680,6 +4681,7 @@ export class SessionService {
         repoMode: repoConfig.repoMode,
         appModeConfigured: agentGhAppConfigured(),
       }),
+      reviewFeedbackResolve: reviewFeedbackResolveAllowed({ plain: input.plain, repoConfig }),
     };
     // #3337: `--settings` / `--mcp-config` as 0600 file paths carrying the ingress key.
     argv.push(

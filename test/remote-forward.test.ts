@@ -134,6 +134,8 @@ describe("allowlist", () => {
     ["GET", "preview"],
     ["POST", "preview/start"],
     ["POST", "preview/stop"],
+    ["POST", "review-feedback/send"],
+    ["POST", "review-feedback/dismiss"],
   ])("%s %s is forwarded", (method, leaf) => {
     expect(forwardedLeaf(method, parts(leaf))).toBe(leaf);
   });
@@ -151,6 +153,8 @@ describe("allowlist", () => {
     ["DELETE", "amendments/a1/x"],
     ["POST", "plan"],
     ["GET", "plan-edits"],
+    ["GET", "review-feedback/send"],
+    ["POST", "review-feedback"],
   ])("%s %s is not", (method, leaf) => {
     expect(forwardedLeaf(method, parts(leaf))).toBeNull();
   });

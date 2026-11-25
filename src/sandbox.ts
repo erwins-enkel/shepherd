@@ -582,23 +582,9 @@ function managerRoots(home: string): string[] {
 
 /**
  * Sub-paths of a manager root that the manager REWRITES on every invocation, and which therefore
- * cannot sit under the read-only bind above.
- *
- * `mise` is the live case (#2052). A mise-managed `claude` is reached through a launcher on PATH
- * that re-runs `mise use`, and mise rebuilds `shims/` as part of that — under the RO bind the
- * rebuild hits EROFS and mise exits non-zero, so the agent process NEVER STARTS. Nothing observes
- * that directly: the role's verdict file never appears, the caller waits out its whole timeout,
- * records a `no-verdict` error and re-spawns into the same wall — for every membrane-wrapped role
- * (plan gate, PR critic, doc agent, standalone critic) at once.
- *
- * A tmpfs is the narrow fix: the rebuild succeeds against throwaway storage, the write never
- * reaches the host, and `installs/` stays read-only — so a sandboxed role still cannot plant a
- * binary that a later trusted session would run.
- *
- * NOT covered, deliberately: a manager asked for a version the host has not installed yet still
- * needs to download into the read-only `installs/`, and will still fail. Making that writable would
- * let an untrusted role pull and execute arbitrary tool versions, which is the opposite of what the
- * membrane is for. Installing toolchains stays a host-side, trusted-session concern.
+ * get a throwaway tmpfs over the read-only bind above. `mise` rebuilds `shims/` on every launch;
+ * under the RO bind that hits EROFS and the agent process never starts (no verdict, #2110). Never
+ * list an install dir (`installs/`) here. See docs/adr/0005-sandboxed-roles-never-install-toolchains.md.
  */
 function managerScratch(home: string): Record<string, string[]> {
   return { [`${home}/.local/share/mise`]: ["shims"] };

@@ -4723,8 +4723,8 @@ export class SessionService {
   }
 
   /**
-   * #3550: Codex has no rewriting PreToolUse hook, so its heavy checks reach the slot through PATH
-   * shims (scripts/slot-shim.mjs). Claude's go through the tool guard instead.
+   * #3550: Codex's heavy checks reach the slot through PATH shims (scripts/slot-shim.mjs); Claude's
+   * go through the tool guard instead. See docs/adr/0004-codex-heavy-checks-via-path-shims.md.
    */
   private async slotShimEnv(agentProvider: string | undefined): Promise<{ PATH?: string }> {
     if (agentProvider !== "codex") return {};

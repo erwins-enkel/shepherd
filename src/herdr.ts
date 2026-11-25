@@ -1364,6 +1364,7 @@ export class HerdrDriver implements IHerdrDriver {
       // SUPPRESS herdr's detection and freeze the status at `working` (herdr won't accept a client
       // de-escalation back to idle). So for trusted we register NOTHING and let herdr own the status
       // exactly as it did on ≤0.7.4 — resolving the spawn by waiting for auto-detection instead.
+      // See docs/adr/0002-shepherd-owns-status-only-for-sandboxed-sessions.md.
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
         ? await this.resolveByRegistration(paneId, name, opts?.signal)

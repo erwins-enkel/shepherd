@@ -1,20 +1,14 @@
 /**
  * Moving a session to another machine ("Continue with…" naming another machine): the coordinator's
- * half. Three roles, each in-process when it is this Shepherd and over the machine client when it
- * is another one (`server.ts` builds the ports):
+ * half. SOURCE prepares → carried files staged here → TARGET creates a `continuation`
+ * (`server.ts` builds the ports). See docs/adr/0006-session-move-refuses-before-mutating.md.
  *
- * 1. The SOURCE (the session's machine) prepares: it holds automatic resumes, stops the agent,
- *    commits what it left uncommitted and pushes the work branch (`SessionService.prepareHandoff`).
- *    A refusal here has touched nothing.
- * 2. The carried files (the plan, the uploads) are staged on this Shepherd, the way a create's
- *    attachments are: from where the session runs, one by one. A file that does not come along is
- *    named to the new agent instead of failing the move.
- * 3. The TARGET creates a session with `continuation`: the very branch, so an open PR stays the
- *    same. A remote target is a keyed dispatch (`move-<session>-<head>`), so it never starts twice.
- * 4. Started (or held there: the work is pushed, the target starts it once it has room) → the
- *    source archives the original. Refused or failed → the source resumes its agent: nothing moved.
- *    No answer → nothing is undone: the target may have started it, its dispatch keeps checking,
- *    and the original stays stopped until the operator archives or resumes it.
+ * - A source refusal has touched nothing.
+ * - A file that does not come along is named to the new agent instead of failing the move.
+ * - A remote target is a keyed dispatch (`move-<session>-<head>`), so it never starts twice.
+ * - Started or held → the source archives the original. Refused or failed → the source resumes its
+ *   agent. No answer → nothing is undone: the source's resume hold keeps the original stopped, but
+ *   only for HANDOFF_HOLD_MS (in memory), so the operator should archive or resume it.
  */
 import { basename } from "node:path";
 import type { SessionHost } from "./sessions";

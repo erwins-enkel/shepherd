@@ -1,13 +1,9 @@
 /**
- * Which account-granted Claude models the operator's LOGGED-IN Claude account is entitled to.
+ * Which account-granted Claude models (Mythos) the operator's LOGGED-IN Claude account is entitled
+ * to. Pickers hide an unavailable one and every spawn path rejects it with
+ * {@link ModelUnavailableError}. See docs/adr/0003-model-entitlement-from-claude-code-account-cache.md.
  *
- * Claude Mythos is not a model every account can spawn: it is granted per organization, and
- * the account's served model catalog marks it `confidential`. Shepherd must offer it only when
- * the account has it, and refuse it otherwise — so the pickers hide it and every spawn path
- * rejects it with {@link ModelUnavailableError} rather than letting the CLI fail mid-spawn.
- *
- * The signal is Claude Code's OWN on-disk account cache, read the way the CLI's
- * `isMythosAvailable` reads it (probed against Claude Code 2.1.311):
+ * Read the way the CLI's `isMythosAvailable` reads it (probed against Claude Code 2.1.311):
  *   1. `<claudeDir>/cache/model-catalog/<orgUuid>-<hash>-cc.json` — the account's served model
  *      catalog (`{ version: 2, fetchedAt, catalog: { config: { models: [{ id }] } } }`), refreshed
  *      by the CLI. Only files for the logged-in `oauthAccount.organizationUuid` count; the newest
@@ -15,9 +11,8 @@
  *   2. Only when no such catalog exists: `.claude.json`'s `additionalModelOptionsCache`, the older
  *      list of extra models the account may pick (`{ value, disabled? }`, value may carry `[1m]`).
  *
- * Both files are CLI-internal, so every uncertainty FAILS CLOSED — missing, unreadable, an
- * unknown catalog version, no logged-in org — reads as "not available". Hiding a model the
- * account has is recoverable; offering one it doesn't is a spawn that dies.
+ * Every uncertainty FAILS CLOSED — missing, unreadable, an unknown catalog version, no logged-in
+ * org — reads as "not available".
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";

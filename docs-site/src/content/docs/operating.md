@@ -787,6 +787,29 @@ can't go out, the dialog says why, for example the agent isn't running or the PR
 closed. After five automatic sends in an hour, a session stops sending on its own until the hour
 has passed. The badge's tooltip then says sending is paused, and you can still send by hand.
 
+### Resolve addressed threads
+
+**Resolve addressed threads** (Settings → repo → Review, off by default) closes inline review
+threads the agent has dealt with. It needs **Review feedback** to be on and isn't available for
+local-only repos.
+
+1. Shepherd sends the agent the inline comments with their ids, as described above.
+2. The agent fixes one, pushes, and tells Shepherd it addressed that comment, with a one-line note
+   for the reviewer.
+3. Shepherd checks that the PR head has moved since the comment was sent. If it hasn't, the
+   declaration is refused and the thread stays open.
+4. Shepherd replies on the thread with the agent's note and "Addressed in" the short commit SHA,
+   then marks the thread resolved.
+
+The reply is public and posted under the GitHub account Shepherd uses for the repo, the same one
+that posts critic reviews, which is usually yours. It carries a hidden marker, so Shepherd never
+reads its own reply back as new feedback. Only inline review comment threads are resolved. Review
+bodies and PR conversation comments stay as they are, and so do comments the agent disagrees with
+or chose not to change.
+
+The agent's tools are fixed when its session starts. A session started before you switched this on
+can't resolve threads until you resume it.
+
 ## Warm and cold repos
 
 Shepherd reads GitHub in the background only for **warm** repos. A repo is warm when any of these

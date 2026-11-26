@@ -342,6 +342,16 @@ behind. It can alter, revoke or drop its own repo's app roles (breaking
 siblings), or a colliding name another repo's migration reused. It can't read
 another session's data. App roles are never dropped automatically.
 
+**Template promote and reset (#4240).** Promoting a session's clone to the repo
+template (`POST /api/sessions/:id/postgres/promote`) is operator-only: agent
+ingress and repo-scoped tokens cannot call it, since it replaces a repo-wide
+template. The swap copies the clone into a superuser-owned database with
+`CONNECT`/`TEMPORARY` revoked from `PUBLIC`, re-owns the session role's objects to
+`r_<repo>` and drops what it still owns, so the new template keeps nothing owned
+by `s_<id>`. The agent-facing `postgres_reset` MCP tool only drops and
+re-clones that session's own database (same role and DSN); `postgres_status` is
+read-only and returns no credentials.
+
 **The superuser stays with Shepherd.** Its password lives in
 `postgres/superuser.env` beside the DB (0600) and is only used for the image's
 first init; Shepherd administers the cluster through `docker exec … psql` over

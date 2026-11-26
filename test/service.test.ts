@@ -12113,6 +12113,41 @@ test("Codex Fast on cold resume uses the retained provider and restored model", 
   );
 });
 
+test("archived Codex speed availability uses the repo cwd and retains the pinned provider", async () => {
+  const id = "codex-archived";
+  const worktreePath = "/wt/removed";
+  await withCodexHome(
+    [
+      {
+        name: `rollout-2026-11-26T12-00-00-${id}.jsonl`,
+        payload: { id, cwd: worktreePath, model_provider: "retained", source: "cli" },
+      },
+    ],
+    async () => {
+      const repoPath = process.cwd();
+      const { store, service } = codexHarness(true, "unknown", undefined, {
+        codexSpeedBinary: () => "/test/codex",
+        codexStandardSupported: (_binary: string, cwd: string) => cwd === repoPath,
+        probeCodexFast: async (_binary: string, target: unknown) => {
+          expect(target).toEqual({ cwd: repoPath, provider: "retained", model: "gpt-6-astra" });
+          return { tier: "priority" };
+        },
+      });
+      const s = archivedWithSession(store, {
+        repoPath,
+        worktreePath,
+        agentProvider: "codex",
+        providerSessionId: id,
+        codexLaunchId: "archived-launch",
+        model: "gpt-6-astra",
+        sandboxApplied: "trusted",
+      });
+      expect(await service.sessionCodexFastAvailability(s)).toEqual({ tier: "priority" });
+      expect(service.codexStandardAvailable(s)).toBe(true);
+    },
+  );
+});
+
 test("new Codex sessions snapshot the Fast default without rewriting existing choices", async () => {
   const savedDefault = config.defaultCodexSpeed;
   const cwd = "/wt/repo-codex";

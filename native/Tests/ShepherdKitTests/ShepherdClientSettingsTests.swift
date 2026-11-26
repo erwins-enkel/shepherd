@@ -16,7 +16,7 @@ struct ShepherdClientSettingsTests {
         }
         #expect(try await client(server).patchSettings(body: .init(reducedPushMode:true)).reducedPushMode == true)
     }
-    @Test func patchSettingsMapsForbiddenAndConflict() async throws {
+    @Test(.timeLimit(.minutes(1))) func patchSettingsMapsForbiddenAndConflict() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("PATCH", "/api/settings") { _ in
             FakeResponse(statusCode: 403, body: Data(#"{"error":"operator_session_required"}"#.utf8))

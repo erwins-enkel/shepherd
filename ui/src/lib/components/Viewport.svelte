@@ -1918,8 +1918,9 @@
     } catch (error) {
       resumeFailed = true;
       resumeTranscriptMissing = isMissingTranscriptError(error);
-      resumeFailure = resumeFailureMessage(error, m.viewport_resume_failed());
-      toasts.info(resumeFailure);
+      const message = resumeFailureMessage(error, m.viewport_resume_failed());
+      resumeFailure = resumeTranscriptMissing ? m.session_resume_transcript_missing() : message;
+      toasts.info(message);
     } finally {
       resuming = false;
     }

@@ -3884,8 +3884,15 @@ export class SessionService {
   async codexFastAvailability(
     cwd: string,
     model: string | null,
-    threadId?: string,
-    resolvedBinary?: string,
+    {
+      threadId,
+      resolvedBinary,
+      probeCwd = cwd,
+    }: {
+      threadId?: string;
+      resolvedBinary?: string;
+      probeCwd?: string;
+    } = {},
   ): Promise<CodexFastAvailability> {
     const binary = resolvedBinary ?? this.speedBinary();
     if (!binary || (!resolvedBinary && !codexNoDaemonArgs(this.deps.readCodexHelp).length))
@@ -3894,7 +3901,7 @@ export class SessionService {
     if (threadId && (!retained || (!model && !retained.model))) return { reason: "unknown" };
     return (
       this.deps.probeCodexFast?.(binary, {
-        cwd,
+        cwd: probeCwd,
         provider: retained?.provider,
         model: model ?? retained?.model,
       }) ?? { reason: "unknown" }
@@ -3916,16 +3923,21 @@ export class SessionService {
     const threadId = s.providerSessionId;
     if (!threadId || !s.codexLaunchId) return Promise.resolve({ reason: "unknown" });
     const model = clampCodexModelForAuth(s.model, "codex", this.codexAuthMode());
-    return this.codexFastAvailability(s.worktreePath, model, threadId);
+    // An archived worktree is gone, but its path still identifies the pinned rollout.
+    return this.codexFastAvailability(s.worktreePath, model, {
+      threadId,
+      probeCwd: s.status === "archived" ? s.repoPath : s.worktreePath,
+    });
   }
 
   codexStandardAvailable(s: Session): boolean {
     if (this.sessionCodexSpeedSandboxed(s)) return false;
     const binary = this.speedBinary();
+    const cwd = s.status === "archived" ? s.repoPath : s.worktreePath;
     return (
       !!binary &&
       codexNoDaemonArgs(this.deps.readCodexHelp).length > 0 &&
-      (this.deps.codexStandardSupported ?? codexStandardSupported)(binary, s.worktreePath)
+      (this.deps.codexStandardSupported ?? codexStandardSupported)(binary, cwd)
     );
   }
 
@@ -3983,8 +3995,7 @@ export class SessionService {
     const result = await this.codexFastAvailability(
       cwd,
       modelIndex < 0 ? null : (argv[modelIndex + 1] ?? null),
-      argv[1] === "resume" ? argv[2] : undefined,
-      binary,
+      { threadId: argv[1] === "resume" ? argv[2] : undefined, resolvedBinary: binary },
     );
     if ("reason" in result) {
       launch.reason = result.reason;

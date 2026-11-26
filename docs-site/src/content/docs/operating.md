@@ -438,6 +438,9 @@ What this means:
   and herdr keep running.
 - **Agents still die with herdr.** Stopping, restarting or crashing herdr stops
   the slice, as before.
+- **Leftovers die with the agent.** Archiving a session stops its scope, and a
+  boot + hourly sweep stops any scope whose agent process has ended. Dev servers,
+  browsers and test runners the agent left behind go with it.
 - **The update never restarts herdr for this.** Both files only need a
   `daemon-reload`; agents started before the update stay in `herdr.service`
   until they end.

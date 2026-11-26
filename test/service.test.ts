@@ -10722,6 +10722,60 @@ function archiveHarness(isolated: boolean, beforeArchive?: () => Promise<void>) 
   return { store, service, sweeps, removed };
 }
 
+// ── #4039: archive stops the session's agent scope ───────────────────────────
+
+function scopeArchiveHarness(stopAgentScopes: (id: string) => Promise<void>, order: string[]) {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "n",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/n", branch: "shepherd/n", isolated: true }),
+      remove: () => order.push("worktree.remove"),
+    } as any,
+    herdr: {
+      start: async () => ({
+        terminalId: "t1",
+        cwd: "/",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      stop: async () => void order.push("herdr.stop"),
+      listAsync: async () => [],
+    } as any,
+    stopAgentScopes,
+  } as any);
+  return { store, service };
+}
+
+const scopeInput = { repoPath: "/repo", baseBranch: "main", prompt: "p", model: null, images: [] };
+
+test("#4039: archive() stops the session's agent scopes right after stopping the agent", async () => {
+  const order: string[] = [];
+  const { service, store } = scopeArchiveHarness(async (id) => {
+    order.push(`scopes:${id}`);
+  }, order);
+  const s = await service.create(scopeInput as any);
+  await service.archive(s.id);
+  expect(order).toEqual(["herdr.stop", `scopes:${s.id}`, "worktree.remove"]);
+  expect(store.get(s.id)!.status).toBe("archived");
+});
+
+test("#4039: a rejecting scope stop never blocks the archive", async () => {
+  const order: string[] = [];
+  const { service, store } = scopeArchiveHarness(async () => {
+    throw new Error("bus down");
+  }, order);
+  const s = await service.create(scopeInput as any);
+  await service.archive(s.id);
+  expect(store.get(s.id)!.status).toBe("archived");
+});
+
 test("#1144: archive() reaps runaways for a NON-isolated session — its only teardown reap", async () => {
   // The bug this closes: `reapOrphansUnder` hangs off worktree.remove(), which teardown calls only
   // `if (s.isolated)`. A non-isolated session's worktreePath IS the shared repo root, so it got NO

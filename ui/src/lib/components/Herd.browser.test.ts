@@ -751,6 +751,80 @@ describe("Herd Group: Stage | Repo (#4228)", () => {
     expect(document.querySelector(".repo-actions")).toBeNull();
   });
 
+  // #4235: a repo whose only session is an epic child lists it in the (collapsed) epic group above
+  describe("rows in groups above", () => {
+    const child: EpicChild = {
+      number: 11,
+      title: "child 11",
+      url: "",
+      order: 11,
+      body: "",
+      blockedBy: [],
+      state: "running",
+      sessionId: null,
+      prNumber: null,
+      issueClosed: false,
+      claimed: false,
+    };
+    const epics: Record<string, Epic> = {
+      "/w/zeta#100": {
+        repoPath: "/w/zeta",
+        parentIssueNumber: 100,
+        parentTitle: "Zeta epic",
+        source: "native",
+        children: [child],
+        warnings: [],
+        run: { repoPath: "/w/zeta", parentIssueNumber: 100, mode: "auto", status: "running" },
+      },
+    };
+    const aboveProps = {
+      ...base,
+      sessions: [
+        session({ id: "a", name: "alpha green", repoPath: "/w/alpha" }),
+        session({ id: "zc", name: "zeta merged child", repoPath: "/w/zeta", issueNumber: 11 }),
+      ],
+      git: { a: openPr, zc: { ...openPr, state: "merged" as const } },
+      epics,
+      activeEpicKeys: new Set(["/w/zeta#100"]),
+      onclearmerged: () => {},
+    };
+    const jump = () => page.getByRole("button", { name: /sessions of zeta in groups above/ });
+
+    it("counts the epic member, and the note jumps to it", async () => {
+      localStorage.setItem(LAYOUT_KEY, "repo");
+      herdLayout.load();
+      const onrevealsession = vi.fn();
+      render(Herd, { ...aboveProps, onrevealsession });
+      expect(heads()).toEqual(["alpha", "zeta"]);
+      // the row really is in the epic group above
+      await expect.element(page.getByText("Zeta epic")).toBeInTheDocument();
+      await expect.element(page.getByText("zeta merged child")).toBeInTheDocument();
+      await expect.element(jump()).toHaveTextContent("1 in groups above");
+      // alpha has no member above: no note
+      expect(document.querySelectorAll(".repo-head .above")).toHaveLength(1);
+      await jump().click();
+      expect(onrevealsession).toHaveBeenCalledWith("zc");
+    });
+
+    it("without the reveal callback the note stays plain text", async () => {
+      localStorage.setItem(LAYOUT_KEY, "repo");
+      herdLayout.load();
+      render(Herd, aboveProps);
+      await expect.element(page.getByText("1 in groups above")).toBeInTheDocument();
+      await expect.element(jump()).not.toBeInTheDocument();
+    });
+
+    it("labels the global bulk-action row as covering every repo", async () => {
+      localStorage.setItem(LAYOUT_KEY, "repo");
+      herdLayout.load();
+      render(Herd, aboveProps);
+      await expect
+        .element(page.getByRole("button", { name: "Decommission all" }))
+        .toBeInTheDocument();
+      expect(document.querySelector(".repo-actions .scope")?.textContent).toBe("All repos");
+    });
+  });
+
   it("touch keeps ≥44px count targets", async () => {
     localStorage.setItem(LAYOUT_KEY, "repo");
     herdLayout.load();

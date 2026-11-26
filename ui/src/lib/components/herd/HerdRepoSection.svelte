@@ -16,10 +16,11 @@
     name,
     iconPath,
     rows,
-    above,
+    aboveIds,
     counts,
     collapsed,
     ontoggle,
+    onrevealsession,
     statusFilter,
     onstatusfilter,
     tagFor,
@@ -31,12 +32,14 @@
     iconPath: string | null;
     /** The rows rendered under this heading (epic/experiment members render in groups above). */
     rows: Session[];
-    /** This repo's listed sessions that render in the epic/experiment groups above. */
-    above: number;
+    /** This repo's sessions the epic/experiment groups above render, in render order. */
+    aboveIds: string[];
     /** Every listed session of the repo, rows and those above, by global status. */
     counts: Record<HerdStatus, number>;
     collapsed: boolean;
     ontoggle: () => void;
+    /** Reveals + selects a row above (#4235); without it the note stays plain text. */
+    onrevealsession?: (id: string) => void;
     statusFilter: HerdStatus | null;
     onstatusfilter?: (status: HerdStatus | null) => void;
     tagFor: (session: Session) => StageTag | null;
@@ -49,6 +52,13 @@
 
   const icon = $derived(iconPath ? projectIcons.iconFor(iconPath) : null);
   const shown = $derived(HERD_STATUS_ORDER.filter((s) => counts[s] > 0));
+  const above = $derived(aboveIds.length);
+
+  const aboveTip = $derived<TooltipExplanation>({
+    title: m.herd_repo_above_tip_title({ count: above, repo: name }),
+    summary: m.herd_repo_above_tip_summary(),
+    sections: [{ label: m.herd_repo_count_tip_click_label(), text: m.herd_repo_above_tip_click() }],
+  });
 
   const GLYPH: Record<HerdStatus, string> = { running: "●", idle: "◌", blocked: "!", merge: "●" };
 
@@ -88,7 +98,9 @@
 {#snippet ident()}
   <span class="icon" aria-hidden="true">{icon ?? "▣"}</span>
   <span class="name">{name}</span>
-  {#if above > 0}<span class="above">{m.herd_repo_in_groups_above({ count: above })}</span>{/if}
+  {#if above > 0 && !onrevealsession}
+    <span class="above">{m.herd_repo_in_groups_above({ count: above })}</span>
+  {/if}
 {/snippet}
 
 <div class="repo-head" class:touch={touchTarget} class:flow-row={flow}>
@@ -103,6 +115,18 @@
       <span class="chev" aria-hidden="true"></span>
       {@render ident()}
     </span>
+  {/if}
+  {#if above > 0 && onrevealsession}
+    <!-- outside the toggle: a button can't nest in a button -->
+    <button
+      type="button"
+      class="above jump"
+      aria-label={m.herd_repo_above_aria({ count: above, repo: name })}
+      use:statusTip={{ text: aboveTip, pinOnClick: false, stopClickPropagation: false }}
+      onclick={() => onrevealsession(aboveIds[0])}
+    >
+      {m.herd_repo_in_groups_above({ count: above })}
+    </button>
   {/if}
   <span class="counts">
     {#each shown as s (s)}
@@ -198,6 +222,22 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .above.jump {
+    align-self: stretch;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .above.jump:hover {
+    color: var(--color-ink);
+    text-decoration: underline;
+  }
+  .above.jump:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .counts {
     display: flex;

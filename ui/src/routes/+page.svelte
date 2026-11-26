@@ -4196,6 +4196,7 @@
             collapsedKeys={collapsedEpics}
             oncollapsetoggle={toggleEpicCollapse}
             onrenderedepicgroups={normalizeRenderedEpicCollapse}
+            onrevealsession={(id) => void jumpHandlers.revealFromRepoHeading(id)}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -4438,6 +4439,7 @@
               collapsedKeys={collapsedEpics}
               oncollapsetoggle={toggleEpicCollapse}
               onrenderedepicgroups={normalizeRenderedEpicCollapse}
+              onrevealsession={(id) => void jumpHandlers.revealFromRepoHeading(id)}
               ondecommission={onarchive}
               {onrelaunch}
               {onrelaunchElsewhere}

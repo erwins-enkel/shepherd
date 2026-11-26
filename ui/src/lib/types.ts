@@ -440,8 +440,9 @@ export interface HeavyResourceSettings {
   peaks: Record<string, number>;
 }
 
-/** #4232: per-repo on-demand Postgres. */
-export type PostgresMode = "off" | "on-request";
+/** #4232: per-repo on-demand Postgres. `auto` (#4238) gives every task-session spawn its own clone,
+ *  its connection injected as DATABASE_URL + PG* env. */
+export type PostgresMode = "off" | "on-request" | "auto";
 
 /** Settings → Resources → Postgres (#4232): the shared on-demand server. */
 export interface PostgresSettings {

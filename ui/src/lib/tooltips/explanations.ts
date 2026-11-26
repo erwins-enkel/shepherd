@@ -439,13 +439,15 @@ export function sharedBrowserExplanation(): TooltipExplanation {
 }
 
 /** Agent → "Postgres on request" (#4232): what the per-repo switch gives agents, what each one
- *  gets, its limits, and what it needs. */
+ *  gets, the every-spawn option and its injected env (#4238), its limits, and what it needs. */
 export function postgresExplanation(): TooltipExplanation {
   return {
     title: m.tooltip_postgres_title(),
     summary: m.tooltip_postgres_summary(),
     sections: [
       { label: m.tooltip_postgres_for(), text: m.tooltip_postgres_for_body() },
+      { label: m.tooltip_postgres_auto(), text: m.tooltip_postgres_auto_body() },
+      { label: m.tooltip_postgres_env(), text: m.tooltip_postgres_env_body() },
       { label: m.tooltip_postgres_lifecycle(), text: m.tooltip_postgres_lifecycle_body() },
       { label: m.tooltip_postgres_needs(), text: m.tooltip_postgres_needs_body() },
     ],

@@ -917,8 +917,14 @@ export class RepoConfigStore {
     });
   }
 
+  /** On/off switch: off → on-request; on-request or auto → off (#4238). */
   async togglePostgres(repoPath: string) {
     await this.write(repoPath, { postgresMode: this.postgresOn(repoPath) ? "off" : "on-request" });
+  }
+
+  /** "Database at every spawn" (#4238): on-request ↔ auto; optimistic, reverted on failure. */
+  async setPostgresAuto(repoPath: string, on: boolean) {
+    await this.write(repoPath, { postgresMode: on ? "auto" : "on-request" });
   }
 
   async toggleSharedBrowser(repoPath: string) {
@@ -1070,7 +1076,11 @@ export class RepoConfigStore {
   }
 
   postgresOn(repoPath: string): boolean {
-    return (this.postgresMode[repoPath] ?? "off") === "on-request";
+    return (this.postgresMode[repoPath] ?? "off") !== "off";
+  }
+
+  postgresAuto(repoPath: string): boolean {
+    return this.postgresMode[repoPath] === "auto";
   }
 
   sharedBrowserOn(repoPath: string): boolean {

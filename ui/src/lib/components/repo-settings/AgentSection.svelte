@@ -85,6 +85,7 @@
   const browserOn = $derived(repoConfig.sharedBrowserOn(repoPath));
   // Settings → Resources → Postgres (#4232) gates every repo's toggle; unknown reads as on.
   const postgresGlobalOff = $derived(globals?.postgres?.enabled === false);
+  const pgAutoId = $props.id();
   // The extra hosts only widen the Autonomous egress firewall; Trusted and Standard don't restrict
   // the network, so the list hides there (its stored hosts stay).
   const autonomous = $derived(repoConfig.effectiveSandboxProfileFor(repoPath) === "autonomous");
@@ -254,6 +255,30 @@
     {#snippet below()}
       {#if postgresGlobalOff}
         <p class="note">{m.automation_postgres_global_off()}</p>
+      {/if}
+      <!-- #4238: on-request ↔ auto. Codex sessions have no postgres_request tool, so auto is
+           how they get a database. -->
+      {#if repoConfig.postgresOn(repoPath)}
+        {@const autoOn = repoConfig.postgresAuto(repoPath)}
+        <div class="rs-choice" data-field="postgresAuto">
+          <label class={["rs-choice-opt", { on: autoOn }]}>
+            <input
+              type="checkbox"
+              checked={autoOn}
+              aria-labelledby="{pgAutoId}-name"
+              aria-describedby="{pgAutoId}-desc"
+              onchange={(e) => repoConfig.setPostgresAuto(repoPath, e.currentTarget.checked)}
+            />
+            <span class="rs-choice-text">
+              <span class="rs-choice-name" id="{pgAutoId}-name">
+                {m.automation_postgres_auto_name()}
+              </span>
+              <span class="rs-choice-desc" id="{pgAutoId}-desc">
+                {m.automation_postgres_auto_desc()}
+              </span>
+            </span>
+          </label>
+        </div>
       {/if}
     {/snippet}
   </RepoSettingRow>

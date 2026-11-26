@@ -24,7 +24,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   };
 });
 const toastsInfo = vi.fn();
-vi.mock("#lib/toasts.svelte.js", () => ({ toasts: { info: toastsInfo } }));
+vi.mock("#lib/toasts.svelte.js", () => ({ toasts: { info: toastsInfo, dismissKey: vi.fn() } }));
 vi.mock("#lib/pull-offer.js", () => ({ pullMainAndToast: vi.fn() }));
 
 // Imported AFTER the mocks: the stores import #lib/api.
@@ -456,8 +456,13 @@ describe("PrActionRow — merge outcome", () => {
         props: { session: sess, git, status: "idle", ondecommission },
       });
       await mergeThroughDialog(h);
-      await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-      const [text, opts] = toastsInfo.mock.calls[0] as [string, { action?: unknown; key?: string }];
+      // The flow's sticky progress toast comes first; the outcome toast is the row's own.
+      const outcome = () =>
+        toastsInfo.mock.calls.filter(([, o]) =>
+          (o as { key?: string })?.key?.startsWith("pr-merge"),
+        );
+      await vi.waitFor(() => expect(outcome()).toHaveLength(1));
+      const [text, opts] = outcome()[0] as [string, { action?: unknown; key?: string }];
       expect(text).toBe(m.toast_merged({ name: sess.name }));
       expect(opts.action).toBeUndefined();
       expect(opts.key).toBe("pr-merge:sess-A");
@@ -492,6 +497,39 @@ describe("PrActionRow — merge outcome", () => {
     await vi.waitFor(() => expect(dialog(h)).not.toBeNull());
     await screen.rerender({ session: session({ id: "sess-B" }), git: readyGit, status: "idle" });
     await vi.waitFor(() => expect(dialog(h)).toBeNull());
+  });
+
+  it("a merge in flight stays with its own session across a switch", async () => {
+    let fail!: (e: unknown) => void;
+    mergePrFn.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          fail = reject;
+        }),
+    );
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    await mergeThroughDialog(h);
+    await vi.waitFor(() => expect(row(h)!.classList.contains("merging")).toBe(true));
+
+    await screen.rerender({ session: session({ id: "sess-B" }), git: readyGit, status: "idle" });
+    await vi.waitFor(() => expect(row(h)!.classList.contains("merging")).toBe(false));
+    // B can open its own confirmation while A's merge runs on.
+    mergeBtn(h).click();
+    await vi.waitFor(() => expect(dialog(h)).not.toBeNull());
+
+    // A's failure lands on A's key as a toast, never in B's row.
+    fail(new Error("host said no"));
+    await vi.waitFor(() =>
+      expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_merge_failed({ reason: "host said no" }), {
+        alert: true,
+        key: "pr-merge:sess-A",
+      }),
+    );
+    expect(h.querySelector(".pr-error")).toBeNull();
   });
 });
 
@@ -595,10 +633,10 @@ describe("PrActionRow — running critic blocks merge", () => {
     await vi.waitFor(() => expect(mergePrFn).toHaveBeenCalledTimes(1));
     reviews.setReviewing("sess-A", true);
     await vi.waitFor(() => expect(row(h)!.classList.contains("merging")).toBe(true));
-    expect(dialog(h)).not.toBeNull();
+    // The dialog closed on confirm; the submitted merge runs on behind its progress toast.
+    expect(dialog(h)).toBeNull();
     finish();
-    await vi.waitFor(() => expect(dialog(h)).toBeNull());
-    expect(row(h)!.classList.contains("reviewing")).toBe(true);
+    await vi.waitFor(() => expect(row(h)!.classList.contains("reviewing")).toBe(true));
   });
 });
 

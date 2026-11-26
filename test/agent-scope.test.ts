@@ -7,6 +7,7 @@ import {
   agentScopeEnabled,
   agentScopePrefix,
   refreshAgentScope,
+  stopAgentScopes,
 } from "../src/agent-scope";
 
 const FRAGMENT = `/home/op/.config/systemd/user/${AGENT_SLICE}`;
@@ -107,5 +108,121 @@ describe("shipped units (#3128)", () => {
     expect(value(dropIn, "TasksMax")).toBe(value(herdrUnit, "TasksMax"));
     expect(value(dropIn, "OOMPolicy")).toBe("continue");
     expect(value(dropIn, "ExecStopPost")).toBe(`-systemctl --user stop ${AGENT_SLICE}`);
+  });
+});
+
+describe("stopAgentScopes (#4039)", () => {
+  const CG = `/user.slice/user-1000.slice/user@1000.service/${AGENT_SLICE}`;
+  const DIR = `/sys/fs/cgroup${CG}`;
+  const SID = "208b6fd5-418d-468f-b29b-3e72474a65f9";
+
+  interface ScopeHost {
+    controlGroup?: string;
+    /** dirent name → cgroup.procs pids */
+    scopes: Record<string, number[]>;
+    /** pid → environ entries */
+    environ?: Record<number, string[]>;
+    stopFails?: boolean;
+  }
+
+  function fakeHost(host: ScopeHost) {
+    const calls: string[][] = [];
+    const deps = {
+      platform: "linux" as const,
+      run: async (bin: string, args: string[]) => {
+        calls.push([bin, ...args]);
+        if (args.includes("ControlGroup")) return `${host.controlGroup ?? CG}\n`;
+        if (args[1] === "stop" && host.stopFails) throw new Error("bus down");
+        return "";
+      },
+      readDir: async (path: string) => {
+        if (path !== DIR) throw new Error(`ENOENT ${path}`);
+        return [...Object.keys(host.scopes), "cgroup.procs", "memory.max"];
+      },
+      readFile: async (path: string) => {
+        const procs = path.match(/^.+\/([^/]+)\/cgroup\.procs$/);
+        if (procs && path.startsWith(DIR)) {
+          const pids = host.scopes[procs[1]!];
+          if (!pids) throw new Error("ENOENT");
+          return pids.map((p) => `${p}\n`).join("");
+        }
+        const env = path.match(/^\/proc\/(\d+)\/environ$/);
+        const entries = env ? host.environ?.[Number(env[1])] : undefined;
+        if (!entries) throw new Error("EACCES");
+        return entries.join("\0") + "\0";
+      },
+    };
+    const stops = () => calls.filter((c) => c[0] === "systemctl" && c[2] === "stop");
+    return { deps, calls, stops };
+  }
+
+  test("stops a scope whose main pid is gone, spares one whose main pid is alive", async () => {
+    const h = fakeHost({
+      scopes: {
+        "run-p100-i1.scope": [200, 201], // main 100 dead, leftovers remain
+        "run-p300-i2.scope": [300, 301], // main alive
+      },
+    });
+    expect(await stopAgentScopes({}, h.deps)).toEqual(["run-p100-i1.scope"]);
+    expect(h.stops()).toEqual([
+      ["systemctl", "--user", "stop", "--no-block", "--", "run-p100-i1.scope"],
+    ]);
+  });
+
+  test("skips empty scopes, the heavy slice and non-auto-named entries", async () => {
+    const h = fakeHost({
+      scopes: {
+        "run-p100-i1.scope": [],
+        "shepherd_agents-heavy.slice": [999],
+        "shepherd-heavy-abc.scope": [999],
+        "my-run-p5-i1.scope": [999],
+      },
+    });
+    expect(await stopAgentScopes({}, h.deps)).toEqual([]);
+    expect(h.stops()).toEqual([]);
+  });
+
+  test("with a sessionId, also stops a live scope carrying that exact marker", async () => {
+    const h = fakeHost({
+      scopes: {
+        "run-p300-i2.scope": [300, 301],
+        "run-p400-i3.scope": [400],
+        "run-p500-i4.scope": [500],
+      },
+      environ: {
+        300: ["PATH=/usr/bin"], // main lacks the marker, a child carries it
+        301: [`SHEPHERD_SESSION_ID=${SID}`],
+        400: [`SHEPHERD_SESSION_ID=${SID}x`], // near miss
+        500: ["SHEPHERD_SESSION_ID=other"],
+      },
+    });
+    expect(await stopAgentScopes({ sessionId: SID }, h.deps)).toEqual(["run-p300-i2.scope"]);
+  });
+
+  test("without a sessionId, a marker never stops a live scope", async () => {
+    const h = fakeHost({
+      scopes: { "run-p300-i2.scope": [300] },
+      environ: { 300: [`SHEPHERD_SESSION_ID=${SID}`] },
+    });
+    expect(await stopAgentScopes({}, h.deps)).toEqual([]);
+  });
+
+  test("no slice cgroup (empty ControlGroup) ⇒ no reads, no stop", async () => {
+    const h = fakeHost({ controlGroup: "", scopes: { "run-p100-i1.scope": [200] } });
+    expect(await stopAgentScopes({}, h.deps)).toEqual([]);
+    expect(h.stops()).toEqual([]);
+  });
+
+  test("non-Linux ⇒ nothing run", async () => {
+    const h = fakeHost({ scopes: { "run-p100-i1.scope": [200] } });
+    expect(await stopAgentScopes({}, { ...h.deps, platform: "darwin" })).toEqual([]);
+    expect(h.calls).toEqual([]);
+  });
+
+  test("never throws: a failing stop or unreadable slice dir resolves []", async () => {
+    const failing = fakeHost({ scopes: { "run-p100-i1.scope": [200] }, stopFails: true });
+    expect(await stopAgentScopes({}, failing.deps)).toEqual([]);
+    const gone = fakeHost({ controlGroup: "/elsewhere", scopes: {} });
+    expect(await stopAgentScopes({}, gone.deps)).toEqual([]);
   });
 });

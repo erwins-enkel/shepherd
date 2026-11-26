@@ -479,6 +479,12 @@ export interface ServiceDeps {
    * bug #1144 tracks. Absent in tests that skip it.
    */
   reapRunaway?: (ids: Set<string>) => void;
+  /**
+   * Stop the agent scopes (`shepherd_agents.slice`) of a session being archived, plus any whose
+   * agent is already gone (#4039) — the cgroup holds every descendant, whatever its PPID or cwd.
+   * Best-effort, never throws; a no-op off provisioned Linux hosts. Absent in tests that skip it.
+   */
+  stopAgentScopes?: (sessionId: string) => Promise<void>;
   /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
   preview?: Pick<PreviewService, "devPortFor">;
   /** Fast-poll one session's PR (= prPoller.pollSession), to nudge merge detection
@@ -9931,6 +9937,8 @@ export class SessionService {
     } else {
       await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     }
+    // #4039: the agent's scope outlives its pane — stop it so dev servers/browsers die with it.
+    await this.deps.stopAgentScopes?.(id).catch(() => {}); // best-effort: never blocks teardown
     this.assertArchiveAllowed(id, automatic);
     // Best-effort pre-teardown hook (recap generation): the recap generator reads the
     // worktree to build its prompt, so it MUST run while the worktree still exists.

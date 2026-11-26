@@ -846,6 +846,146 @@ test("reapDeletedWorktreeOrphans: spares a deleted cwd that isn't a shepherd wor
   expect(k.killed).toEqual([]);
 });
 
+// ── #4039: the systemd user manager is a subreaper ───────────────────────────
+//
+// Under systemd, orphans from herdr panes / agent scopes are reparented to `systemd --user`
+// (PR_SET_CHILD_SUBREAPER), never PID 1 — so a strict `ppid === 1` gate never fired.
+
+const MANAGER_PID = 1446;
+
+/** comm for the fake host: the user manager is `systemd`, scanned procs report their own comm. */
+function commWithManager(
+  procs: { pid: number; comm: string }[],
+  extra: Record<number, string> = {},
+) {
+  return (pid: number) =>
+    pid === MANAGER_PID ? "systemd" : (extra[pid] ?? procs.find((p) => p.pid === pid)?.comm ?? "");
+}
+
+test("#4039 reapOrphansUnder: SIGKILLs an orphan reparented to the systemd user manager", () => {
+  const k = killSpy();
+  const procs = [{ pid: ORPHAN_PID, cwd: WT, comm: "node" }];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: () => MANAGER_PID,
+      commForPid: commWithManager(procs),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(1);
+  expect(k.killed).toEqual([{ pid: ORPHAN_PID, signal: "SIGKILL" }]);
+});
+
+test("#4039 reapDeletedWorktreeOrphans: SIGKILLs a subreaper orphan in a deleted worktree", () => {
+  const k = killSpy();
+  const procs = [{ pid: ORPHAN_PID, cwd: `${WT} (deleted)`, comm: "node" }];
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: () => MANAGER_PID,
+      commForPid: commWithManager(procs),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(1);
+  expect(k.killed).toEqual([{ pid: ORPHAN_PID, signal: "SIGKILL" }]);
+});
+
+test("#4039 a parent that is not systemd (a live wrapper / shell) still spares the child", () => {
+  const k = killSpy();
+  const procs = [
+    { pid: ORPHAN_PID, cwd: `${WT} (deleted)`, comm: "node" },
+    { pid: ORPHAN_PID + 1, cwd: `${WT} (deleted)`, comm: "vite" },
+  ];
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: (pid) => (pid === ORPHAN_PID ? 9000 : 9001),
+      commForPid: commWithManager(procs, { 9000: "npm", 9001: "bash" }),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+// ── #4039: an orphaned wrapper dies with its descendant tree ─────────────────
+
+test("#4039 an orphaned wrapper is SIGKILLed together with its child and grandchild", () => {
+  const k = killSpy();
+  const root = ORPHAN_PID;
+  const procs = [{ pid: root, cwd: `${WT} (deleted)`, comm: "npm" }];
+  const tree: Record<number, number[]> = { [root]: [root + 1], [root + 1]: [root + 2] };
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: (pid) => (pid === root ? MANAGER_PID : pid - 1),
+      commForPid: commWithManager(procs, { [root + 1]: "node", [root + 2]: "esbuild" }),
+      childrenOf: (pid) => tree[pid] ?? [],
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(3);
+  expect(k.killed).toEqual([
+    { pid: root, signal: "SIGKILL" },
+    { pid: root + 1, signal: "SIGKILL" },
+    { pid: root + 2, signal: "SIGKILL" },
+  ]);
+});
+
+test("#4039 the descendant walk spares agent comms and the server itself", () => {
+  const k = killSpy();
+  const root = ORPHAN_PID;
+  const procs = [{ pid: root, cwd: WT, comm: "npm" }];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: () => MANAGER_PID,
+      commForPid: commWithManager(procs, { [root + 1]: "claude", [root + 2]: "codex" }),
+      childrenOf: (pid) => (pid === root ? [root + 1, root + 2, process.pid] : []),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(1);
+  expect(k.killed).toEqual([{ pid: root, signal: "SIGKILL" }]);
+});
+
+test("#4039 a descendant recycled between enumeration and its kill is spared", () => {
+  const k = killSpy();
+  const root = ORPHAN_PID;
+  const procs = [{ pid: root, cwd: WT, comm: "npm" }];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: () => MANAGER_PID,
+      commForPid: commWithManager(procs, { [root + 1]: "node" }),
+      childrenOf: (pid) => (pid === root ? [root + 1] : []),
+      cpuStatForPid: recycleAfterFirstRead(root + 1),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(1);
+  expect(k.killed).toEqual([{ pid: root, signal: "SIGKILL" }]);
+});
+
+test("#4039 the descendant walk is cycle-safe and bounded", () => {
+  const k = killSpy();
+  const root = ORPHAN_PID;
+  const procs = [{ pid: root, cwd: WT, comm: "npm" }];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => procs,
+      ppidForPid: () => MANAGER_PID,
+      commForPid: commWithManager(procs),
+      // A bogus /proc answer: every pid claims a fresh child AND the root — must terminate.
+      childrenOf: (pid) => [root, pid + 1],
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(1 + 256);
+});
+
 // ── #1925: pid-recycle fingerprint at every kill site ────────────────────────
 //
 // Each site reads its identity signal (cwd, port, ppid, "(deleted)") strictly BEFORE it signals.

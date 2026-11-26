@@ -143,7 +143,7 @@ import { ingestUpdateJournal } from "./update-call";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
 import { refreshMiseClaude } from "./mise-claude";
-import { refreshAgentScope } from "./agent-scope";
+import { refreshAgentScope, stopAgentScopes } from "./agent-scope";
 import { reapHeavyScopes, refreshHeavyScope } from "./heavy-scope";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
@@ -1265,6 +1265,8 @@ const service = new SessionService({
   reaper,
   // #1144: reap what the agent left burning, for the ids just archived. Defined below.
   reapRunaway: (ids) => sweepRunawayOrphans(ids),
+  // #4039: stop the archived session's agent scope (and any whose agent is gone).
+  stopAgentScopes: (id) => sweepAgentScopes(id),
   preview: previewService,
   // Fast-poll a queue member to surface its merge promptly when the train session
   // archives before the 120s PR sweep credits it (the merge-train completion race).
@@ -1653,6 +1655,21 @@ const sweepRunawayOrphans = (ids?: Set<string>) => {
   }
 };
 
+/**
+ * #4039: stop agent scopes whose agent (the scope's main process) is gone — with `sessionId`, also
+ * that session's live ones. herdr's ExecStopPost stops the slice only when herdr stops, so without
+ * this an ended agent's dev servers and browsers live on in its scope. Runs at archive, on boot and
+ * hourly. Never rejects.
+ */
+const sweepAgentScopes = async (sessionId?: string): Promise<void> => {
+  if (maintenance.active) return;
+  const stopped = await stopAgentScopes({ sessionId });
+  if (stopped.length > 0)
+    console.warn(
+      `[agent-scope] stopping ${stopped.length} scope(s)${sessionId ? ` for ${sessionId}` : ""}: ${stopped.join(" ")}`,
+    );
+};
+
 deferredStarts.push(() => {
   // Shared Browser orphans: Chromium a crashed/SIGKILLed server left on one of our profiles.
   void reapOrphanBrowsers(config.browserProfileRoot)
@@ -1669,6 +1686,8 @@ deferredStarts.push(() => {
     .then(() => sweepRunawayOrphans())
     .catch((err) => console.warn("[reap-runaway] boot sweep failed:", err));
   setInterval(() => sweepRunawayOrphans(), 60 * 60 * 1000);
+  void sweepAgentScopes();
+  setInterval(() => void sweepAgentScopes(), 60 * 60 * 1000);
 });
 
 // Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The

@@ -84,9 +84,9 @@ export interface ReaperProbes {
   /**
    * Parent pid for a single process (the `PPid:` field of /proc/<pid>/status), or
    * null when unreadable. Used by the orphan sweeps to recognise a process the
-   * kernel has reparented to PID 1 (its launching shell exited) — the load-bearing
-   * "this is an orphan, not a live child" signal. Optional + read per-candidate so
-   * the hot scanProcs() pollers never pay for it.
+   * kernel has reparented to PID 1 or the systemd user manager (its launching shell
+   * exited) — the load-bearing "this is an orphan, not a live child" signal. Optional +
+   * read per-candidate so the hot scanProcs() pollers never pay for it.
    */
   ppidForPid?(pid: number): number | null;
   /**
@@ -431,27 +431,94 @@ function isSameProcess(
   return captured != null && startTicksFor(pid, probes) === captured;
 }
 
+/** Upper bound on the descendant tree {@link killReparentedOrphan} walks under one orphan root. */
+const MAX_ORPHAN_DESCENDANTS = 256;
+
 /**
- * The shared tail of both PPID-1 orphan sweeps ({@link ProcessReaper.reapOrphansUnder},
- * {@link reapDeletedWorktreeOrphans}): confirm the kernel has reparented this process to PID 1 —
- * the "abandoned, not a live child" signal — then SIGKILL it. The bracket spans both the cwd/comm
- * re-read and the `ppidForPid` read, so every gate the kill rests on is verified against one
- * unchanged `starttime`.
- *
- * Returns whether a signal was actually SENT (not a death confirmation). Best-effort: a `killPid`
- * that throws because the process exited first is a false, not an error.
+ * Is `ppid` the parent an ABANDONED process gets? PID 1, or — on a systemd host — the user
+ * manager (`systemd --user`), which is a child subreaper (`PR_SET_CHILD_SUBREAPER`): the kernel
+ * reparents an orphan from a herdr pane or an agent scope to IT, never to PID 1 (#4039). Matched by
+ * comm, not `$MANAGERPID`, so it holds however Shepherd itself was started. No uid check: a
+ * same-uid orphan can only be reparented to one of its own ancestor subreapers.
  */
-function killReparentedOrphan(p: ScannedProc, probes: ReaperProbes): boolean {
-  const startTicks = openSignalBracket(p, probes);
-  if (startTicks === null) return false;
-  if ((probes.ppidForPid?.(p.pid) ?? null) !== 1) return false;
-  if (!isSameProcess(p.pid, startTicks, probes)) return false;
+function isReparentedParent(ppid: number | null, probes: ReaperProbes): boolean {
+  if (ppid === null) return false;
+  return ppid === 1 || probes.commForPid?.(ppid) === "systemd";
+}
+
+/**
+ * Every descendant of `rootPid` (BFS over `childrenOf`, capped at {@link MAX_ORPHAN_DESCENDANTS}),
+ * each with the `starttime` captured NOW so its kill can be re-verified against recycling. Spares
+ * the server itself and agent comms. `childrenOf` absent ⇒ [] (the root alone is signalled).
+ */
+function collectDescendants(
+  rootPid: number,
+  probes: ReaperProbes,
+): { pid: number; startTicks: number }[] {
+  const out: { pid: number; startTicks: number }[] = [];
+  if (!probes.childrenOf) return out;
+  const seen = new Set([rootPid]);
+  const queue = [rootPid];
+  while (queue.length > 0 && out.length < MAX_ORPHAN_DESCENDANTS) {
+    const fresh = probes.childrenOf(queue.shift()!).filter((c) => !seen.has(c));
+    for (const child of fresh) {
+      seen.add(child);
+      queue.push(child);
+      const entry = descendantEntry(child, probes);
+      if (entry && out.length < MAX_ORPHAN_DESCENDANTS) out.push(entry);
+    }
+  }
+  return out;
+}
+
+/** A descendant to signal, fingerprinted — or null for the server itself, an agent, or a pid gone. */
+function descendantEntry(
+  pid: number,
+  probes: ReaperProbes,
+): { pid: number; startTicks: number } | null {
+  if (pid === process.pid || AGENT_COMMS.has(probes.commForPid?.(pid) ?? "")) return null;
+  const startTicks = startTicksFor(pid, probes);
+  return startTicks === null ? null : { pid, startTicks };
+}
+
+/** SIGKILL `pid`; whether a signal was actually SENT (a throw = the process already exited). */
+function sigkill(pid: number, probes: ReaperProbes): boolean {
   try {
-    probes.killPid(p.pid, "SIGKILL");
+    probes.killPid(pid, "SIGKILL");
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * The shared tail of both orphan sweeps ({@link ProcessReaper.reapOrphansUnder},
+ * {@link reapDeletedWorktreeOrphans}): confirm the kernel has reparented this process to PID 1 or
+ * the systemd user manager ({@link isReparentedParent}) — the "abandoned, not a live child" signal
+ * — then SIGKILL it AND its descendant tree. The bracket spans the cwd/comm re-read and the
+ * `ppidForPid` read, so every gate the root's kill rests on is verified against one unchanged
+ * `starttime`.
+ *
+ * The tree matters for wrappers (#4039): an orphaned `npm run dev` has `vite` as its child, which
+ * is NOT an orphan (its parent is the wrapper) — kill only the wrapper and vite survives until the
+ * next daily sweep. Descendants are enumerated BEFORE the root dies (after, they are reparented and
+ * the tree is gone), each fingerprinted and re-verified right before its own SIGKILL.
+ *
+ * Returns the number of signals actually SENT (not death confirmations). Best-effort: a `killPid`
+ * that throws because the process exited first does not count, and is not an error.
+ */
+function killReparentedOrphan(p: ScannedProc, probes: ReaperProbes): number {
+  const startTicks = openSignalBracket(p, probes);
+  if (startTicks === null) return 0;
+  if (!isReparentedParent(probes.ppidForPid?.(p.pid) ?? null, probes)) return 0;
+  const descendants = collectDescendants(p.pid, probes);
+  if (!isSameProcess(p.pid, startTicks, probes)) return 0;
+  if (!sigkill(p.pid, probes)) return 0;
+  let sent = 1;
+  for (const d of descendants) {
+    if (isSameProcess(d.pid, d.startTicks, probes) && sigkill(d.pid, probes)) sent++;
+  }
+  return sent;
 }
 
 /** Canonical worktree root for comparison against probe-reported cwds: trailing
@@ -1097,14 +1164,15 @@ export class ProcessReaper {
   }
 
   /**
-   * Layer A (worktree teardown): SIGKILL every orphaned (PPID-1) process whose cwd is
+   * Layer A (worktree teardown): SIGKILL every orphaned process (PPID 1 or the systemd user
+   * manager, see `isReparentedParent`) — with its descendant tree — whose cwd is
    * under `worktreePath`. This is the leak the port-based class-2 detector misses — a
    * detached busy-loop (`yes &`, a load generator) listens on nothing, so the
    * listening-port test never flags it, yet it pegs cores forever once its launching
    * shell exits and reparents it to PID 1 (issue #1133).
    *
-   * The PPID-1 filter is the orphan signal: a live agent-managed process has its
-   * herdr/PTY as parent, not 1, so this never touches a running child — making it safe
+   * The reparented-parent filter is the orphan signal: a live agent-managed process has its
+   * herdr/PTY as parent, not 1 or the user manager, so this never touches a running child — making it safe
    * at the generic teardown chokepoint regardless of whether the agent was stopped
    * first. `claude`/`codex` and the shepherd server itself are always spared.
    *
@@ -1120,7 +1188,7 @@ export class ProcessReaper {
     for (const p of this.probes.scanProcs()) {
       if (p.pid === process.pid || AGENT_COMMS.has(p.comm)) continue;
       if (!isUnder(p.cwd, root)) continue;
-      if (killReparentedOrphan(p, this.probes)) count++;
+      count += killReparentedOrphan(p, this.probes);
     }
     return count;
   }
@@ -1170,15 +1238,17 @@ export class ProcessReaper {
 }
 
 /**
- * Layer B (boot + daily safety net): SIGKILL every orphaned (PPID-1) process whose cwd
+ * Layer B (boot + daily safety net): SIGKILL every orphaned process (PPID 1 or the systemd user
+ * manager, see `isReparentedParent`) — with its descendant tree — whose cwd
  * resolves to an already-DELETED shepherd worktree (`…/.shepherd-worktrees/… (deleted)`).
  *
  * This catches leaks the teardown sweep (`reapOrphansUnder`) could not — anything that
  * leaked before this fix existed, or whose worktree was removed by a path that did not
- * run the teardown sweep. The "(deleted)" cwd + worktree marker + PPID-1 conjunction is
+ * run the teardown sweep. The "(deleted)" cwd + worktree marker + reparented conjunction is
  * unambiguous, so this carries zero false-positive risk: it acts only on processes
  * whose working directory is a gone shepherd worktree and that the kernel has
- * reparented to PID 1. `claude`/`codex` and the shepherd server itself are spared.
+ * reparented to PID 1 / the user manager. `claude`/`codex` and the shepherd server itself are
+ * spared.
  *
  * It deliberately does NOT touch orphans whose worktree still exists on disk (a quiet
  * but possibly-active session) — that needs liveness checks and is out of scope (#1133).
@@ -1194,7 +1264,7 @@ export function reapDeletedWorktreeOrphans(probes: ReaperProbes = defaultProbes)
     if (!p.cwd.endsWith(DELETED_SUFFIX)) continue;
     const realCwd = p.cwd.slice(0, -DELETED_SUFFIX.length);
     if (!(realCwd + "/").includes(WORKTREE_MARKER)) continue;
-    if (killReparentedOrphan(p, probes)) reaped++;
+    reaped += killReparentedOrphan(p, probes);
   }
   return { reaped };
 }

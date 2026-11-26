@@ -50,6 +50,10 @@ Working through a PRD epic by epic? In Epic mode, **Next epic** in the prompt to
 editable prompt that drafts the next epic from the repo's PRD (`docs/prd/`, `docs/prd.md` or
 `PRD.md`) and adds the gaps earlier epics left behind as children.
 
+**Shape** works in Epic mode as well. It runs a short clarifying round before anything starts and
+replaces your rough idea with a brief: problem, outcome, constraints and non-goals. The epic session
+then drafts from that brief.
+
 The session **writes nothing to GitHub**. It produces a **reviewable draft** in the session's Epic
 draft panel; you **Approve** to create the issues (and native links), **amend** to ask for changes, or
 **abort** to discard. Only on approval does Shepherd create the parent and children and wire them, and

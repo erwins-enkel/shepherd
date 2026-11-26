@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   hintApplies,
   shapeBlocker,
+  shapeOffered,
   verdictMissing,
   verdictStyle,
   HINT_MIN_CHARS,
@@ -39,12 +40,24 @@ describe("shapeBlocker", () => {
     expect(shapeBlocker({ ...ok, mode: "epic" })).toBeNull();
   });
 
-  it("blocks in research mode — a research task has no brief", () => {
+  it("blocks in the modes that take no brief", () => {
     expect(shapeBlocker({ ...ok, mode: "research" })).toBe("wrong_mode");
+    expect(shapeBlocker({ ...ok, mode: "plain" })).toBe("wrong_mode");
+    expect(shapeBlocker({ ...ok, mode: "bootstrap" })).toBe("wrong_mode");
   });
 
   it("blocks while a round is already running, ahead of every other reason", () => {
     expect(shapeBlocker({ ...ok, running: true, promptEmpty: true, mode: "epic" })).toBe("running");
+  });
+});
+
+describe("shapeOffered", () => {
+  it("offers Shape in code and epic mode only", () => {
+    expect(shapeOffered("code")).toBe(true);
+    expect(shapeOffered("epic")).toBe(true);
+    expect(shapeOffered("research")).toBe(false);
+    expect(shapeOffered("plain")).toBe(false);
+    expect(shapeOffered("bootstrap")).toBe(false);
   });
 });
 
@@ -110,7 +123,10 @@ describe("hintApplies", () => {
   it("skips short prompts, measured trimmed", () => {
     expect(hintApplies({ ...base, prompt: `  ${"x".repeat(HINT_MIN_CHARS - 1)}  ` })).toBe(false);
   });
-  it("skips outside code mode, without a repo, and while Shape owns the slot", () => {
+  it("asks in epic mode, where Shape runs too", () => {
+    expect(hintApplies({ ...base, mode: "epic" })).toBe(true);
+  });
+  it("skips where Shape is not offered, without a repo, and while Shape owns the slot", () => {
     expect(hintApplies({ ...base, mode: "research" })).toBe(false);
     expect(hintApplies({ ...base, repoResolved: false })).toBe(false);
     expect(hintApplies({ ...base, shapeIdle: false })).toBe(false);

@@ -77,6 +77,7 @@
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import IntegratedChildNote from "./herd/IntegratedChildNote.svelte";
   import type { IntegratedNoteInput } from "#lib/integrated-child-note.js";
+  import type { StageTag } from "./herd-repo-groups";
   import { onDestroy, untrack } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import PulseLine from "./PulseLine.svelte";
@@ -133,6 +134,7 @@
     showCli = true,
     heavySlot = null,
     integrated = undefined,
+    stageTag = null,
   }: {
     session: Session;
     selected: boolean;
@@ -212,6 +214,8 @@
     /** #3016: its epic integrated this session's PR — the row says so, and for one on another
      *  machine how its settle there stands. */
     integrated?: IntegratedNoteInput;
+    /** Repo layout (#4228): the row's stage, where no stage heading above it says so. */
+    stageTag?: StageTag | null;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -719,7 +723,8 @@
       branchProtectionBlocked ||
       isMerging(session, nowMs) ||
       inMergeQueue(git) ||
-      session.readyToMerge
+      session.readyToMerge ||
+      stageTag
         ? `u-status-${session.id}`
         : null,
     ]
@@ -1391,6 +1396,7 @@
       onpreviewchoice={togglePreviewChoice}
       {showCli}
       {queueStepLive}
+      {stageTag}
       bind:elapsedEl
     />
 

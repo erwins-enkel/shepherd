@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import type { HerdStatus } from "#lib/components/herd-status.js";
   import { lensGlyph } from "#lib/components/herd/lens-glyphs.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -8,19 +9,17 @@
   let {
     filter = $bindable<HerdFilter>(),
     statusFilter,
-    statusLabel,
     collapsible,
     owedCount = 0,
     onstatusfilter,
     oncollapse,
   }: {
     filter: HerdFilter;
-    statusFilter: "running" | "idle" | "blocked" | null;
-    statusLabel: string;
+    statusFilter: HerdStatus | null;
     collapsible: boolean;
     /** Outstanding post-merge owed records (#1257) — drives the OWED lens count badge; 0 hides it. */
     owedCount?: number;
-    onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    onstatusfilter?: (status: HerdStatus | null) => void;
     oncollapse?: () => void;
   } = $props();
 
@@ -35,8 +34,9 @@
      sets its OWN container (container-type: inline-size) — the `herd` container lives on the
      sibling .units subtree and is unreachable here — so a @container query can shrink the
      label font at narrow widths, keeping full labels legible below the 300px floor.
-     The status chip (top-bar tally), which the old inline row carried, is rehomed to a thin
-     row below the strip; the touch-wide collapse control is a trailing cell of the strip's row. -->
+     The status chip (top-bar tally), which the old inline row carried, lives in the group bar
+     below the strip (HerdGroupBar); the touch-wide collapse control is a trailing cell of the
+     strip's row. -->
 <div class="lens-row">
   <div class="lens-strip" role="group" aria-label={m.herd_lenses_label()}>
     <button
@@ -113,9 +113,9 @@
       <span class="ic" aria-hidden="true">{lensGlyph.owed}</span>
       <span class="lb">{m.herd_seg_owed()}</span>
       {#if owedCount > 0}
-        <span class="owed-badge" aria-label={m.herd_owed_count({ count: owedCount })}
-          >{owedBadge}</span
-        >
+        <span class="owed-badge" aria-label={m.herd_owed_count({ count: owedCount })}>
+          {owedBadge}
+        </span>
       {/if}
     </button>
   </div>
@@ -128,25 +128,12 @@
       class="collapse-inline"
       title={m.herd_collapse()}
       aria-label={m.herd_collapse()}
-      onclick={() => oncollapse?.()}>‹</button
+      onclick={() => oncollapse?.()}
     >
+      ‹
+    </button>
   {/if}
 </div>
-
-{#if statusFilter != null}
-  <div class="chip-row">
-    <!-- aria-label carries status + clear action; the visible "✕" glyph alone would be read
-         aloud without conveying what the chip does -->
-    <button
-      type="button"
-      class="statchip"
-      title={m.topbar_tally_clear_title()}
-      aria-label={m.herd_status_chip_aria({ status: statusLabel })}
-      aria-pressed="true"
-      onclick={() => onstatusfilter?.(null)}>{statusLabel} ✕</button
-    >
-  </div>
-{/if}
 
 <style>
   /* The strip and the touch-wide collapse cell share one row and one bottom hairline. */
@@ -282,26 +269,5 @@
       /* sans caps run wider than mono; mixed case keeps "Nächstes" inside the segment */
       text-transform: none;
     }
-  }
-
-  /* Status filter chip (top-bar tally), rehomed to a thin row below the strip. */
-  .chip-row {
-    display: flex;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--color-line);
-  }
-  .statchip {
-    border: 0;
-    background: none;
-    font-family: inherit;
-    cursor: pointer;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-amber);
-  }
-  .statchip:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 </style>

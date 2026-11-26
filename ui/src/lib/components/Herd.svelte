@@ -20,6 +20,8 @@
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
   import HerdLensStrip from "./herd/HerdLensStrip.svelte";
+  import HerdGroupBar from "./herd/HerdGroupBar.svelte";
+  import HerdRepoSections from "./herd/HerdRepoSections.svelte";
   import HerdEpicGroups from "./herd/HerdEpicGroups.svelte";
   import HerdExperimentGroups from "./herd/HerdExperimentGroups.svelte";
   import HerdDoneViews from "./herd/HerdDoneViews.svelte";
@@ -45,9 +47,18 @@
     shownMirrored,
     joinMirrored,
     mirroredGit,
+    flattenByStage,
     GROUP_KEY_BY_STAGE,
     type HerdFilter,
   } from "./herd-partition";
+  import {
+    countHerdStatuses,
+    herdStatusOf,
+    type HerdStatus,
+    type HerdStatusCtx,
+  } from "./herd-status";
+  import { groupByRepo, repoKeyFn, type StageTag } from "./herd-repo-groups";
+  import { herdLayout } from "#lib/herd-layout.svelte.js";
   import { groupSessionsByEpic, isRemoteEpic, sessionlessEpicGroups } from "./epic-grouping";
   import { sessionlessEpicWait } from "./epic-sessionless";
   import { groupSessionsByExperiment } from "./experiment-grouping";
@@ -241,8 +252,8 @@
     // page-level status filter (TopBar tallies). Sessions already arrive filtered;
     // the prop only drives the head chip, the empty-state copy, and short-circuits
     // the local all/ready filter (one filter at a time).
-    statusFilter?: "running" | "idle" | "blocked" | null;
-    onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    statusFilter?: HerdStatus | null;
+    onstatusfilter?: (status: HerdStatus | null) => void;
     // page-level origin filter (#3999). Sessions (and doneList) already arrive filtered; the
     // prop drives the origin bar, the empty-state copy and hides session-less rows.
     originFilter?: SessionOrigin | null;
@@ -429,7 +440,9 @@
       ? m.topbar_working_label()
       : statusFilter === "idle"
         ? m.topbar_idle_label()
-        : m.topbar_blocked_label(),
+        : statusFilter === "merge"
+          ? m.topbar_merge_label()
+          : m.topbar_blocked_label(),
   );
   // within the shown set, top→bottom by lifecycle stage: active rows first, then
   // critic-reviewing / plan-gate-reviewing and PR-CI-running in-flight groups, then
@@ -612,6 +625,66 @@
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
   const reviewerAnonymous = $derived(allAnonymous(partition.waitingOnReviewer));
   const mergerAnonymous = $derived(allAnonymous(partition.waitingOnMerger));
+
+  // ── Group: Stage | Repo (#4228) ──
+  // The switch belongs to the session-list lenses; Next / Done / Owed are panels.
+  const sessionLens = $derived(filter === "all" || filter === "ready");
+  const repoLayout = $derived(sessionLens && herdLayout.layout === "repo");
+  const statusCtx = $derived<HerdStatusCtx>({
+    git,
+    isReviewing: inReview,
+    isReworkRunning,
+    workingBlocked,
+    backgroundBusy,
+    now: nowMs,
+  });
+  // Every listed session, epic/experiment members included, by repo: the section set, the
+  // heading counts (so they add up to the top bar) and the group bar's repo count. Keyed off the
+  // listed local sessions, the same input herd-keynav's railOrder keys from.
+  const repoKeyOf = $derived(repoKeyFn(shown));
+  const listedRepos = $derived(groupByRepo([...shown, ...remoteShown], repoKeyOf));
+  const repoSections = $derived.by(() => {
+    if (!repoLayout) return [];
+    // the lifecycle rows (what the Stage layout's groups list), in stage order within a repo
+    const rowsByKey = new Map(
+      groupByRepo(flattenByStage(partition), repoKeyOf).map((g) => [g.key, g.sessions]),
+    );
+    return listedRepos.map((g) => {
+      const rows = rowsByKey.get(g.key) ?? [];
+      return {
+        key: g.key,
+        name: g.name,
+        iconPath: g.iconPath,
+        rows,
+        above: g.sessions.length - rows.length,
+        counts: countHerdStatuses(g.sessions, statusCtx),
+      };
+    });
+  });
+  // Stages no badge on the row conveys, named on the row where no stage heading does.
+  const stageTags = $derived.by(() => {
+    if (!repoLayout) return new Map<string, StageTag>();
+    const tag = (list: Session[], value: StageTag) =>
+      list.map((s): [string, StageTag] => [s.id, value]);
+    return new Map<string, StageTag>([
+      ...tag(
+        partition.awaitingMerge.filter((s) => herdStatusOf(s, statusCtx) === "merge"),
+        { label: m.topbar_merge_label(), tone: "merge" },
+      ),
+      ...tag(partition.waitingOnReviewer, {
+        label: m.herd_stage_name_waiting_reviewer(),
+        tone: "waiting",
+      }),
+      ...tag(partition.waitingOnMerger, {
+        label: m.herd_stage_name_waiting_merger(),
+        tone: "waiting",
+      }),
+      ...tag(partition.shelved, { label: m.herd_stage_name_shelved(), tone: "shelved" }),
+    ]);
+  });
+  const tagFor = (session: Session) => stageTags.get(session.id) ?? null;
+  // 44px targets: the phone layout always, wide layouts on a coarse pointer.
+  const touchTarget = $derived(flow || touch);
 
   // Shared row-context bundle — passed to HerdGroup (and later HerdEpicGroups) so the
   // parent builds it once and each group reads from it. All fields wire straight from
@@ -849,6 +922,13 @@
       },
     ].filter(Boolean) as PartitionGroupEntry[],
   );
+  // The lifecycle groups render only in the Stage layout; the repo sections replace them.
+  const stageGroups = $derived(repoLayout ? [] : partitionGroups);
+  // The Ready / Merged group headers' bulk actions, which the Repo layout has no header for:
+  // they move to a row under the repo sections, gated exactly as in the headers above.
+  const repoActions = $derived(
+    repoLayout ? partitionGroups.flatMap((g) => (g.action ? [g.action] : [])) : [],
+  );
 
   // Per-stage explainer content for the group-header "i" tooltips (issue: self-explanatory
   // Herd). Keyed via GROUP_KEY_BY_STAGE (the same source partitionGroups renders under) so
@@ -964,6 +1044,20 @@
   {/if}
 {/snippet}
 
+{#snippet groupBar()}
+  <HerdGroupBar
+    {statusFilter}
+    {statusLabel}
+    {onstatusfilter}
+    layout={herdLayout.layout}
+    onlayout={(layout) => herdLayout.setLayout(layout)}
+    showSwitch={sessionLens}
+    sessionCount={shown.length + remoteShown.length}
+    repoCount={listedRepos.length}
+    touch={touchTarget}
+  />
+{/snippet}
+
 <div class="panel bracket" class:flow>
   {#if flow}
     <!-- mobile flow: no visible title row (it drew an empty bordered band under the TopBar);
@@ -972,6 +1066,7 @@
          the list scrolls (D10, docs/design/mobile-herd). `filter` stays bindable because the page
          still drives it; only the control moved. -->
     <h2 class="sr-only">{m.herd_title()}</h2>
+    {@render groupBar()}
     {#if showMachineBar}
       <HerdMachineBar
         bind:filter={machineFilter}
@@ -986,12 +1081,12 @@
     <HerdLensStrip
       bind:filter
       {statusFilter}
-      {statusLabel}
       {collapsible}
       {owedCount}
       {onstatusfilter}
       {oncollapse}
     />
+    {@render groupBar()}
     {#if showMachineBar}
       <HerdMachineBar
         bind:filter={machineFilter}
@@ -1093,7 +1188,17 @@
       {/each}
       {@render epicGroupList()}
       <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />
-      {#each partitionGroups as grp (grp.key)}
+      <HerdRepoSections
+        sections={repoSections}
+        actions={repoActions}
+        {statusFilter}
+        {onstatusfilter}
+        {tagFor}
+        ctx={rowCtx}
+        {touchTarget}
+        {flow}
+      />
+      {#each stageGroups as grp (grp.key)}
         <!-- flow: phone accordion (internal state). Desktop: independent per-group
              collapse via the page-owned collapsedStageKeys — but only when the page
              wired onstagecollapsetoggle; without it the header must stay plain text,

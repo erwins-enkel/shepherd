@@ -164,6 +164,12 @@
   import { needsCentering, scrollParentOf } from "#lib/components/herd-reveal.js";
   import { normalizeEpicCollapse } from "#lib/components/herd-epic-collapse.js";
   import { isReworkRunning as isReworkRunningSession } from "#lib/components/rework-running.js";
+  import {
+    herdStatusOf,
+    type HerdStatus,
+    type HerdStatusCtx,
+  } from "#lib/components/herd-status.js";
+  import { herdLayout } from "#lib/herd-layout.svelte.js";
   import { buildCommands } from "#lib/command-registry.js";
   import {
     GROUP_KEY_BY_STAGE,
@@ -617,9 +623,26 @@
   // by design: statuses fluctuate (running ↔ idle), so an auto-clear on count-zero
   // would pop the filter off mid-observation; the filtered empty state + chip in
   // the herd head are the way out instead.
-  let statusFilter = $state<"running" | "idle" | "blocked" | null>(null);
-  // The idle/blocked tallies skip shelved sessions (TopBar), so their filters do too.
-  const tallied = (s: Session) => statusFilter === "running" || !s.shelved;
+  let statusFilter = $state<HerdStatus | null>(null);
+  // The global status split (herd-status.ts) the top-bar tallies count — so a filter lists
+  // exactly what its tally counts: shelved only while running, Merge carved out of Idle.
+  function herdStatusCtx(): HerdStatusCtx {
+    return {
+      git: store.git,
+      isReviewing: (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      isReworkRunning: (session) =>
+        isReworkRunningSession(
+          session,
+          { planGate: planGates.map[session.id], review: reviews.map[session.id] },
+          store.workingBlocked,
+          nowMs,
+          store.backgroundBusy,
+        ),
+      workingBlocked: store.workingBlocked,
+      backgroundBusy: store.backgroundBusy,
+      now: nowMs,
+    };
+  }
   // Origin filter (#3999): scheduled / auto-drain / manual; null = every origin. It narrows the
   // list only — the lifecycle groups stay as they are. Also narrows the Done lens below.
   let originFilter = $state<SessionOrigin | null>(null);
@@ -628,23 +651,19 @@
     const byRepo = repoFilter.size
       ? store.sessions.filter((s) => repoFilter.has(s.repoPath))
       : store.sessions;
-    // displayStatus, not raw status: a working-while-blocked session belongs under
-    // the "running" filter (the tallies count it there), never under "blocked".
-    return statusFilter
-      ? byRepo.filter(
-          (s) =>
-            tallied(s) &&
-            displayStatus(s, store.workingBlocked, store.backgroundBusy) === statusFilter,
-        )
-      : byRepo;
+    // display status, not raw: a working-while-blocked session belongs under the "running"
+    // filter (the tallies count it there), never under "blocked".
+    if (!statusFilter) return byRepo;
+    const ctx = herdStatusCtx();
+    return byRepo.filter((s) => herdStatusOf(s, ctx) === statusFilter);
   });
   // Mirrored sessions (#2762) follow the status filter; a repo filter names local checkouts, so
   // it keeps those of the same project by slug.
   const herdScopedRemoteSessions = $derived.by(() => {
     const byRepo = inRepoFilter(store.remoteSessions, repoFilter, repos.entries);
-    return statusFilter
-      ? byRepo.filter((s) => tallied(s) && displayStatus(s, {}, {}) === statusFilter)
-      : byRepo;
+    if (!statusFilter) return byRepo;
+    const ctx = herdStatusCtx();
+    return byRepo.filter((s) => herdStatusOf(s, ctx) === statusFilter);
   });
   const herdSessions = $derived(byOrigin(herdScopedSessions, originFilter));
   const herdRemoteSessions = $derived(byOrigin(herdScopedRemoteSessions, originFilter));
@@ -796,6 +815,7 @@
       herdEpics.epics,
       herdEpics.keys,
       herdRemoteSessions,
+      herdRepoLayout,
     );
   });
 
@@ -2191,6 +2211,10 @@
   // The rail's all/ready list filter, bound into <Herd> so keynav sees exactly
   // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
   let herdFilter = $state<HerdFilter>("all");
+  // The Repo layout (#4228) applies to the session-list lenses only, as Herd renders it.
+  const herdRepoLayout = $derived(
+    herdLayout.layout === "repo" && (herdFilter === "all" || herdFilter === "ready"),
+  );
   // The machine bar's pick (#3055), bound into <Herd> for the same reason: keynav walks only the
   // picked machine's rows. A machine that is removed takes its pick with it.
   let machineFilter = $state<MachineFilter>("all");
@@ -2299,10 +2323,18 @@
     // so j/k/1-9 walk the done list and select via doneSelectedId — never the hidden
     // live partition.
     if (herdFilter === "done") return doneRailIds(shownDoneSessions);
-    return railOrderFor(collapsedStages, byMachine(herdRemoteSessions, machineFilter));
+    return railOrderFor(
+      collapsedStages,
+      byMachine(herdRemoteSessions, machineFilter),
+      herdLayout.collapsed,
+    );
   }
 
-  function railOrderFor(collapsedStageKeys: ReadonlySet<string>, mirrored: Session[]): string[] {
+  function railOrderFor(
+    collapsedStageKeys: ReadonlySet<string>,
+    mirrored: Session[],
+    collapsedRepoKeys: ReadonlySet<string>,
+  ): string[] {
     return railOrder(
       byMachine(herdSessions, machineFilter),
       store.git,
@@ -2327,15 +2359,17 @@
       collapsedStageKeys,
       store.backgroundBusy,
       mirrored,
+      herdRepoLayout ? collapsedRepoKeys : null,
     );
   }
 
   // The phone's swipe-to-next space: the rail under the active lens + filters, computed on
   // demand like railIds. Every lifecycle group counts: collapsedStages is desktop state (Shelved
-  // starts folded) and the phone accordion folds rows without taking them off the list. Mirrored
-  // sessions are out: their read-only detail has no swipe, so paging into one is a dead end.
+  // starts folded) and the phone accordion folds rows without taking them off the list — so does
+  // a collapsed repo section. Mirrored sessions are out: their read-only detail has no swipe, so
+  // paging into one is a dead end.
   function swipeOrder(): string[] {
-    return railOrderFor(new Set(), []);
+    return railOrderFor(new Set(), [], new Set());
   }
 
   // The swipe order as of opening the session on a phone, so nextBelow can continue from where
@@ -2602,8 +2636,10 @@
       isDesktop: () => !mobile.current,
       collapsedEpics,
       collapsedStages,
+      collapsedRepos: herdLayout.collapsed,
       expandEpic: expandEpicGroup,
       expandStage: (key) => collapsedStages.delete(key),
+      expandRepo: (key) => herdLayout.expandRepo(key),
       tick,
       select: selectUnit,
       keyNavSelect,
@@ -4018,6 +4054,7 @@
         heavySlot={store.heavySlot}
         slotMachines={machines.list}
         remoteSessions={store.remoteSessions}
+        git={store.git}
         onheavyslotrelease={releaseSlot}
         onhostpanel={() => (showHostPanel = true)}
         onsettings={() => {

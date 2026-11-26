@@ -17,6 +17,7 @@ import type {
   HeldTask,
   HeavySlotSnapshot,
   Settings,
+  GitState,
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { REPO_URL, DOCS_URL, version } from "#lib/build-info.js";
@@ -51,6 +52,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
 
 const { default: TopBar } = await import("./TopBarPhoneHarness.test.svelte");
 const { default: CapacityWait } = await import("./top-bar/CapacityWait.svelte");
+const { default: TopBarTallies } = await import("./top-bar/TopBarTallies.svelte");
 const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
 const { refreshUsage, listHeld, getSettings, updateEpic, getRepoRunDefaults } =
   await import("#lib/api.js");
@@ -974,6 +976,66 @@ describe("TopBar — tallies toggle the status filter", () => {
     expect(status(m.topbar_idle_label())).toBe("2");
     // A shelved session is out of play on any machine.
     expect(status(m.topbar_blocked_label())).toBe("1");
+  });
+
+  it("desktop: Merge counts resting green-PR sessions and Idle excludes them (#4228)", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const green = { kind: "github", state: "open", checks: "success", deployConfigured: false };
+    const sessions = [
+      { id: "idle-plain", status: "idle" },
+      { id: "idle-green", status: "idle" },
+      { id: "done-green", status: "done" },
+      { id: "done-plain", status: "done" },
+      { id: "flagged", status: "idle", readyToMerge: true },
+    ] as unknown as Session[];
+    const remoteSessions = [
+      { id: "r-green", name: "r", status: "done", host: { instanceId: "m" }, git: green },
+    ] as unknown as Session[];
+    const onstatusfilter = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      sessions,
+      remoteSessions,
+      git: { "idle-green": green, "done-green": green } as Record<string, GitState>,
+      ...FLAGS.desktop,
+      onstatusfilter,
+    });
+    const tally = (label: string) =>
+      page
+        .getByTitle(m.topbar_tally_filter_title({ status: label }))
+        .element()
+        .querySelector(".n")?.textContent ?? null;
+    await expect.element(page.getByTitle(m.topbar_tally_clear_title())).toBeVisible();
+    expect(tally(m.topbar_merge_label()), "idle + done green PRs, the ready flag, mirrored").toBe(
+      "4",
+    );
+    expect(tally(m.topbar_idle_label()), "only the plain idle session").toBe("1");
+    await page.getByTitle(m.topbar_tally_filter_title({ status: m.topbar_merge_label() })).click();
+    expect(onstatusfilter).toHaveBeenCalledWith("merge");
+  });
+
+  it("compact: the Merge tally is a green dot + digit that toggles the filter", async () => {
+    const clickStatus = vi.fn();
+    render(TopBarTallies, {
+      mobile: false,
+      compact: true,
+      total: 9,
+      working: 1,
+      idle: 2,
+      blocked: 3,
+      merge: 3,
+      statusFilter: "merge" as const,
+      clickStatus,
+    });
+    const merge = page.getByRole("button", {
+      name: m.topbar_tally_status_aria({ status: m.topbar_merge_label(), count: 3 }),
+    });
+    await expect.element(merge).toHaveAttribute("aria-pressed", "true");
+    expect(merge.element().querySelector(".cdot")?.textContent).toBe("●");
+    await merge.click();
+    expect(clickStatus).toHaveBeenCalledWith("merge");
   });
 
   it("desktop: the Herd tally clears the filter", async () => {

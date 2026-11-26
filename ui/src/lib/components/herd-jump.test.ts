@@ -9,6 +9,7 @@ function harness(locations: Map<string, RailLocation> = new Map()) {
   const log: string[] = [];
   const collapsedEpics = new Set<string>();
   const collapsedStages = new Set<string>();
+  const collapsedRepos = new Set<string>();
   const seen = (id: string) =>
     `stages=[${[...collapsedStages].join(",")}] epics=[${[...collapsedEpics].join(",")}] id=${id}`;
   const deps: JumpDeps = {
@@ -21,6 +22,7 @@ function harness(locations: Map<string, RailLocation> = new Map()) {
     isDesktop: () => true,
     collapsedEpics,
     collapsedStages,
+    collapsedRepos,
     expandEpic: (key) => {
       log.push(`expandEpic:${key}`);
       collapsedEpics.delete(key);
@@ -28,6 +30,10 @@ function harness(locations: Map<string, RailLocation> = new Map()) {
     expandStage: (key) => {
       log.push(`expandStage:${key}`);
       collapsedStages.delete(key);
+    },
+    expandRepo: (key) => {
+      log.push(`expandRepo:${key}`);
+      collapsedRepos.delete(key);
     },
     tick: async () => {
       log.push("tick");
@@ -47,11 +53,12 @@ function harness(locations: Map<string, RailLocation> = new Map()) {
     followRepo: (id) => log.push(`follow:${id}`),
     beforeHerdrUpdateJump: () => log.push("closeUpdateModal"),
   };
-  return { deps, effects, log, collapsedEpics, collapsedStages, locations };
+  return { deps, effects, log, collapsedEpics, collapsedStages, collapsedRepos, locations };
 }
 
 const stage = (key: string): RailLocation => ({ kind: "stage", key });
 const epic = (key: string): RailLocation => ({ kind: "epic", key });
+const repo = (key: string): RailLocation => ({ kind: "repo", key });
 
 // revealAndSelect — core ordering
 
@@ -261,4 +268,20 @@ test("handlers read locate/selectedId/blockedIds/isDesktop live, never as creati
     "tick",
     "reveal:late",
   ]);
+});
+
+test("collapsed repo section (Repo layout): expand before select, on any layout width", async () => {
+  const h = harness(new Map([["x", repo("/w/shepherd")]]));
+  h.collapsedRepos.add("/w/shepherd");
+  h.deps.isDesktop = () => false;
+  await revealAndSelect("x", h.deps, (id) => h.deps.select(id));
+  expect(h.log).toEqual([
+    "locate",
+    "expandRepo:/w/shepherd",
+    "tick",
+    "select:true:true stages=[] epics=[] id=x",
+    "tick",
+    "reveal:x",
+  ]);
+  expect(h.collapsedRepos.size).toBe(0);
 });

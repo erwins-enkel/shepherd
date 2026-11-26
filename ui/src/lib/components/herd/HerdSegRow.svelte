@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import type { HerdStatus } from "#lib/components/herd-status.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { upNextUi } from "#lib/up-next-ui.svelte.js";
@@ -12,8 +13,8 @@
     placement = "top",
   }: {
     filter: HerdFilter;
-    statusFilter: "running" | "idle" | "blocked" | null;
-    onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    statusFilter: HerdStatus | null;
+    onstatusfilter?: (status: HerdStatus | null) => void;
     /** Which edge carries the active marker. The row lives in the bottom navigation on a
      *  phone (D10, docs/design/mobile-herd), where an underline would sit against the screen
      *  edge and read as detached — so the marker moves to the top edge there. */
@@ -62,8 +63,10 @@
     title={m.herd_next_title()}
     aria-pressed={statusFilter == null && filter === "next"}
     use:coachTarget={"up-next-lens"}
-    onclick={tapNext}>{m.herd_seg_next()}<ReadyPrBadge /></button
+    onclick={tapNext}
   >
+    {m.herd_seg_next()}<ReadyPrBadge />
+  </button>
   <button
     type="button"
     class="seg-btn"
@@ -73,8 +76,10 @@
     onclick={() => {
       filter = "all";
       onstatusfilter?.(null);
-    }}>{m.herd_seg_all()}</button
+    }}
   >
+    {m.herd_seg_all()}
+  </button>
   <button
     type="button"
     class="seg-btn"
@@ -84,8 +89,10 @@
     onclick={() => {
       filter = "ready";
       onstatusfilter?.(null);
-    }}>{m.herd_seg_ready()}</button
+    }}
   >
+    {m.herd_seg_ready()}
+  </button>
 </div>
 
 <style>

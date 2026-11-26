@@ -3,8 +3,9 @@
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
   import TopBarOriginFilter from "./TopBarOriginFilter.svelte";
+  import type { HerdStatus } from "../herd-status";
 
-  export type TallyStatus = "running" | "idle" | "blocked";
+  export type TallyStatus = HerdStatus;
 
   let {
     mobile,
@@ -13,6 +14,7 @@
     working,
     idle,
     blocked,
+    merge,
     statusFilter,
     onstatusfilter,
     clickStatus,
@@ -31,6 +33,8 @@
     working: number;
     idle: number;
     blocked: number;
+    /** Resting sessions on a green PR waiting for the operator's merge (excluded from idle). */
+    merge: number;
     statusFilter: TallyStatus | null;
     onstatusfilter?: (status: TallyStatus | null) => void;
     clickStatus: (s: TallyStatus) => void;
@@ -118,6 +122,20 @@
     >
       <span class="cdot" style="color:var(--color-red)">!</span><span class="n">{blocked}</span>
     </button>
+    <button
+      type="button"
+      class="ctally"
+      class:active={statusFilter === "merge"}
+      title={m.topbar_tally_filter_title({ status: m.topbar_merge_label() })}
+      aria-label={m.topbar_tally_status_aria({
+        status: m.topbar_merge_label(),
+        count: merge,
+      })}
+      aria-pressed={statusFilter === "merge"}
+      onclick={() => clickStatus("merge")}
+    >
+      <span class="cdot" style="color:var(--color-green)">●</span><span class="n">{merge}</span>
+    </button>
   </div>
 {:else}
   <div class="tallies" use:coachTarget={"tally-filter"}>
@@ -144,8 +162,10 @@
       onclick={() => clickStatus("running")}
     >
       <span class="micro" style="color:var(--color-amber)">{m.topbar_working_label()}</span><span
-        class="n">{working}</span
+        class="n"
       >
+        {working}
+      </span>
     </button>
     <button
       type="button"
@@ -166,8 +186,24 @@
       onclick={() => clickStatus("blocked")}
     >
       <span class="micro" style="color:var(--color-red)">{m.topbar_blocked_label()}</span><span
-        class="n">{blocked}</span
+        class="n"
       >
+        {blocked}
+      </span>
+    </button>
+    <button
+      type="button"
+      class="tally"
+      class:active={statusFilter === "merge"}
+      title={m.topbar_tally_filter_title({ status: m.topbar_merge_label() })}
+      aria-pressed={statusFilter === "merge"}
+      onclick={() => clickStatus("merge")}
+    >
+      <span class="micro" style="color:var(--color-green)">{m.topbar_merge_label()}</span><span
+        class="n"
+      >
+        {merge}
+      </span>
     </button>
   </div>
 {/if}

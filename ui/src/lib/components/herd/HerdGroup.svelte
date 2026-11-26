@@ -12,6 +12,7 @@
   } from "#lib/types.js";
   import { machineHeavySlot } from "#lib/remote-sessions.js";
   import type { IntegratedNoteInput } from "#lib/integrated-child-note.js";
+  import type { StageTag } from "../herd-repo-groups";
   import UnitRow from "../UnitRow.svelte";
   import InfoTip from "../InfoTip.svelte";
 
@@ -93,6 +94,8 @@
     touchTarget?: boolean;
     // Shelved group: rows step one ink level down so they recede (contrast stays AA).
     quiet?: boolean;
+    // Repo layout (#4228): the stage each row names on itself (no stage heading says it there).
+    tagFor?: (session: Session) => StageTag | null;
     ctx: HerdRowCtx;
   };
 
@@ -109,6 +112,7 @@
     ontoggle = undefined,
     touchTarget = false,
     quiet = false,
+    tagFor = undefined,
     ctx,
   }: HerdGroupProps = $props();
   // Resolved here, not as a class: directive (keeps the template under its complexity cap).
@@ -139,8 +143,10 @@
             type="button"
             class="{action.class} micro"
             title={action.title}
-            onclick={action.onclick}>{action.label}</button
+            onclick={action.onclick}
           >
+            {action.label}
+          </button>
         {/if}
         {#if help}
           <InfoTip text={help.text} label={help.label} prominent />
@@ -179,6 +185,7 @@
           showCli={ctx.showCli}
           heavySlot={machineHeavySlot(session.host.instanceId, ctx.machines)}
           integrated={ctx.integratedFor?.(session.id)}
+          stageTag={tagFor?.(session) ?? null}
         />
       {:else}
         <UnitRow
@@ -216,6 +223,7 @@
           showCli={ctx.showCli}
           heavySlot={ctx.heavySlot}
           integrated={ctx.integratedFor?.(session.id)}
+          stageTag={tagFor?.(session) ?? null}
         />
       {/if}
     {/each}

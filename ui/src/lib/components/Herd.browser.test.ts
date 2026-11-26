@@ -10,6 +10,7 @@ import { isReworkRunning } from "./rework-running";
 import { reviews, planGates } from "#lib/reviews.svelte.js";
 import { postMergeSteps } from "#lib/post-merge-steps.svelte.js";
 import { machines } from "#lib/machines.svelte.js";
+import { herdLayout } from "#lib/herd-layout.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
 import { m } from "#lib/paraglide/messages.js";
 import type {
@@ -607,6 +608,158 @@ describe("Herd status filter (TopBar tallies)", () => {
       onstatusfilter: () => {},
     });
     await expect.element(page.getByText("No Blocked sessions for shepherd.")).toBeInTheDocument();
+  });
+});
+
+describe("Herd Group: Stage | Repo (#4228)", () => {
+  const LAYOUT_KEY = "shepherd:herd-layout";
+  const COLLAPSED_KEY = "shepherd:herd-repo-collapsed";
+  function reset() {
+    localStorage.removeItem(LAYOUT_KEY);
+    localStorage.removeItem(COLLAPSED_KEY);
+    herdLayout.load();
+  }
+  afterEach(reset);
+
+  // zeta first in input order, so the alphabetical section order is the layout's, not the input's
+  const sessions = [
+    session({ id: "z", name: "zeta busy", status: "running", repoPath: "/w/zeta" }),
+    session({ id: "a", name: "alpha green", repoPath: "/w/alpha" }),
+    session({ id: "a2", name: "alpha busy", status: "running", repoPath: "/w/alpha" }),
+  ];
+  const repoProps = { ...base, sessions, git: { a: openPr } };
+  const seg = (name: string) =>
+    page.getByRole("group", { name: "Group sessions by" }).getByRole("button", { name });
+  const heads = () =>
+    [...document.querySelectorAll(".repo-head .name")].map((el) => el.textContent);
+  const mergeCount = (repo: string) =>
+    page.getByRole("button", { name: `Merge 1 in ${repo}; show only these sessions` });
+
+  it("Stage is the default; picking Repo groups by repo and persists the choice", async () => {
+    reset();
+    render(Herd, repoProps);
+    await expect.element(seg("Stage")).toHaveAttribute("aria-pressed", "true");
+    await expect.element(page.getByText("3 sessions · 2 repos")).toBeInTheDocument();
+    expect(heads()).toEqual([]);
+    await seg("Repo").click();
+    await expect.element(seg("Repo")).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(LAYOUT_KEY)).toBe("repo");
+    expect(heads()).toEqual(["alpha", "zeta"]);
+    // stage order within a repo: the working row above the green PR
+    const rows = [...document.querySelectorAll(".unit")].map((el) => el.textContent ?? "");
+    expect(rows.findIndex((t) => t.includes("alpha busy"))).toBeLessThan(
+      rows.findIndex((t) => t.includes("alpha green")),
+    );
+  });
+
+  it("a stored Repo layout renders repo sections on load", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    render(Herd, repoProps);
+    await expect.element(seg("Repo")).toHaveAttribute("aria-pressed", "true");
+    expect(heads()).toEqual(["alpha", "zeta"]);
+  });
+
+  it("the switch shows only on the session-list lenses", async () => {
+    reset();
+    render(Herd, { ...repoProps, filter: "done" as const });
+    await expect
+      .element(page.getByRole("group", { name: "Group sessions by" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("a heading count sets the global status filter; pressed, it clears it", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    const onstatusfilter = vi.fn();
+    render(Herd, { ...repoProps, onstatusfilter });
+    // zero counts render nothing: zeta has no Merge session
+    await expect.element(mergeCount("alpha")).toHaveAttribute("aria-pressed", "false");
+    await expect.element(mergeCount("zeta")).not.toBeInTheDocument();
+    await mergeCount("alpha").click();
+    expect(onstatusfilter).toHaveBeenLastCalledWith("merge");
+  });
+
+  it("under the status filter the pressed count is outlined and clears it", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    const onstatusfilter = vi.fn();
+    // the page filters the list: only the Merge session arrives
+    render(Herd, {
+      ...repoProps,
+      sessions: [sessions[1]!],
+      statusFilter: "merge" as const,
+      onstatusfilter,
+    });
+    await expect.element(mergeCount("alpha")).toHaveAttribute("aria-pressed", "true");
+    expect(heads()).toEqual(["alpha"]);
+    await mergeCount("alpha").click();
+    expect(onstatusfilter).toHaveBeenLastCalledWith(null);
+  });
+
+  it("collapsing a repo hides its rows, keeps its counts and persists", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    render(Herd, repoProps);
+    const toggle = page.getByRole("button", { name: /^.?\s*alpha/ });
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+    await toggle.click();
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect.element(page.getByText("alpha green")).not.toBeInTheDocument();
+    await expect.element(mergeCount("alpha")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]")).toEqual(["/w/alpha"]);
+    await expect.element(page.getByText("zeta busy")).toBeInTheDocument();
+  });
+
+  it("names a Merge row's stage on the row in the Repo layout only", async () => {
+    reset();
+    render(Herd, repoProps);
+    const tag = () => document.querySelector(".stage-tag");
+    expect(tag()).toBeNull();
+    await seg("Repo").click();
+    await expect.poll(() => tag()?.textContent?.trim()).toBe("Merge");
+  });
+
+  it("keeps the Merge train and clear-merged bulk actions, gated as in the Stage layout", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    const mergedGit: GitState = { ...openPr, state: "merged" };
+    const onmergetrain = vi.fn();
+    const onclearmerged = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "rdy", name: "ready one", readyToMerge: true, repoPath: "/w/alpha" }),
+        session({ id: "mgd", name: "merged one", repoPath: "/w/zeta" }),
+      ],
+      git: { rdy: openPr, mgd: mergedGit },
+      onmergetrain,
+      onclearmerged,
+    });
+    expect(heads()).toEqual(["alpha", "zeta"]);
+    await page.getByRole("button", { name: "Merge train" }).click();
+    expect(onmergetrain).toHaveBeenCalledOnce();
+    await page.getByRole("button", { name: "Decommission all" }).click();
+    expect(onclearmerged).toHaveBeenCalledOnce();
+  });
+
+  it("drops the bulk actions when nothing would run", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    render(Herd, { ...repoProps, onmergetrain: () => {}, onclearmerged: () => {} });
+    expect(heads()).toEqual(["alpha", "zeta"]);
+    expect(document.querySelector(".repo-actions")).toBeNull();
+  });
+
+  it("touch keeps ≥44px count targets", async () => {
+    localStorage.setItem(LAYOUT_KEY, "repo");
+    herdLayout.load();
+    render(Herd, { ...repoProps, touch: true });
+    const count = mergeCount("alpha");
+    await expect.element(count).toBeInTheDocument();
+    const box = (count.element() as HTMLElement).getBoundingClientRect();
+    expectMinPx(box.height, 44, "count height");
+    expectMinPx(box.width, 44, "count width");
   });
 });
 

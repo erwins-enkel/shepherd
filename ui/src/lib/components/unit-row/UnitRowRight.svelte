@@ -21,6 +21,7 @@
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { remoteSessionExplanation } from "#lib/tooltips/explanations.js";
   import { checksCleared } from "#lib/checks-cleared.js";
+  import type { StageTag } from "../herd-repo-groups";
 
   let {
     session,
@@ -42,6 +43,7 @@
     onpreviewchoice,
     showCli = true,
     queueStepLive = false,
+    stageTag = null,
     elapsedEl = $bindable(),
   }: {
     session: Session;
@@ -68,6 +70,8 @@
     /** The activity line is showing the build queue's live "Step N/M" — the queue segment
      *  steps aside so the card says it once. */
     queueStepLive?: boolean;
+    /** Repo layout (#4228): the row's stage, shown only when no status badge above applies. */
+    stageTag?: StageTag | null;
     elapsedEl?: HTMLSpanElement;
   } = $props();
 
@@ -383,6 +387,10 @@
       <span class="badge" id="u-status-{session.id}" use:statusTip={{ text: m.status_ready_tip() }}>
         {m.status_ready_to_merge()}
       </span>
+    {:else if stageTag}
+      <span class="badge stage-tag {stageTag.tone}" id="u-status-{session.id}">
+        {stageTag.label}
+      </span>
     {/if}
   </div>
   <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
@@ -613,6 +621,14 @@
 
   /* MERGING: the one colored, moving badge — amber + pulse marks the in-flight
      merge train, louder than the quiet muted text badges around it. */
+  /* Repo-layout stage tags (#4228): green only for Merge (actionable-complete); waiting on
+     someone else is parked slate; shelved keeps the muted badge ink. */
+  .badge.stage-tag.merge {
+    color: var(--color-green);
+  }
+  .badge.stage-tag.waiting {
+    color: var(--color-slate);
+  }
   .badge.merging {
     color: var(--color-amber);
     animation: merge-pulse 1.5s ease-in-out infinite;

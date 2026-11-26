@@ -6,6 +6,7 @@
   import { REPO, REPO_URL, sha, version, commitUrl } from "#lib/build-info.js";
   import HerdSegRow from "#lib/components/herd/HerdSegRow.svelte";
   import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import type { HerdStatus } from "#lib/components/herd-status.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   // Two explicit theme choices; "system" stays the implicit default (followed on
@@ -47,8 +48,8 @@
     /** Bound by the phone list screen when `lens` is on. The default is inert: with `lens` false
      *  the segments never render, so nothing reads or writes it. */
     filter?: HerdFilter;
-    statusFilter?: "running" | "idle" | "blocked" | null;
-    onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    statusFilter?: HerdStatus | null;
+    onstatusfilter?: (status: HerdStatus | null) => void;
     /** Phone: opens the Menu sheet (the gear moved here from the top bar, variant E). */
     onmenu?: () => void;
     menuOpen?: boolean;

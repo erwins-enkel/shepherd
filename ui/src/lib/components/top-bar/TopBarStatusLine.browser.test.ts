@@ -54,6 +54,22 @@ describe("TopBarStatusLine (phone variant E)", () => {
     expect(line.querySelector<HTMLElement>(".hair u")!.style.left).toBe("85%");
   });
 
+  it("shows the Merge tally in green and underlines it when it is the filter (#4228)", async () => {
+    render(TopBarStatusLine, {
+      total: 6,
+      working: 1,
+      idle: 1,
+      blocked: 1,
+      merge: 2,
+      statusFilter: "merge",
+    });
+    const line = document.querySelector<HTMLElement>(".status-line")!;
+    const on = line.querySelector<HTMLElement>(".seg.on")!;
+    expect(on.textContent).toContain("Merge");
+    expect(on.textContent).toContain("2");
+    expect(on.querySelector(".g.green")?.textContent).toBe("●");
+  });
+
   it("drops the optional segments and the hairline when there is nothing to show", async () => {
     render(TopBarStatusLine, { total: 2, working: 0, idle: 2, blocked: 0 });
     const line = document.querySelector<HTMLElement>(".status-line")!;

@@ -4422,7 +4422,7 @@ export class SessionService {
    *  otherwise, or on a failure (logged, never a value) — the preview then launches as before. */
   private async previewPostgresDir(s: Session): Promise<string | null> {
     const pg = this.deps.postgres;
-    if (!pg?.settings().enabled || s.status === "archived") return null;
+    if (!pg?.settings().enabled || s.archivedAt) return null;
     const mode = this.deps.store.getRepoConfig(s.repoPath).postgresMode;
     if (!postgresRepoOn(mode) || !pg.hasLease(s.id)) return null;
     try {

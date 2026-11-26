@@ -293,9 +293,17 @@ repo-scoped tokens get 403, and values are never returned.
 ## On-demand Postgres (#4232)
 
 Shepherd runs one shared `postgres:18` container (`src/postgres.ts`) for repos with
-`postgresMode: on-request`. Agents never touch Docker: the `postgres_request` MCP
-tool asks the server, which applies a fixed image, label and port template — no
-agent-controlled mounts, privileges or images.
+`postgresMode: on-request` or `auto`. Agents never touch Docker: the `postgres_request` MCP
+tool (or, for `auto`, the spawn itself) asks the server, which applies a fixed image, label and
+port template — no agent-controlled mounts, privileges or images.
+
+**Env delivery (#4238).** For `auto` repos, and on resume of an `on-request` session holding a
+lease, the session's `DATABASE_URL` + `PG*` vars ride the per-session 0600 secret dir and `/bin/sh`
+launcher (the agent-secrets path above), never argv or bwrap `--setenv`, so no password reaches
+`/proc/*/cmdline`. They override a same-named operator agent secret; the `agent_secret_log` audit
+records only the operator names delivered. The preview launch gets only the Postgres vars from a
+separate `<agentSpawnDir>/preview/<id>.secrets` dir (bound RO into a sandboxed preview), removed on
+archive and swept at boot.
 
 **The boundary is per-database credentials, not the network.** The port is
 published on `127.0.0.1` only, but every sandbox that shares the host network

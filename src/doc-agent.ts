@@ -1305,10 +1305,11 @@ export class DocAgentService {
    * Find the single open standalone docs PR to roll a fresh run onto, or null when none exists.
    * Keeps open PRs whose head branch is a `shepherd/docs-update-*` branch (BRANCH_RE-valid, so the
    * branch name can't smuggle a flag into the force-push refspec) other than our own in-flight
-   * branch, and returns the LOWEST-numbered one (a stable survivor so repeated runs converge on the
-   * same PR). On a listing failure it returns null (fail-open: the caller opens a fresh PR)
-   * and warns — a transient list failure could momentarily allow a duplicate, which is manually
-   * recoverable; failing closed would silently skip a run.
+   * branch, whose head lives in this clone's origin and which the forge's authenticated account
+   * opened, and returns the LOWEST-numbered one (a stable survivor so repeated runs converge on the
+   * same PR). On a listing failure, or when the account can't be resolved, it returns null (the
+   * caller opens a fresh PR) and warns — a transient failure could momentarily allow a duplicate,
+   * which is manually recoverable; failing closed would silently skip a run.
    */
   private async findOpenDocPr(
     forge: GitForge,
@@ -1326,14 +1327,23 @@ export class DocAgentService {
       return null;
     }
     const prefix = `shepherd/${DOC_BRANCH_PREFIX}`;
-    const matches = prs
-      .filter(
-        (p) =>
-          !!p.headRefName &&
-          p.headRefName.startsWith(prefix) &&
-          p.headRefName !== excludeBranch &&
-          BRANCH_RE.test(p.headRefName),
-      )
+    const named = prs.filter(
+      (p) =>
+        !!p.headRefName &&
+        p.headRefName.startsWith(prefix) &&
+        p.headRefName !== excludeBranch &&
+        BRANCH_RE.test(p.headRefName),
+    );
+    if (named.length === 0) return null;
+    // The roll-up force-pushes the PR's head branch on origin and rewrites its title/body: only
+    // a PR this account opened from origin qualifies.
+    const viewer = await viewerLogin(forge);
+    if (!viewer) {
+      console.warn(`[doc-agent] roll-up: forge account unresolved — opening fresh`);
+      return null;
+    }
+    const matches = named
+      .filter((p) => p.headPushable === true && p.author.toLowerCase() === viewer)
       .sort((a, b) => a.number - b.number);
     for (const chosen of matches) {
       // A cached discovery may predate an external merge/close. Never force-push a closed PR.
@@ -1446,9 +1456,10 @@ export class DocAgentService {
       );
       return null; // defer to the nightly path rather than guess
     }
-    if (status.state !== "open") {
-      // PR merged/closed mid-run → land the docs as exactly ONE standalone PR: roll up onto an
-      // existing open docs PR if present (never a 2nd), else open fresh. (key already set → onMergedPr defers.)
+    if (status.state !== "open" || !this.retargetStillOwned(f, status.number)) {
+      // PR merged/closed mid-run, or the branch no longer backs this run's PR + owner session →
+      // land the docs as exactly ONE standalone PR: roll up onto an existing open docs PR if
+      // present (never a 2nd), else open fresh. (key already set → onMergedPr defers.)
       const existing = await this.findOpenDocPr(forge, f.branch);
       return existing
         ? this.rollupOnto(f, existing, sentinel, forge)
@@ -1469,6 +1480,15 @@ export class DocAgentService {
     // Best-effort: fast-forward the owner session's local branch so it isn't left behind origin.
     await this.ffOwnerBranch(f);
     return status.url ?? null;
+  }
+
+  /** True while `prNumber` (the PR the forge now reports for {@link InFlight.headBranch}) is the
+   *  run's recorded PR and the session that started the run is still on that branch in this repo.
+   *  Guards the push for live and re-adopted runs alike. */
+  private retargetStillOwned(f: InFlight, prNumber: number | undefined): boolean {
+    if (prNumber == null || prNumber !== f.prNumber) return false;
+    const owner = this.deps.store.list().find((s) => s.id === f.ownerSessionId);
+    return !!owner && owner.repoPath === f.repoPath && owner.branch === f.headBranch;
   }
 
   /**
@@ -1877,6 +1897,13 @@ interface RetargetState {
   base: string;
   ownerSessionId?: string;
   headSha?: string;
+}
+
+/** The forge's authenticated login, lowercased, or null when the forge can't tell. */
+async function viewerLogin(forge: GitForge): Promise<string | null> {
+  if (!forge.currentUser) return null;
+  const login = await forge.currentUser().catch(() => null); // best-effort: unknown → no roll-up
+  return login ? login.toLowerCase() : null;
 }
 
 /** Local `YYYY-MM-DD` for `now` — the nightly once/day key. Local, not UTC, so the cadence

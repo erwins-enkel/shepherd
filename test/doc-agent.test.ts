@@ -113,6 +113,14 @@ interface Harness {
   __merge: number;
 }
 
+interface DocPrFixture {
+  number: number;
+  headRefName: string;
+  url?: string;
+  author?: string;
+  headPushable?: boolean;
+}
+
 /** Minimal Session stub for the re-target sweep tests. */
 function mkSession(o: Partial<Session> & { id: string }): Session {
   return {
@@ -222,14 +230,20 @@ function mkHarness(opts?: {
   idleThresholdMs?: number;
   /** Full prStatus (state + url) per branch — drives the re-target finalize re-check. Falls back to
    *  prStatusByBranch (state only) when absent. */
-  prStatusFull?: Record<string, { state: "none" | "open" | "merged" | "closed"; url?: string }>;
+  prStatusFull?: Record<
+    string,
+    { state: "none" | "open" | "merged" | "closed"; url?: string; number?: number }
+  >;
   /** Fixed path worktree.create returns (a real dir for fs-level tests); default `/wt/<name>`. */
   worktreePath?: string;
   /** Owner-worktree git responses for the ff guard: porcelain status + rev-parse HEAD. */
   ownerStatusPorcelain?: string;
   ownerHead?: string;
-  /** Open standalone docs PRs returned by forge.listPullRequests (roll-up tests). */
-  openDocPrs?: { number: number; headRefName: string; url?: string }[];
+  /** Open standalone docs PRs returned by forge.listPullRequests (roll-up tests). `author`
+   *  defaults to "shepherd", `headPushable` to true. */
+  openDocPrs?: DocPrFixture[];
+  /** Login forge.currentUser() resolves (default "shepherd"); null → unresolvable. */
+  currentUser?: string | null;
   /** When true, forge.listPullRequests throws (fail-open test). */
   listPullRequestsThrows?: boolean;
   /** When true, `git push --force` throws (deferred roll-up test). */
@@ -273,7 +287,8 @@ function mkHarness(opts?: {
     gitStateById: {} as Record<string, GitState | undefined>,
     ownerStatusPorcelain: "",
     ownerHead: "headsha1",
-    openDocPrs: undefined as { number: number; headRefName: string; url?: string }[] | undefined,
+    openDocPrs: undefined as DocPrFixture[] | undefined,
+    currentUser: "shepherd" as string | null,
     listPullRequestsThrows: false,
     forcePushThrows: false,
     editPrThrows: false,
@@ -427,7 +442,7 @@ function mkHarness(opts?: {
               number: p.number,
               title: "docs: sync docs to recent source changes",
               url: p.url ?? `https://forge/pr/${p.number}`,
-              author: "shepherd",
+              author: p.author ?? "shepherd",
               kind: "other",
               createdAt: 0,
               isDraft: false,
@@ -435,8 +450,10 @@ function mkHarness(opts?: {
               checks: "success",
               jobs: [],
               headRefName: p.headRefName,
+              headPushable: "headPushable" in p ? p.headPushable : true,
             }));
           },
+          currentUser: async () => o.currentUser,
           ...(o.noEditPr
             ? {}
             : {
@@ -1732,7 +1749,7 @@ test("re-target debounce: per-repo inflight lock blocks fire WITHOUT setting fir
 test("re-target finalize, PR still open: commits + pushes HEAD:refs/heads/<headBranch>, opens NO new PR, outcome 'pr'", async () => {
   const h = mkRetargetHarness({
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
   });
   await h.svc.sweepReadyPrs();
   await h.svc.sweepReadyPrs();
@@ -1755,7 +1772,7 @@ test("re-target finalize, PR still open: commits + pushes HEAD:refs/heads/<headB
 test("re-target finalize cleanup: deletes the local docs-update branch, never the code PR head branch", async () => {
   const h = mkRetargetHarness({
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
   });
   await h.svc.sweepReadyPrs();
   await h.svc.sweepReadyPrs();
@@ -1787,10 +1804,23 @@ test("re-target merged-first: PR not open at finalize → ONE fresh PR (openPr +
   expect(res.reason).toContain("re-target already owns");
 });
 
+test("re-target finalize: an open PR on the head branch with another number → standalone PR, no push onto the head", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/99", number: 99 } },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  expect(h.gitCalls.some((c) => c.args.includes("HEAD:refs/heads/feature/x"))).toBe(false);
+  expect(h.openPrInputs).toHaveLength(1);
+  expect((h.openPrInputs[0] as any).head).toMatch(/^shepherd\/docs-update-/);
+});
+
 test("re-target owner ff: runs when owner worktree clean + at pre-push head; never force", async () => {
   const h = mkRetargetHarness({
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
     ownerStatusPorcelain: "",
     ownerHead: "headsha1", // equals git.headSha
   });
@@ -1807,7 +1837,7 @@ test("re-target owner ff: runs when owner worktree clean + at pre-push head; nev
 test("re-target owner ff: skipped when owner worktree dirty", async () => {
   const h = mkRetargetHarness({
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
     ownerStatusPorcelain: " M src/index.ts", // dirty
     ownerHead: "headsha1",
   });
@@ -1821,7 +1851,7 @@ test("re-target owner ff: skipped when owner worktree dirty", async () => {
 test("re-target owner ff: skipped when owner HEAD moved off the pre-push head", async () => {
   const h = mkRetargetHarness({
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
     ownerStatusPorcelain: "",
     ownerHead: "movedsha", // != git.headSha
   });
@@ -1845,17 +1875,26 @@ test("onMergedPr: skips when prSyncedKey set; fires fresh consider when unset", 
   expect(h2.kv.has(MERGED_SEEN("/repo", 7))).toBe(false);
 });
 
+/** Session that owns the re-adopted re-target run in the reapOrphans tests. */
+const OWNER = () => mkSession({ id: "sess-1", repoPath: "/repo", branch: "feature/x" });
+
 test("reapOrphans: worktree with re-target state re-adopts as mode:retarget and pushes onto the PR head", async () => {
   const h = mkHarness({
     repos: ["/repo"],
     worktreeListPorcelain: DOCS_WT_PORCELAIN("rt000001"),
     sentinel: "## Changes\n- updated configuration.md\n",
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    sessions: [OWNER()],
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
   });
   h.kv.set(
     RETARGET_STATE("/wt/docs-update-rt000001"),
-    JSON.stringify({ prNumber: 7, headBranch: "feature/x", base: "main" }),
+    JSON.stringify({
+      prNumber: 7,
+      headBranch: "feature/x",
+      base: "main",
+      ownerSessionId: "sess-1",
+    }),
   );
   await h.svc.reapOrphans();
   await h.svc.tick();
@@ -1863,6 +1902,42 @@ test("reapOrphans: worktree with re-target state re-adopts as mode:retarget and 
   const push = h.gitCalls.find((c) => c.args[0] === "push");
   expect(push!.args).toEqual(["push", "origin", "HEAD:refs/heads/feature/x"]);
   expect(h.openPrInputs).toHaveLength(0);
+});
+
+test("reapOrphans: re-target state whose head branch is not the owner session's publishes a standalone PR", async () => {
+  const cases: { sessions: Session[]; ownerSessionId?: string }[] = [
+    { sessions: [OWNER()], ownerSessionId: "sess-1" }, // owner is on feature/x, state says other/y
+    { sessions: [OWNER()], ownerSessionId: "sess-gone" }, // owner session no longer exists
+    { sessions: [OWNER()] }, // no owner recorded
+    {
+      sessions: [mkSession({ id: "sess-1", repoPath: "/other", branch: "other/y" })],
+      ownerSessionId: "sess-1",
+    }, // owner lives in a different repo
+  ];
+  for (const c of cases) {
+    const h = mkHarness({
+      repos: ["/repo"],
+      worktreeListPorcelain: DOCS_WT_PORCELAIN("rt000003"),
+      sentinel: "## Changes\n- updated configuration.md\n",
+      act: true,
+      sessions: c.sessions,
+      prStatusFull: { "other/y": { state: "open", url: "https://forge/pr/7", number: 7 } },
+    });
+    h.kv.set(
+      RETARGET_STATE("/wt/docs-update-rt000003"),
+      JSON.stringify({
+        prNumber: 7,
+        headBranch: "other/y",
+        base: "main",
+        ownerSessionId: c.ownerSessionId,
+      }),
+    );
+    await h.svc.reapOrphans();
+    await h.svc.tick();
+    expect(h.gitCalls.some((c) => c.args.includes("HEAD:refs/heads/other/y"))).toBe(false);
+    expect(h.openPrInputs).toHaveLength(1);
+    expect((h.openPrInputs[0] as any).head).toBe("shepherd/docs-update-rt000003");
+  }
 });
 
 test("reapOrphans: worktree WITHOUT re-target state re-adopts as mode:fresh (opens a standalone PR)", async () => {
@@ -1887,7 +1962,7 @@ test("re-target OBSERVE (act:false): logs, does not push or openPr", async () =>
   try {
     const h = mkRetargetHarness({
       act: false,
-      prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+      prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
     });
     await h.svc.sweepReadyPrs();
     await h.svc.sweepReadyPrs();
@@ -1929,7 +2004,13 @@ test("#2854 docs roll-up reads the shared PR snapshot without a direct listing",
       reads++;
       return {
         prs: [
-          { number: 5, headRefName: "shepherd/docs-update-old00001", url: "https://forge/pr/5" },
+          {
+            number: 5,
+            headRefName: "shepherd/docs-update-old00001",
+            url: "https://forge/pr/5",
+            author: "shepherd",
+            headPushable: true,
+          },
         ],
         statuses: new Map(),
         capped: false,
@@ -1950,7 +2031,13 @@ test("#2854 cached docs PRs that closed or merged publish a fresh PR", async () 
     deps.openPrSnapshot = {
       get: async () => ({
         prs: [
-          { number: 5, headRefName: "shepherd/docs-update-old00001", url: "https://forge/pr/5" },
+          {
+            number: 5,
+            headRefName: "shepherd/docs-update-old00001",
+            url: "https://forge/pr/5",
+            author: "shepherd",
+            headPushable: true,
+          },
         ],
         statuses: new Map(),
         capped: false,
@@ -1978,8 +2065,20 @@ test("#2854 docs roll-up selects the lowest still-open cached PR", async () => {
   deps.openPrSnapshot = {
     get: async () => ({
       prs: [
-        { number: 6, headRefName: "shepherd/docs-update-old00002", url: "https://forge/pr/6" },
-        { number: 5, headRefName: "shepherd/docs-update-old00001", url: "https://forge/pr/5" },
+        {
+          number: 6,
+          headRefName: "shepherd/docs-update-old00002",
+          url: "https://forge/pr/6",
+          author: "shepherd",
+          headPushable: true,
+        },
+        {
+          number: 5,
+          headRefName: "shepherd/docs-update-old00001",
+          url: "https://forge/pr/5",
+          author: "shepherd",
+          headPushable: true,
+        },
       ],
       statuses: new Map(),
       capped: false,
@@ -2150,6 +2249,74 @@ test("roll-up: re-target merged-mid-run fallback with existing docs PR → rolls
   ).toBe(true);
   expect(h.editPrCalls[0]!.prNumber).toBe(5);
   expect(h.finalizes[0]).toEqual({ repoPath: "/repo", url: "https://forge/pr/5", outcome: "pr" });
+});
+
+test("roll-up: skips docs PRs whose head is not in origin", async () => {
+  const h = mkHarness({
+    act: true,
+    openDocPrs: [
+      { number: 3, headRefName: "shepherd/docs-update-fork0003", headPushable: false },
+      { number: 4, headRefName: "shepherd/docs-update-unkn0004", headPushable: undefined },
+      { number: 5, headRefName: "shepherd/docs-update-own00005" },
+    ],
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  const forced = h.gitCalls.filter((c) => c.args[0] === "push" && c.args[1] === "--force");
+  expect(forced.map((c) => c.args[3])).toEqual(["HEAD:refs/heads/shepherd/docs-update-own00005"]);
+  expect(h.editPrCalls.map((e) => e.prNumber)).toEqual([5]);
+  expect(h.openPrInputs).toHaveLength(0);
+});
+
+test("roll-up: skips docs PRs opened by another account; login match ignores case", async () => {
+  const h = mkHarness({
+    act: true,
+    currentUser: "Shepherd",
+    openDocPrs: [
+      { number: 3, headRefName: "shepherd/docs-update-othr0003", author: "someone-else" },
+      { number: 4, headRefName: "shepherd/docs-update-own00004", author: "shepherd" },
+    ],
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  const forced = h.gitCalls.filter((c) => c.args[0] === "push" && c.args[1] === "--force");
+  expect(forced.map((c) => c.args[3])).toEqual(["HEAD:refs/heads/shepherd/docs-update-own00004"]);
+  expect(h.editPrCalls.map((e) => e.prNumber)).toEqual([4]);
+});
+
+test("roll-up: an unresolvable current user opens a fresh PR instead of rolling up", async () => {
+  const h = mkHarness({
+    act: true,
+    currentUser: null,
+    openDocPrs: [{ number: 5, headRefName: "shepherd/docs-update-old00001" }],
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.gitCalls.some((c) => c.args.includes("--force"))).toBe(false);
+  expect(h.editPrCalls).toHaveLength(0);
+  expect(h.openPrInputs).toHaveLength(1);
+});
+
+test("roll-up: re-target merged-mid-run fallback ignores a docs PR from outside origin", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "merged" } },
+    openDocPrs: [
+      {
+        number: 5,
+        headRefName: "shepherd/docs-update-old00001",
+        author: "someone-else",
+        headPushable: false,
+      },
+    ],
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  await h.svc.tick();
+  expect(h.gitCalls.some((c) => c.args.includes("--force"))).toBe(false);
+  expect(h.editPrCalls).toHaveLength(0);
+  expect(h.openPrInputs).toHaveLength(1);
+  expect((h.openPrInputs[0] as any).head).toMatch(/^shepherd\/docs-update-/);
 });
 
 // ── plugin onSpawn hook: abort → skipped (issue #1205) ───────────────────────
@@ -2330,7 +2497,7 @@ test("reapOrphans: a marker file inside the worktree does not select re-target m
       ].join("\n"),
       sentinel: "## Changes\n- updated configuration.md\n",
       act: true,
-      prStatusFull: { main: { state: "open", url: "https://forge/pr/7" } },
+      prStatusFull: { main: { state: "open", url: "https://forge/pr/7", number: 7 } },
     });
     await h.svc.reapOrphans();
     await h.svc.tick();
@@ -2378,7 +2545,7 @@ test("launch: a sentinel the checked-out commit already carries is removed befor
 test("re-target state: deleted at finalize and prune, never left by a failed launch", async () => {
   const h = mkRetargetHarness({
     act: true,
-    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7", number: 7 } },
   });
   await h.svc.sweepReadyPrs();
   await h.svc.sweepReadyPrs();

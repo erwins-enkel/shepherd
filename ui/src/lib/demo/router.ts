@@ -142,6 +142,8 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
     }),
   // Settings › Coding CLI's repos with their own values (#3447): the demo repos all inherit.
   "/api/repo-run-defaults": () => json({ repos: [] }),
+  // Settings › Resources › Postgres's repos (#4232): no demo repo has Postgres on.
+  "/api/postgres/repos": () => json({ repos: [] }),
   // Operator schedules (#3469): the demo seeds none; a list keeps `schedules.listFor` an array.
   "/api/schedules": () => json({ schedules: [] }),
   // The repo index. Fired on mount by `repos.load()`; without it `listRepos()` saw the

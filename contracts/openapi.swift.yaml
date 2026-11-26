@@ -11457,6 +11457,30 @@ components:
           items:
             $ref: "#/components/schemas/RepoRunDefaults"
           description: Repos under the repo root with at least one of agentProvider, defaultModel, defaultEffort or defaultExecutionEffort not set to inherit, sorted by name.
+    PostgresRepo:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+        - name
+      properties:
+        repoPath:
+          type: string
+          description: The repo's resolved path (realpath), the key /api/repo-config keys on.
+        name:
+          type: string
+          description: The repo's directory name under the repo root.
+    PostgresRepoList:
+      type: object
+      additionalProperties: false
+      required:
+        - repos
+      properties:
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/PostgresRepo"
+          description: Repos under the repo root with postgresMode on-request, sorted by name.
     RepoConfigPatch:
       type: object
       additionalProperties: false
@@ -18876,6 +18900,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RepoRunDefaultsList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/postgres/repos:
+    get:
+      operationId: getPostgresRepos
+      description: The repos with on-demand Postgres switched on (#4232, postgresMode on-request) — Settings › Resources › Postgres's list. Stored values; repos outside the repo root or a scoped token's grant drop out.
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostgresRepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/repo-bootstrap:

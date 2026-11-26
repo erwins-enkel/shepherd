@@ -1,12 +1,14 @@
 <script lang="ts">
   // Settings → Resources → Postgres (#4232): the shared, on-demand Postgres server Shepherd runs
-  // for repos that opt in (Repo settings → Agent). Each field saves on change.
+  // for repos that opt in, picked here (SettingsPostgresRepos) or under Repo settings → Agent.
+  // Each field saves on change.
   import { onMount } from "svelte";
   import { getSettings, putPostgresSettings } from "#lib/api.js";
   import type { PostgresSettings } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
+  import SettingsPostgresRepos from "./SettingsPostgresRepos.svelte";
   import "./settings-controls.css";
 
   let { query = "" }: { query?: string } = $props();
@@ -126,6 +128,7 @@
         />{/snippet}
     </SettingRow>
   </fieldset>
+  <SettingsPostgresRepos globalEnabled={settings.enabled} {query} />
 {/if}
 
 <style>

@@ -9520,7 +9520,7 @@
   "tooltip_postgres_needs": "Needs",
   "tooltip_postgres_needs_body": "Docker on this machine and Postgres turned on in Settings → Resources. Trusted and Standard Claude sessions only for now; sessions pick up the tool at their next spawn or resume.",
   "postgres_settings_heading": "Postgres",
-  "postgres_settings_scope": "One shared Postgres server Shepherd runs in Docker only while agents need it. Repos opt in under Repo settings → Agent.",
+  "postgres_settings_scope": "One shared Postgres server Shepherd runs in Docker only while agents need it. Pick its repos below or under Repo settings → Agent.",
   "postgres_settings_unavailable": "Postgres settings are unavailable.",
   "postgres_settings_enabled": "Run Postgres on demand",
   "postgres_settings_port": "Port",
@@ -9539,8 +9539,16 @@
   "diagnostics_hint_postgres_image": "Stopped. The image is pulled when an agent first asks for a database.",
   "diagnostics_hint_postgres_uninspectable": "The Postgres server could not be checked.",
   "feat_postgres_title": "Postgres on demand",
-  "feat_postgres_body": "Shepherd can run one shared Postgres server for your repos and start it only when an agent needs it. Each session gets its own database copy, dropped on archive. Turn it on in Settings → Resources, then per repo under Repo settings → Agent.",
+  "feat_postgres_body": "Shepherd can run one shared Postgres server for your repos and start it only when an agent needs it. Each session gets its own database copy, dropped on archive. Turn it on in Settings → Resources and pick its repos right there under Repos with Postgres.",
   "epic_archived_review_status": "Session ended · PR open",
   "feat_epic_archived_reviews_title": "Open reviews in epic groups",
-  "feat_epic_archived_reviews_body": "In Mission Control’s All view, an epic keeps a link to an open pull request after its session ends."
+  "feat_epic_archived_reviews_body": "In Mission Control’s All view, an epic keeps a link to an open pull request after its session ends.",
+  "postgres_repos_title": "Repos with Postgres",
+  "postgres_repos_hint": "Agents in these repos can ask for their own database. Same switch as Repo settings → Agent → Postgres on request.",
+  "postgres_repos_global_off": "Postgres is off for this machine. These repos get it once you turn it on above.",
+  "postgres_repos_none": "No repo has Postgres yet.",
+  "postgres_repos_add": "Add a repo…",
+  "postgres_repos_remove_aria": "Turn Postgres off for {repo}",
+  "postgres_repos_save_failed": "Could not change Postgres for {repo}.",
+  "postgres_repos_load_failed": "Could not load the repos with Postgres."
 }

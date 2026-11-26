@@ -306,6 +306,18 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
   expect(own.repos).toContainEqual(
     expect.objectContaining({ name: "repo", agentProvider: "codex" }),
   );
+  // #4232: a repo with Postgres on request shows in Settings › Resources › Postgres's list.
+  await request(
+    "PUT",
+    "/api/repo-config",
+    200,
+    { postgresMode: "on-request" },
+    "/api/repo-config" + query,
+  );
+  const postgres = (await request("GET", "/api/postgres/repos", 200)) as {
+    repos: { name: string }[];
+  };
+  expect(postgres.repos).toContainEqual(expect.objectContaining({ name: "repo" }));
   await request(
     "PUT",
     "/api/repo-config",

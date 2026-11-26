@@ -297,12 +297,15 @@ agent-controlled mounts, privileges or images.
 published on `127.0.0.1` only, but every sandbox that shares the host network
 (`trusted`, `standard`) can reach it. Each session gets its own clone database
 and login role (`s_<id>`, password = HMAC of the session id under a 0600 key in
-`~/.shepherd/postgres/`), and `REVOKE CONNECT … FROM PUBLIC` is applied to every
-clone and to the repo template, so a role can connect only to its own database.
+`postgres/` beside the instance's DB), and `REVOKE CONNECT, TEMPORARY … FROM
+PUBLIC` is applied to every clone, the repo template and the built-in `postgres`
+and `template1` databases (re-applied at every start), so a role can connect
+only to its own database. A second Shepherd instance with another state dir gets
+its own container and volume, so neither reconciles the other's clones.
 The template (`r_<repo>_base`) is owned by the superuser; nobody connects to it.
 
 **The superuser stays with Shepherd.** Its password lives in
-`~/.shepherd/postgres/superuser.env` (0600) and is only used for the image's
+`postgres/superuser.env` beside the DB (0600) and is only used for the image's
 first init; Shepherd administers the cluster through `docker exec … psql` over
 the container's local socket, with SQL on stdin, so no password reaches argv.
 

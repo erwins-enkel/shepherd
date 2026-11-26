@@ -23,6 +23,7 @@ class FakeDocker {
   clients = 0;
   dbs = new Set<string>();
   roles = new Set<string>();
+  name = "shepherd-postgres-18";
 
   run: DockerRun = async (args, opts) => {
     this.calls.push({ args, input: opts.input });
@@ -47,6 +48,8 @@ class FakeDocker {
       this.exists = this.running = false;
       return "";
     }
+    if (cmd === "exec" && args[sub === "-i" ? 2 : 1] !== this.name)
+      throw new Error(`exec on unknown container: ${args.join(" ")}`);
     if (cmd === "exec" && sub === "-i") return this.sql(opts.input ?? "");
     if (cmd === "exec") {
       if (!this.running || !this.ready) throw new Error("not ready");
@@ -118,6 +121,7 @@ function svc(overrides: Partial<ConstructorParameters<typeof PostgresService>[0]
   return new PostgresService({
     store,
     stateDir: join(dir, "pg"),
+    names: { container: "shepherd-postgres-18", volume: "shepherd-postgres-18" },
     docker: docker.run,
     now: () => clock,
     sleep: async (ms) => {
@@ -165,6 +169,19 @@ describe("ensureRunning", () => {
     expect(run.join(" ")).not.toMatch(/PASSWORD/);
     expect(docker.count("pull")).toBe(0);
     expect(ticks.length).toBe(1);
+  });
+
+  it("revokes PUBLIC access to postgres/template1 once ready", async () => {
+    await svc().ensureRunning();
+    expect(docker.sqlCalls(/REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC/)).toBe(1);
+  });
+
+  it("drives only its own container", async () => {
+    docker.name = "pg-b";
+    await svc({ names: { container: "pg-b", volume: "vol-b" } }).ensureRunning();
+    const run = docker.calls.find((c) => c.args[0] === "run")!.args;
+    expect(run).toEqual(expect.arrayContaining(["--name", "pg-b", "vol-b:/var/lib/postgresql"]));
+    expect(docker.calls.find((c) => c.args[0] === "ps")!.args).toContain("name=^pg-b$");
   });
 
   it("pulls only when the image is missing", async () => {
@@ -295,6 +312,21 @@ describe("release + reconcile", () => {
     expect(store.getPostgresLease(a)).toBeNull();
     expect(docker.dbs.has(sessionDb(S2))).toBe(false);
     expect(docker.roles.has(sessionDb(S2))).toBe(false);
+  });
+
+  it("reconcile and idle do nothing while Postgres is off", async () => {
+    const s = svc();
+    await s.request(mkSession());
+    docker.dbs.add(sessionDb(S2));
+    store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
+    const before = docker.calls.length;
+    await s.reconcile();
+    clock += 24 * 60 * 60_000;
+    await s.idleTick();
+    expect(docker.calls.length).toBe(before);
+    expect(docker.dbs.has(sessionDb(S2))).toBe(true);
+    expect(docker.running).toBe(true);
+    expect(ticks.length).toBe(0);
   });
 
   it("reconcile is a no-op while stopped", async () => {

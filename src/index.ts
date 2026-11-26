@@ -68,6 +68,7 @@ import {
 import { WorktreeMgr } from "./worktree";
 import { ComposeCleanup } from "./compose-cleanup";
 import { PostgresService } from "./postgres";
+import { postgresInstanceNames } from "./postgres-core";
 import { matchAgentLive, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
 import { startTerminalTransportSelfCheck } from "./terminal-transport-metrics";
@@ -1194,7 +1195,14 @@ const agentSecrets = new AgentSecretStore(config.agentSecretsPath);
 await agentSecrets.load();
 
 // On-demand Postgres (#4232): one shared, Shepherd-managed container; idle unless asked for.
-const postgres = new PostgresService({ store });
+// State lives beside this instance's DB, and a non-default state dir gets its own container, so two
+// instances on one host never reconcile each other's clones.
+const postgresRoot = dirname(config.dbPath);
+const postgres = new PostgresService({
+  store,
+  stateDir: join(postgresRoot, "postgres"),
+  names: postgresInstanceNames(postgresRoot, join(homedir(), ".shepherd")),
+});
 
 const assistantView = new AssistantViewRegistry();
 const service = new SessionService({

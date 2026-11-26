@@ -5,8 +5,7 @@ import { createHash, createHmac } from "node:crypto";
 import { basename } from "node:path";
 
 export const POSTGRES_SETTING = "postgres";
-export const POSTGRES_CONTAINER = "shepherd-postgres-18";
-export const POSTGRES_VOLUME = "shepherd-postgres-18";
+const POSTGRES_BASE_NAME = "shepherd-postgres-18";
 export const POSTGRES_DATA_DIR = "/var/lib/postgresql";
 export const POSTGRES_LABEL_MANAGED = "run.shepherd.managed";
 export const POSTGRES_LABEL_KIND = "run.shepherd.kind";
@@ -96,6 +95,21 @@ export function storedPostgresSettings(stored: string | null | undefined): Postg
   }
 }
 
+/** Container + volume names for one Shepherd instance. Two instances on one host (a second state
+ *  dir, docs/machines.md) must never share a cluster: each one's reconcile treats session DBs it
+ *  has no lease for as orphans. The default `~/.shepherd` keeps the plain name; any other state
+ *  dir gets a stable suffix derived from it. */
+export function postgresInstanceNames(
+  stateRoot: string,
+  defaultRoot: string,
+): { container: string; volume: string } {
+  const name =
+    stateRoot === defaultRoot
+      ? POSTGRES_BASE_NAME
+      : `${POSTGRES_BASE_NAME}-${createHash("sha256").update(stateRoot).digest("hex").slice(0, 8)}`;
+  return { container: name, volume: name };
+}
+
 // ── identifiers ──────────────────────────────────────────────────────────────
 
 const IDENT_RE = /^[a-z_][a-z0-9_]{0,62}$/;
@@ -155,7 +169,7 @@ export function baseScript(repoPath: string): string {
   return [
     `SELECT 'CREATE ROLE ${role} NOLOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(role)})\\gexec`,
     `SELECT 'CREATE DATABASE ${base}' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = ${lit(base)})\\gexec`,
-    `REVOKE CONNECT ON DATABASE ${base} FROM PUBLIC;`,
+    `REVOKE CONNECT, TEMPORARY ON DATABASE ${base} FROM PUBLIC;`,
     "",
   ].join("\n");
 }
@@ -177,16 +191,28 @@ export function cloneScript(repoPath: string, sessionId: string): string {
   return [
     "SET file_copy_method = clone;",
     `CREATE DATABASE ${db} TEMPLATE ${repoBaseDb(repoPath)} STRATEGY FILE_COPY OWNER ${db};`,
-    `REVOKE CONNECT ON DATABASE ${db} FROM PUBLIC;`,
+    `REVOKE CONNECT, TEMPORARY ON DATABASE ${db} FROM PUBLIC;`,
     `\\connect ${db}`,
     `REASSIGN OWNED BY ${repoRole(repoPath)} TO ${db};`,
     "",
   ].join("\n");
 }
 
+/** Session roles may connect only to their own clone: PUBLIC loses CONNECT/TEMPORARY on the
+ *  cluster's built-in databases too (template0 already refuses connections). Run at every ready. */
+export const HARDEN_SQL =
+  "REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;\nREVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;\n";
+
+/** Drop the clone and its role. `DROP OWNED` first clears anything the role still holds in the
+ *  admin database (grants, default ACLs) so `DROP ROLE` cannot fail on a dependency. */
 export function dropScript(db: string): string {
   if (!isSessionDbName(db)) throw new Error(`refusing to drop non-session database: ${db}`);
-  return `DROP DATABASE IF EXISTS ${db} WITH (FORCE);\nDROP ROLE IF EXISTS ${db};\n`;
+  return [
+    `DROP DATABASE IF EXISTS ${db} WITH (FORCE);`,
+    `SELECT 'DROP OWNED BY ${db}' WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
+    `DROP ROLE IF EXISTS ${db};`,
+    "",
+  ].join("\n");
 }
 
 /** Session databases and roles present in the cluster (one name per line). */

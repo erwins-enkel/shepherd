@@ -9,21 +9,19 @@
 // `docker exec` (local-socket trust), so agents never see it.
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { dockerChildEnv, resolveDockerEndpoint, runDocker } from "./docker-cli";
 import { writeSecretsFile } from "./plugins/secrets";
 import {
   CLIENT_CONNECTIONS_SQL,
+  HARDEN_SQL,
   LIST_SESSION_OBJECTS_SQL,
-  POSTGRES_CONTAINER,
   POSTGRES_DATA_DIR,
   POSTGRES_LABEL_IMAGE,
   POSTGRES_LABEL_KIND,
   POSTGRES_LABEL_MANAGED,
   POSTGRES_LABEL_PORT,
   POSTGRES_SETTING,
-  POSTGRES_VOLUME,
   baseScript,
   cloneScript,
   connectionFor,
@@ -58,8 +56,10 @@ export interface PostgresStore {
 
 export interface PostgresServiceDeps {
   store: PostgresStore;
-  /** Secrets dir (0700): `superuser.env` + `lease.key`. Default `~/.shepherd/postgres`. */
-  stateDir?: string;
+  /** Secrets dir (0700): `superuser.env` + `lease.key` — beside the instance's DB. */
+  stateDir: string;
+  /** This instance's container + volume (`postgresInstanceNames`). */
+  names: { container: string; volume: string };
   /** Docker CLI seam; default resolves the local endpoint and runs `docker --host … <args>`. */
   docker?: DockerRun;
   now?: () => number;
@@ -133,6 +133,8 @@ function defaultDocker(): DockerRun {
 export class PostgresService {
   private readonly store: PostgresStore;
   private readonly stateDir: string;
+  private readonly container: string;
+  private readonly volume: string;
   private readonly docker: DockerRun;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -150,7 +152,9 @@ export class PostgresService {
 
   constructor(deps: PostgresServiceDeps) {
     this.store = deps.store;
-    this.stateDir = deps.stateDir ?? join(homedir(), ".shepherd", "postgres");
+    this.stateDir = deps.stateDir;
+    this.container = deps.names.container;
+    this.volume = deps.names.volume;
     this.docker = deps.docker ?? defaultDocker();
     this.now = deps.now ?? Date.now;
     this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -210,13 +214,13 @@ export class PostgresService {
   // ── container ──────────────────────────────────────────────────────────────
 
   /** null = no such container; rejects when docker itself is unreachable. */
-  private async container(): Promise<ContainerState | null> {
+  private async inspect(): Promise<ContainerState | null> {
     const out = await this.docker(
       [
         "ps",
         "-a",
         "--filter",
-        `name=^${POSTGRES_CONTAINER}$`,
+        `name=^${this.container}$`,
         "--format",
         `{{.State}}\t{{.Label "${POSTGRES_LABEL_IMAGE}"}}\t{{.Label "${POSTGRES_LABEL_PORT}"}}`,
       ],
@@ -252,7 +256,7 @@ export class PostgresService {
         "run",
         "-d",
         "--name",
-        POSTGRES_CONTAINER,
+        this.container,
         "--label",
         `${POSTGRES_LABEL_MANAGED}=true`,
         "--label",
@@ -268,7 +272,7 @@ export class PostgresService {
         "-p",
         `${HOST}:${s.port}:5432`,
         "-v",
-        `${POSTGRES_VOLUME}:${POSTGRES_DATA_DIR}`,
+        `${this.volume}:${POSTGRES_DATA_DIR}`,
         "--env-file",
         envFile,
         s.image,
@@ -278,7 +282,7 @@ export class PostgresService {
   }
 
   private async ready(): Promise<boolean> {
-    return this.docker(["exec", POSTGRES_CONTAINER, "pg_isready", "-h", HOST, "-p", "5432", "-q"], {
+    return this.docker(["exec", this.container, "pg_isready", "-h", HOST, "-p", "5432", "-q"], {
       timeoutMs: PROBE_MS,
     }).then(
       () => true,
@@ -307,21 +311,22 @@ export class PostgresService {
   private async doEnsure(): Promise<void> {
     const s = this.settings();
     if (!s.enabled) throw new PostgresError("disabled", "Postgres is turned off in Settings");
-    let c = await this.container().catch((e: unknown) => {
+    let c = await this.inspect().catch((e: unknown) => {
       throw new PostgresError("docker", `Docker unreachable: ${(e as Error).message}`);
     });
     if (c && this.drifted(c, s)) {
       this.log("settings changed; recreating the container (data volume kept)");
-      await this.docker(["rm", "-f", POSTGRES_CONTAINER], { timeoutMs: STOP_MS });
+      await this.docker(["rm", "-f", this.container], { timeoutMs: STOP_MS });
       c = null;
     }
     try {
       if (!c) await this.create(s);
-      else if (!c.running) await this.docker(["start", POSTGRES_CONTAINER], { timeoutMs: RUN_MS });
+      else if (!c.running) await this.docker(["start", this.container], { timeoutMs: RUN_MS });
     } catch (e) {
       throw new PostgresError("start-failed", `Could not start Postgres: ${(e as Error).message}`);
     }
     await this.waitReady();
+    await this.admin(() => this.psql(HARDEN_SQL));
     this.lastBusyAt = this.now();
     this.armIdle();
     await this.drainDropping();
@@ -330,7 +335,7 @@ export class PostgresService {
   private async isRunning(): Promise<boolean> {
     // Docker unreachable reads as "not running": callers then defer (drop later, skip
     // reconcile/stop) instead of failing.
-    const c = await this.container().catch(() => null); // best-effort: see above
+    const c = await this.inspect().catch(() => null); // best-effort: see above
     return c?.running ?? false;
   }
 
@@ -341,7 +346,7 @@ export class PostgresService {
       [
         "exec",
         "-i",
-        POSTGRES_CONTAINER,
+        this.container,
         "psql",
         "-X",
         "-q",
@@ -460,7 +465,7 @@ export class PostgresService {
    *  or roles no lease claims. Only while the server runs; also (re-)arms the idle timer. */
   async reconcile(): Promise<void> {
     try {
-      if (!(await this.isRunning())) return;
+      if (!this.settings().enabled || !(await this.isRunning())) return;
       if (!this.idleTimer) {
         this.lastBusyAt = this.now();
         this.armIdle();
@@ -492,6 +497,10 @@ export class PostgresService {
 
   /** One idle check: any client connection keeps it up; none for `idleMinutes` stops it. */
   async idleTick(): Promise<void> {
+    if (!this.settings().enabled) {
+      this.disarmIdle(); // turned off: applySettings stops the server, nothing to watch
+      return;
+    }
     if (this.ensuring || this.requests.size > 0) {
       this.lastBusyAt = this.now();
       return;
@@ -513,7 +522,7 @@ export class PostgresService {
     try {
       if (!(await this.isRunning())) return;
       this.log(`stopping (${reason})`);
-      await this.docker(["stop", "-t", "30", POSTGRES_CONTAINER], { timeoutMs: STOP_MS });
+      await this.docker(["stop", "-t", "30", this.container], { timeoutMs: STOP_MS });
     } catch (e) {
       this.log(`stop failed: ${(e as Error).message}`);
     }
@@ -532,7 +541,7 @@ export class PostgresService {
     if (!s.enabled) return { enabled: false };
     let c: ContainerState | null;
     try {
-      c = await this.container();
+      c = await this.inspect();
     } catch {
       return { enabled: true, docker: false };
     }

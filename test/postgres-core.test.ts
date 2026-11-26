@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   DEFAULT_POSTGRES_SETTINGS,
+  HARDEN_SQL,
+  postgresInstanceNames,
   baseScript,
   cloneScript,
   connectionFor,
@@ -57,7 +59,7 @@ describe("scripts", () => {
     expect(sql).toContain(`CREATE DATABASE ${repoBaseDb(repo)}'`);
     expect(sql).not.toMatch(/OWNER/);
     expect(sql).not.toMatch(/ALTER DATABASE/);
-    expect(sql).toContain(`REVOKE CONNECT ON DATABASE ${repoBaseDb(repo)} FROM PUBLIC;`);
+    expect(sql).toContain(`REVOKE CONNECT, TEMPORARY ON DATABASE ${repoBaseDb(repo)} FROM PUBLIC;`);
     expect(sql).toContain(`CREATE ROLE ${repoRole(repo)} NOLOGIN`);
   });
 
@@ -68,7 +70,7 @@ describe("scripts", () => {
     expect(sql).toContain(
       `CREATE DATABASE ${db} TEMPLATE ${repoBaseDb(repo)} STRATEGY FILE_COPY OWNER ${db};`,
     );
-    expect(sql).toContain(`REVOKE CONNECT ON DATABASE ${db} FROM PUBLIC;`);
+    expect(sql).toContain(`REVOKE CONNECT, TEMPORARY ON DATABASE ${db} FROM PUBLIC;`);
     expect(sql.indexOf(`\\connect ${db}`)).toBeLessThan(sql.indexOf("REASSIGN OWNED"));
     expect(sql).toContain(`REASSIGN OWNED BY ${repoRole(repo)} TO ${db};`);
   });
@@ -78,10 +80,30 @@ describe("scripts", () => {
     expect(() => roleScript(SID, "bad'pw")).toThrow();
   });
 
-  it("drop refuses non-session names", () => {
-    expect(dropScript(sessionDb(SID))).toContain("WITH (FORCE)");
+  it("drop clears the role's leftovers before DROP ROLE and refuses non-session names", () => {
+    const sql = dropScript(sessionDb(SID));
+    expect(sql).toContain("WITH (FORCE)");
+    expect(sql.indexOf(`DROP OWNED BY ${sessionDb(SID)}`)).toBeLessThan(sql.indexOf("DROP ROLE"));
     expect(() => dropScript("postgres")).toThrow();
   });
+});
+
+it("hardening revokes PUBLIC access to the built-in databases", () => {
+  expect(HARDEN_SQL).toContain("REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;");
+  expect(HARDEN_SQL).toContain("REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;");
+});
+
+it("instance names: plain for the default state dir, suffixed for any other", () => {
+  expect(postgresInstanceNames("/h/.shepherd", "/h/.shepherd")).toEqual({
+    container: "shepherd-postgres-18",
+    volume: "shepherd-postgres-18",
+  });
+  const other = postgresInstanceNames("/h/.shepherd-b", "/h/.shepherd");
+  expect(other.container).toMatch(/^shepherd-postgres-18-[0-9a-f]{8}$/);
+  expect(other.volume).toBe(other.container);
+  expect(postgresInstanceNames("/h/.shepherd-c", "/h/.shepherd").container).not.toBe(
+    other.container,
+  );
 });
 
 describe("settings", () => {

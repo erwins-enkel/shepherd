@@ -67,6 +67,8 @@ import {
 } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { ComposeCleanup } from "./compose-cleanup";
+import { PostgresService } from "./postgres";
+import { postgresInstanceNames } from "./postgres-core";
 import { matchAgentLive, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
 import { startTerminalTransportSelfCheck } from "./terminal-transport-metrics";
@@ -1192,6 +1194,16 @@ const capacityInterrupted: CapacityInterruptionCheck = async (intent, worktreePa
 const agentSecrets = new AgentSecretStore(config.agentSecretsPath);
 await agentSecrets.load();
 
+// On-demand Postgres (#4232): one shared, Shepherd-managed container; idle unless asked for.
+// State lives beside this instance's DB, and a non-default state dir gets its own container, so two
+// instances on one host never reconcile each other's clones.
+const postgresRoot = dirname(config.dbPath);
+const postgres = new PostgresService({
+  store,
+  stateDir: join(postgresRoot, "postgres"),
+  names: postgresInstanceNames(postgresRoot, join(homedir(), ".shepherd")),
+});
+
 const assistantView = new AssistantViewRegistry();
 const service = new SessionService({
   probeCodexFast: async (binary, target) => {
@@ -1212,6 +1224,7 @@ const service = new SessionService({
   ghHostsRefresh: ghHostsRefresher,
   ghGrants,
   agentSecrets,
+  postgres,
   prepareScratchpadBind: sandboxScratchpadBind,
   resolveMembraneGhBin: () => resolveMembraneGhBin(),
   readCodexAuthMode,
@@ -2669,6 +2682,7 @@ deferredStarts.push(() => {
   // Label-driven: also finds deleted worktrees whose sessions were already pruned from the DB.
   // Independent of the review reconciliation below and its process-liveness gates.
   if (!maintenance.active) void composeCleanup.sweepOrphans();
+  void postgres.reconcile();
   void planGate
     .recoverAtBoot()
     .catch((err) => console.warn("[boot] plan-gate orphan reconcile:", err))
@@ -2702,6 +2716,7 @@ deferredStarts.push(() => {
         console.warn("[worktrees] hourly sweep failed:", err),
       );
       if (!maintenance.active) void composeCleanup.sweepOrphans();
+      void postgres.reconcile();
       // Also hourly, not boot-only: a Shepherd instance stays up for weeks, so a row that finalized
       // moments before its rollout appeared would otherwise stay unknown until the next restart.
       // Cheap to repeat — no tree walk at all when no row is missing totals. (#1816)
@@ -3376,6 +3391,13 @@ events.subscribe((event, data) => {
 events.subscribe((event, data) => {
   if (event !== "session:archived") return;
   autopilot.forget((data as { id: string }).id);
+});
+
+// #4232: an archived session's Postgres clone is dropped (now if the server runs, else on its
+// next start / reconcile).
+events.subscribe((event, data) => {
+  if (event !== "session:archived") return;
+  void postgres.releaseSession((data as { id: string }).id);
 });
 
 // Readiness greenfield profile (#3107): scans an active-bootstrap repo's must-haves for the drain
@@ -4377,6 +4399,7 @@ setTimeout(
 // no client polling — the request path otherwise reads the TTL snapshot.
 const diagnostics = new DiagnosticsService({
   readComposeOrphans: () => composeCleanup.countOrphans(),
+  readPostgres: () => postgres.status(),
   // Live snapshot-cell health for `preview_probes` — the SHARED reaper, so the
   // Diagnose row reflects the same cell the sweeps read (a fresh ProcessReaper
   // would carry an always-cold cell). Pure read, no spawn.
@@ -4746,6 +4769,7 @@ const appDeps: AppDeps = {
   ghPermissionRequests,
   ghGrants,
   agentSecrets,
+  postgres,
   actionRequests,
   browserToken,
   assistantIngress,

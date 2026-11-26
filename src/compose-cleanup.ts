@@ -1,54 +1,11 @@
-import { spawn } from "node:child_process";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dockerChildEnv, resolveDockerEndpoint, runDocker } from "./docker-cli";
 const PROBE_TIMEOUT_MS = 5_000;
 const DOWN_TIMEOUT_MS = 60_000;
 const PROJECT_LABEL = "com.docker.compose.project";
 const WORKING_DIR_LABEL = "com.docker.compose.project.working_dir";
 const PROJECT_NAME = /^[a-z0-9][a-z0-9_-]*$/;
-
-/** Docker launches Compose as a child: bound the whole process group, not just the CLI. */
-function runDocker(args: string[], timeoutMs: number, env: NodeJS.ProcessEnv): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("docker", args, {
-      cwd: "/",
-      env,
-      detached: true,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let settled = false;
-    const stop = () => {
-      try {
-        if (child.pid) process.kill(-child.pid, "SIGKILL");
-      } catch {
-        /* best-effort: process group already gone */
-      }
-    };
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (error) reject(error);
-      else resolve(Buffer.concat(chunks).toString("utf8"));
-    };
-    const timer = setTimeout(() => {
-      stop();
-      finish(new Error("Docker timed out"));
-    }, timeoutMs);
-    child.stdout.on("data", (chunk: Buffer) => {
-      if (settled) return;
-      size += chunk.length;
-      if (size > 1024 * 1024) {
-        stop();
-        finish(new Error("Docker output exceeded limit"));
-      } else chunks.push(chunk);
-    });
-    child.on("error", finish);
-    child.on("close", (code) => finish(code === 0 ? undefined : new Error("Docker failed")));
-  });
-}
 
 interface ComposeCleanupDeps {
   run?: (args: string[], timeoutMs: number) => Promise<string>;
@@ -128,37 +85,13 @@ export class ComposeCleanup {
     this.env = { ...(deps.env ?? process.env) };
     // The selected endpoint is passed explicitly. Compose must not inherit a config/env file
     // from the server or depend on the now-deleted worktree's .env or working directory.
-    const env = Object.fromEntries(
-      Object.entries(this.env).filter(
-        ([key]) => !key.startsWith("COMPOSE_") && key !== "DOCKER_CONTEXT" && key !== "DOCKER_HOST",
-      ),
-    );
-    this.run = deps.run ?? ((args, timeout) => runDocker(args, timeout, env));
+    const env = dockerChildEnv(this.env);
+    this.run = deps.run ?? ((args, timeout) => runDocker(args, { timeoutMs: timeout, env }));
     this.pathExists = deps.pathExists ?? pathExists;
   }
 
-  private async localEndpoint(): Promise<string | null> {
-    const context = this.env.DOCKER_CONTEXT;
-    const endpoint =
-      !context && this.env.DOCKER_HOST
-        ? this.env.DOCKER_HOST
-        : JSON.parse(
-            await this.run(
-              [
-                "context",
-                "inspect",
-                ...(context ? [context] : []),
-                "--format",
-                "{{json .Endpoints.docker.Host}}",
-              ],
-              PROBE_TIMEOUT_MS,
-            ),
-          );
-    return typeof endpoint === "string" &&
-      /^unix:\/\/\/.+/.test(endpoint) &&
-      !endpoint.includes("\0")
-      ? endpoint
-      : null;
+  private localEndpoint(): Promise<string | null> {
+    return resolveDockerEndpoint(this.run, this.env, PROBE_TIMEOUT_MS);
   }
 
   private command(endpoint: string, args: string[], timeout = PROBE_TIMEOUT_MS): Promise<string> {

@@ -7,6 +7,7 @@
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
   import ResourceCommandList from "./ResourceCommandList.svelte";
+  import SettingsPostgresBlock from "./SettingsPostgresBlock.svelte";
   import "./settings-controls.css";
 
   let { query = "" }: { query?: string } = $props();
@@ -141,12 +142,12 @@
   {#if confirmOff}
     <div class="confirm" role="alert">
       <p>{m.resources_disable_warning({ count: waiting })}</p>
-      <button class="set-gbtn" disabled={busy} onclick={() => save({ enabled: false })}
-        >{m.resources_disable_confirm()}</button
-      >
-      <button class="set-gbtn" disabled={busy} onclick={() => (confirmOff = false)}
-        >{m.common_cancel()}</button
-      >
+      <button class="set-gbtn" disabled={busy} onclick={() => save({ enabled: false })}>
+        {m.resources_disable_confirm()}
+      </button>
+      <button class="set-gbtn" disabled={busy} onclick={() => (confirmOff = false)}>
+        {m.common_cancel()}
+      </button>
     </div>
   {/if}
   {#if error}<p role="alert">{error}</p>{/if}
@@ -189,17 +190,17 @@
     </SettingRow>
     <SettingRow title={m.resources_wait()} description={m.resources_wait_hint()} {query}>
       {#snippet control()}
-        <span class="set-select"
-          ><select
+        <span class="set-select">
+          <select
             aria-label={m.resources_wait()}
             value={settings!.waitMinutes > 0 ? "block" : "inform"}
             onchange={(e) => waitChange(e, true)}
           >
-            <option value="inform">{m.resources_inform()}</option><option value="block"
-              >{m.resources_block()}</option
-            >
-          </select></span
-        >
+            <option value="inform">{m.resources_inform()}</option><option value="block">
+              {m.resources_block()}
+            </option>
+          </select>
+        </span>
       {/snippet}
     </SettingRow>
     {#if settings!.waitMinutes > 0}
@@ -270,6 +271,7 @@
       {process.name}: {formatBytes(process.bytes)}
     </p>{/each}
 {/if}
+<SettingsPostgresBlock {query} />
 
 <style>
   fieldset {

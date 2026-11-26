@@ -3590,6 +3590,7 @@ export type RepoConfigPatch = Partial<
     | "reviewFeedbackMode"
     | "reviewFeedbackBots"
     | "reviewFeedbackResolve"
+    | "postgresMode"
   >
 > & { automationConfirmed?: boolean; leitrechner?: string | null };
 
@@ -4501,6 +4502,11 @@ export const putAssistantRuntime = (
 export const switchOperatorAssistants = (): Promise<{
   switches: Record<string, AssistantSwitchState>;
 }> => postOperatorAssistant("/api/operator-assistant/switch", "assistant runtime switch", null);
+
+/** Settings → Resources → Postgres (#4232): every field optional. */
+export const putPostgresSettings = (
+  postgres: Partial<import("./types").PostgresSettings>,
+): Promise<{ postgres: import("./types").PostgresSettings }> => patchSettings({ postgres });
 
 export const putHeavyResources = (
   heavySlot: Partial<

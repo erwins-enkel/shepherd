@@ -286,6 +286,34 @@ were injected into which session and when; the UI shows the last injection per
 name. Routes (`/api/repo-secrets`) are operator-only: agent ingress and
 repo-scoped tokens get 403, and values are never returned.
 
+## On-demand Postgres (#4232)
+
+Shepherd runs one shared `postgres:18` container (`src/postgres.ts`) for repos with
+`postgresMode: on-request`. Agents never touch Docker: the `postgres_request` MCP
+tool asks the server, which applies a fixed image, label and port template — no
+agent-controlled mounts, privileges or images.
+
+**The boundary is per-database credentials, not the network.** The port is
+published on `127.0.0.1` only, but every sandbox that shares the host network
+(`trusted`, `standard`) can reach it. Each session gets its own clone database
+and login role (`s_<id>`, password = HMAC of the session id under a 0600 key in
+`postgres/` beside the instance's DB), and `REVOKE CONNECT, TEMPORARY … FROM
+PUBLIC` is applied to every clone, the repo template and the built-in `postgres`
+and `template1` databases (re-applied at every start), so a role can connect
+only to its own database. A second Shepherd instance with another state dir gets
+its own container and volume, so neither reconciles the other's clones.
+The template (`r_<repo>_base`) is owned by the superuser; nobody connects to it.
+
+**The superuser stays with Shepherd.** Its password lives in
+`postgres/superuser.env` beside the DB (0600) and is only used for the image's
+first init; Shepherd administers the cluster through `docker exec … psql` over
+the container's local socket, with SQL on stdin, so no password reaches argv.
+
+**In-membrane readability (accepted, like R3).** The DSN a session receives is
+readable by every tool call in that session. It grants that session's own clone
+and nothing else. Autonomous sessions do not get the tool yet (their netns
+cannot reach the host loopback port).
+
 ## Reviewer roles (audit N10)
 
 The critic, the standalone PR critic, the plan-gate reviewer and the maintain

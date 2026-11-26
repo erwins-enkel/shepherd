@@ -110,6 +110,7 @@ import { epicParentFromBranch } from "./epic-branch";
 import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
 import type { GitState, PrFeedbackItem, WorkflowJob } from "./forge/types";
 import { REVIEW_FEEDBACK_PRESET_BOTS, type ReviewFeedbackMode } from "./review-feedback-core";
+import { isPostgresMode, type PostgresMode } from "./postgres-core";
 import type {
   Schedule,
   ScheduleInput,
@@ -800,6 +801,22 @@ export interface RepoConfig {
   /** #4139: reply on and resolve inline threads the agent declares addressed (default false).
    *  Reads always fill it. Omitted on a write → unchanged. */
   reviewFeedbackResolve?: boolean;
+  /** #4232: on-demand Postgres for this repo's sessions — machine-local, never a committed rule
+   *  (default "off"). Reads always fill it. Omitted on a write → unchanged. */
+  postgresMode?: PostgresMode;
+}
+
+export type PostgresLeaseState = "active" | "dropping";
+
+/** A session's clone DB on the shared Postgres server (#4232). `db` doubles as the login role;
+ *  `role` is the repo role whose template it was cloned from. */
+export interface PostgresLease {
+  sessionId: string;
+  repoPath: string;
+  db: string;
+  role: string;
+  state: PostgresLeaseState;
+  createdAt: number;
 }
 
 /** A repo's own coding CLI, default model, effort and execution effort (#3447), as stored —
@@ -1360,6 +1377,7 @@ type RepoCfgRow = {
   reviewFeedbackMode: string;
   reviewFeedbackBots: string | null;
   reviewFeedbackResolve: number;
+  postgresMode: string | null;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -1630,6 +1648,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       reviewFeedbackMode: "autopilot",
       reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
       reviewFeedbackResolve: false,
+      postgresMode: "off",
     };
   }
   return {
@@ -1683,6 +1702,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       ...REVIEW_FEEDBACK_PRESET_BOTS,
     ],
     reviewFeedbackResolve: !!r.reviewFeedbackResolve,
+    postgresMode: isPostgresMode(r.postgresMode) ? r.postgresMode : "off",
   };
 }
 
@@ -1733,6 +1753,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.reviewFeedbackMode ?? "autopilot",
     reviewFeedbackBotsJson(cfg.reviewFeedbackBots),
     Number(Boolean(cfg.reviewFeedbackResolve)),
+    cfg.postgresMode ?? "off",
     Date.now(),
   ];
 }
@@ -2091,6 +2112,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.migrateRepoConfigColumns();
     this.migrateFirstRunMarker();
     this.migrateSandboxInherit();
+    // On-demand Postgres leases (#4232): one per session holding a clone DB on the shared server.
+    this.db.run(`CREATE TABLE IF NOT EXISTS postgres_leases (
+      sessionId TEXT PRIMARY KEY, repoPath TEXT NOT NULL, db TEXT NOT NULL, role TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'active', createdAt INTEGER NOT NULL)`);
     // Project-bootstrap state (#3105). Its own table, NOT repo_config columns: creating a
     // repo_config row for a new project would flip automationRowExists and skip the new-repo
     // default seeding. `off` = no row, so the table holds only bootstrapped repos (no prune).
@@ -3134,7 +3159,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
-                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve
+                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -3142,14 +3167,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   setRepoConfig(repoPath: string, input: RepoConfig): void {
-    const cfg = this.withStoredReviewFeedback(repoPath, input);
+    const cfg = this.withStoredPostgresMode(
+      repoPath,
+      this.withStoredReviewFeedback(repoPath, input),
+    );
     this.db.run(
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -3194,9 +3222,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          reviewFeedbackMode = excluded.reviewFeedbackMode,
          reviewFeedbackBots = excluded.reviewFeedbackBots,
          reviewFeedbackResolve = excluded.reviewFeedbackResolve,
+         postgresMode = excluded.postgresMode,
          updatedAt = excluded.updatedAt`,
       repoConfigParams(repoPath, cfg),
     );
+  }
+
+  /** #4232: a write that omits postgresMode keeps the stored value. */
+  private withStoredPostgresMode(repoPath: string, cfg: RepoConfig): RepoConfig {
+    if (cfg.postgresMode !== undefined) return cfg;
+    return { ...cfg, postgresMode: this.getLocalRepoConfig(repoPath).postgresMode };
   }
 
   /** #4126: a write that omits the review-feedback fields keeps the stored values. */
@@ -3439,6 +3474,41 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       [repoPath, branch, base, Date.now()],
     );
     return this.getLocalPr(repoPath, branch)!;
+  }
+
+  // ── postgres leases (#4232) ──────────────────────────────────────────────
+
+  getPostgresLease(sessionId: string): PostgresLease | null {
+    return (
+      (this.db
+        .query(`SELECT * FROM postgres_leases WHERE sessionId = ?`)
+        .get(sessionId) as PostgresLease | null) ?? null
+    );
+  }
+
+  listPostgresLeases(): PostgresLease[] {
+    return this.db
+      .query(`SELECT * FROM postgres_leases ORDER BY createdAt`)
+      .all() as PostgresLease[];
+  }
+
+  /** Insert or re-activate the session's lease. */
+  upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt">): void {
+    this.db.run(
+      `INSERT INTO postgres_leases (sessionId, repoPath, db, role, state, createdAt)
+         VALUES (?, ?, ?, ?, 'active', ?)
+       ON CONFLICT(sessionId) DO UPDATE SET repoPath = excluded.repoPath, db = excluded.db,
+         role = excluded.role, state = 'active'`,
+      [lease.sessionId, lease.repoPath, lease.db, lease.role, Date.now()],
+    );
+  }
+
+  setPostgresLeaseState(sessionId: string, state: PostgresLeaseState): void {
+    this.db.run(`UPDATE postgres_leases SET state = ? WHERE sessionId = ?`, [state, sessionId]);
+  }
+
+  deletePostgresLease(sessionId: string): void {
+    this.db.run(`DELETE FROM postgres_leases WHERE sessionId = ?`, [sessionId]);
   }
 
   getLocalPr(repoPath: string, branch: string): LocalPr | null {
@@ -8431,6 +8501,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("reviewFeedbackBots", `reviewFeedbackBots TEXT`);
     // #4139: opt-in reply + resolve of inline threads the agent declares addressed.
     add("reviewFeedbackResolve", `reviewFeedbackResolve INTEGER NOT NULL DEFAULT 0`);
+    add("postgresMode", `postgresMode TEXT NOT NULL DEFAULT 'off'`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

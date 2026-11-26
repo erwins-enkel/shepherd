@@ -370,6 +370,8 @@ export function sectionSearchRows(ctx: {
       [m.resources_heavy()],
       [m.resources_brake(), m.resources_ram(), m.resources_psi(), m.resources_release()],
       [m.resources_foreign()],
+      [m.postgres_settings_heading(), m.postgres_settings_scope()],
+      [m.postgres_settings_port(), m.postgres_settings_idle(), m.postgres_settings_image()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],
   };

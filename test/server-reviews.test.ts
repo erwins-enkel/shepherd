@@ -144,6 +144,7 @@ const LOCAL_CONFIG_METADATA = {
     previewStartCommand: "rechner",
     previewOpenMode: "rechner",
     pluginAllowlist: "rechner",
+    postgresMode: "rechner",
     skillAllowlist: "rechner",
     reviewFeedbackMode: "rechner",
     reviewFeedbackBots: "rechner",
@@ -207,6 +208,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
+    postgresMode: "off",
     automationConfirmed: false,
     automationRowExists: false,
   });
@@ -245,6 +247,27 @@ test("PUT /api/repo-config persists pinned; non-boolean pinned → 400", async (
   expect(((await ok.json()) as { pinned: boolean }).pinned).toBe(true);
   const get = await app.fetch(new Request(url));
   expect(((await get.json()) as { pinned: boolean }).pinned).toBe(true);
+});
+
+test("PUT /api/repo-config persists postgresMode (#4232); an unknown mode → 400", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const put = (body: unknown) =>
+    app.fetch(
+      new Request(url, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await put({ postgresMode: "auto" })).status).toBe(400);
+  const ok = await put({ postgresMode: "on-request" });
+  expect(ok.status).toBe(200);
+  expect(((await ok.json()) as { postgresMode: string }).postgresMode).toBe("on-request");
+  // a later write that omits it keeps it
+  expect((await put({ pinned: true })).status).toBe(200);
+  const get = await app.fetch(new Request(url));
+  expect(((await get.json()) as { postgresMode: string }).postgresMode).toBe("on-request");
 });
 
 test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () => {
@@ -309,6 +332,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
+    postgresMode: "off",
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -365,6 +389,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
+    postgresMode: "off",
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -431,6 +456,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     reviewFeedbackMode: "autopilot",
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
+    postgresMode: "off",
     automationConfirmed: false,
     automationRowExists: true,
   });

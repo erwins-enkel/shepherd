@@ -43,6 +43,7 @@ import {
 } from "./operator-assistant-settings";
 import { isEpicChild } from "./epic-branch";
 import { randomUUID } from "node:crypto";
+import type { PostgresService } from "./postgres";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { access, readdir, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -67,6 +68,7 @@ import {
   browserLoginAllowed,
   ciDownloadAllowed,
   ghPermissionRequestAllowed,
+  postgresRequestAllowed,
   reviewFeedbackResolveAllowed,
   hasAgentTools,
   isNonCodeMode,
@@ -587,6 +589,9 @@ export interface ServiceDeps {
   /** Per-repo agent secrets (#4122) handed to TASK spawns via a 0700 dir + launcher. Absent ⇒
    *  none. Wired to the `AgentSecretStore` built in index.ts. */
   agentSecrets?: Pick<AgentSecretStore, "entries">;
+  /** On-demand Postgres (#4232): the spawn-path `postgres_request` capability and the re-start
+   *  on resume of a session holding a lease. Absent ⇒ off. Wired to `PostgresService`. */
+  postgres?: Pick<PostgresService, "settings" | "hasLease" | "ensureRunning" | "request">;
   /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
    *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
   prepareScratchpadBind?: (
@@ -4877,6 +4882,12 @@ export class SessionService {
         appModeConfigured: agentGhAppConfigured(),
       }),
       reviewFeedbackResolve: reviewFeedbackResolveAllowed({ plain: input.plain, repoConfig }),
+      postgresRequest: postgresRequestAllowed({
+        plain: input.plain,
+        profile,
+        postgresMode: repoConfig.postgresMode,
+        globalEnabled: this.deps.postgres?.settings().enabled ?? false,
+      }),
     };
     // #3337: `--settings` / `--mcp-config` as 0600 file paths carrying the ingress key.
     argv.push(
@@ -5176,6 +5187,16 @@ export class SessionService {
       !this.canRespawnConversation(s)
       ? "transcript-missing"
       : null;
+  }
+
+  /** #4232: a resumed session holding a Postgres lease expects its DB back — start the server in
+   *  the background (best-effort; the agent's `postgres_request` retries on its own). */
+  private kickPostgres(id: string): void {
+    const pg = this.deps.postgres;
+    if (!pg?.settings().enabled || !pg.hasLease(id)) return;
+    pg.ensureRunning().catch((e: unknown) =>
+      console.warn(`[postgres] resume ensure failed: ${(e as Error).message}`),
+    );
   }
 
   private resumeTarget(id: string): { session: Session; provider: AgentProvider } | null {
@@ -8084,6 +8105,7 @@ export class SessionService {
     this.assertNotTerminal(session, "resume");
     // Shelved: automation leaves it alone (an operator/forced resume still runs).
     if (opts.automatic && isShelved(session)) return null;
+    this.kickPostgres(id);
     const agent = await this.liveAgentFor(id);
     if (!this.resumeStillAllowed(id, opts)) return null;
     if (agent && !opts.force && !needsAccountRedrive(session, agent)) {

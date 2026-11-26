@@ -8,6 +8,7 @@ import {
   agentTools,
   ciDownloadAllowed,
   ghPermissionRequestAllowed,
+  postgresRequestAllowed,
   applyEpicDraft,
   applyQueueStep,
   applyQueueWrite,
@@ -29,6 +30,8 @@ import { EventHub } from "../src/events";
 import { LoginRequestService } from "../src/login-request";
 import { GhPermissionRequestService } from "../src/gh-grant";
 import type { SandboxProfile } from "../src/sandbox";
+import { PostgresError, type PostgresRequestOutcome } from "../src/postgres";
+import { DEFAULT_POSTGRES_SETTINGS } from "../src/postgres-core";
 
 function harness(
   opts: {
@@ -1534,5 +1537,104 @@ describe("review_feedback_addressed", () => {
     );
     expect(isError).toBe(true);
     expect(payload.error).toContain("unavailable");
+  });
+});
+
+// ── postgres_request (#4232) ─────────────────────────────────────────────────
+
+describe("postgres_request", () => {
+  const names = (deps: AgentControlDeps, id: string) => agentTools(deps, id).map((t) => t.name);
+  const CONN = {
+    dsn: "postgresql://s_x:pw@127.0.0.1:54318/s_x",
+    host: "127.0.0.1",
+    port: 54318,
+    database: "s_x",
+    user: "s_x",
+    password: "pw",
+  };
+  const withPg = (
+    h: ReturnType<typeof harness>,
+    opts: {
+      enabled?: boolean;
+      mode?: "off" | "on-request";
+      request?: () => Promise<PostgresRequestOutcome>;
+    } = {},
+  ): AgentControlDeps => {
+    h.store.setRepoConfig("/repo", {
+      ...h.store.getRepoConfig("/repo"),
+      postgresMode: opts.mode ?? "on-request",
+    });
+    return {
+      ...h.deps,
+      postgres: {
+        settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: opts.enabled ?? true }),
+        request: opts.request ?? (async () => ({ status: "ready", connection: CONN })),
+      },
+    };
+  };
+
+  test("offered only with Postgres on globally, the repo on-request, and a host-net session", () => {
+    const on = harness();
+    expect(names(withPg(on), on.sessionId)).toEqual([...READ_TOOLS, "postgres_request"]);
+    const standard = harness({ sandboxApplied: "standard" });
+    expect(names(withPg(standard), standard.sessionId)).toContain("postgres_request");
+    for (const [h, opts] of [
+      [harness(), { enabled: false }],
+      [harness(), { mode: "off" as const }],
+      [harness({ plain: true }), {}],
+      [harness({ sandboxApplied: "autonomous" }), {}],
+      [harness({ operatorAssistant: true }), {}],
+    ] as const)
+      expect(names(withPg(h, opts), h.sessionId)).not.toContain("postgres_request");
+    const noService = harness();
+    noService.store.setRepoConfig("/repo", {
+      ...noService.store.getRepoConfig("/repo"),
+      postgresMode: "on-request",
+    });
+    expect(names(noService.deps, noService.sessionId)).not.toContain("postgres_request");
+  });
+
+  test("codex sessions never get it", () => {
+    expect(
+      postgresRequestAllowed({
+        plain: false,
+        profile: "trusted",
+        agentProvider: "codex",
+        postgresMode: "on-request",
+        globalEnabled: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("ready returns the connection; starting asks to call again", async () => {
+    const h = harness();
+    const ready = toolPayload(await call(withPg(h), h.sessionId, "postgres_request", {}));
+    expect(ready.isError).toBe(false);
+    expect(ready.payload).toMatchObject({ status: "ready", ...CONN });
+    expect(ready.payload.next).toContain("postgres_request");
+    const starting = toolPayload(
+      await call(
+        withPg(h, { request: async () => ({ status: "starting" }) }),
+        h.sessionId,
+        "postgres_request",
+        {},
+      ),
+    );
+    expect(starting.payload).toMatchObject({ status: "starting" });
+  });
+
+  test("a failure is an isError result the agent can read", async () => {
+    const h = harness();
+    const deps = withPg(h, {
+      request: async () => {
+        throw new PostgresError(
+          "start-failed",
+          "Could not start Postgres: port is already allocated",
+        );
+      },
+    });
+    const out = toolPayload(await call(deps, h.sessionId, "postgres_request", {}));
+    expect(out.isError).toBe(true);
+    expect(JSON.stringify(out.payload)).toContain("port is already allocated");
   });
 });

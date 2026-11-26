@@ -7,6 +7,7 @@ import {
   classifyHostCapacity,
   classifyPreviewProbes,
   classifySandboxEgress,
+  classifyPostgres,
   classifyTmpInodes,
   defaultReadHerdrFleet,
   resolveChromiumBinary,
@@ -815,6 +816,47 @@ describe("DiagnosticsService probes", () => {
     expect(c.state).toBe("ok");
     expect(c.hintKey).toBe("diagnostics_hint_tailscale_ok");
     assertPure(c);
+  });
+});
+
+describe("postgres diagnostics (#4232)", () => {
+  const on = {
+    enabled: true as const,
+    docker: true as const,
+    image: true,
+    container: "stopped" as const,
+    ready: false,
+    drift: false,
+  };
+  it("classifies each server state", () => {
+    expect(classifyPostgres({ enabled: false })).toBeNull();
+    const hint = (s: Parameters<typeof classifyPostgres>[0]) => {
+      const c = classifyPostgres(s)!;
+      return `${c.state}:${c.hintKey.replace("diagnostics_hint_postgres_", "")}`;
+    };
+    expect(hint({ enabled: true, docker: false })).toBe("error:docker");
+    expect(hint(on)).toBe("ok:stopped");
+    expect(hint({ ...on, image: false, container: "missing" })).toBe("ok:image");
+    expect(hint({ ...on, container: "running", ready: true })).toBe("ok:running");
+    expect(hint({ ...on, container: "running", ready: false })).toBe("warning:unhealthy");
+    expect(hint({ ...on, drift: true })).toBe("warning:drift");
+  });
+
+  it("omits the row while off or unwired; a failed read is optional", async () => {
+    const ids = async (readPostgres?: () => Promise<any>) =>
+      (await new DiagnosticsService({ ...healthyDeps(), readPostgres }).check(0)).checks.map(
+        (c) => c.id,
+      );
+    expect(await ids()).not.toContain("postgres");
+    expect(await ids(async () => ({ enabled: false }))).not.toContain("postgres");
+    expect(await ids(async () => on)).toContain("postgres");
+    const snap = await new DiagnosticsService({
+      ...healthyDeps(),
+      readPostgres: async () => {
+        throw new Error("boom");
+      },
+    }).check(0);
+    expect(byId(snap.checks, "postgres")).toMatchObject({ state: "optional" });
   });
 });
 

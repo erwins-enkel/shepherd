@@ -13,6 +13,7 @@
     egressIncludeStandardExplanation,
     egressRiskExplanation,
     egressRiskLabel,
+    postgresExplanation,
     sharedBrowserExplanation,
   } from "#lib/tooltips/explanations.js";
   import { classifyEgressHost } from "#lib/egress-trust.js";
@@ -82,6 +83,8 @@
   });
   const held = $derived(drainSandboxHeld(repoPath, drain, repoConfig));
   const browserOn = $derived(repoConfig.sharedBrowserOn(repoPath));
+  // Settings → Resources → Postgres (#4232) gates every repo's toggle; unknown reads as on.
+  const postgresGlobalOff = $derived(globals?.postgres?.enabled === false);
   // The extra hosts only widen the Autonomous egress firewall; Trusted and Standard don't restrict
   // the network, so the list hides there (its stored hosts stay).
   const autonomous = $derived(repoConfig.effectiveSandboxProfileFor(repoPath) === "autonomous");
@@ -238,6 +241,22 @@
   {/if}
   <!-- Agent secrets (#4122) are machine-local, like the blocked hosts above. -->
   <AgentSecrets {repoPath} {autonomous} coach={armCoachmarks ? "agent-secrets" : ""} />
+  <!-- On-demand Postgres (#4232) is machine-local, like the secrets above. -->
+  <RepoSettingRow
+    field="postgresMode"
+    glyph="⛁"
+    name={m.automation_postgres_name()}
+    explanation={postgresExplanation()}
+    desc={m.automation_postgres_desc()}
+    checked={repoConfig.postgresOn(repoPath)}
+    ontoggle={() => repoConfig.togglePostgres(repoPath)}
+  >
+    {#snippet below()}
+      {#if postgresGlobalOff}
+        <p class="note">{m.automation_postgres_global_off()}</p>
+      {/if}
+    {/snippet}
+  </RepoSettingRow>
 {/if}
 
 <RepoSettingRow

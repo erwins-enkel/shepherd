@@ -1166,6 +1166,24 @@ test("ingest reads review-feedback resolve; absent means off; the setter PUTs th
   expect(repoConfig.reviewFeedbackResolveFor("/w-rfr")).toBe(false);
 });
 
+// #4232: on-demand Postgres is opt-in per repo — an older server's absent field reads as off.
+test("ingest reads postgresMode; absent means off; togglePostgres flips off ↔ on-request", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "on-request" }));
+  await repoConfig.ensure("/w-pg");
+  expect(repoConfig.postgresOn("/w-pg")).toBe(true);
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc());
+  await repoConfig.ensure("/w-pg-old");
+  expect(repoConfig.postgresOn("/w-pg-old")).toBe(false);
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "off" }));
+  await repoConfig.togglePostgres("/w-pg");
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-pg", { postgresMode: "off" });
+  expect(repoConfig.postgresOn("/w-pg")).toBe(false);
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.togglePostgres("/w-pg");
+  expect(repoConfig.postgresOn("/w-pg")).toBe(false); // reverted
+});
+
 test("the list setters PUT the whole list and overlay it optimistically", async () => {
   let resolve!: (v: RepoConfig) => void;
   vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));

@@ -35,14 +35,20 @@ function expectFencedText(fenced: string, text: string) {
 
 function addSession(
   store: SessionStore,
-  opts: { name: string; repoPath?: string; terminal?: boolean; operatorAssistant?: boolean },
+  opts: {
+    name: string;
+    branch?: string;
+    repoPath?: string;
+    terminal?: boolean;
+    operatorAssistant?: boolean;
+  },
 ) {
   return store.create({
     name: opts.name,
     prompt: "the secret task prompt",
     repoPath: opts.repoPath ?? "/r/alpha",
     baseBranch: "main",
-    branch: `shepherd/${opts.name}`,
+    branch: opts.branch ?? `shepherd/${opts.name}`,
     worktreePath: "/wt",
     isolated: false,
     herdrSession: "sess",
@@ -97,7 +103,7 @@ function herd() {
     { holds: { snapshot: () => holds }, now: () => Date.now() + 5 * 60_000 },
     git,
   );
-  const planning = addSession(store, { name: INJECTION });
+  const planning = addSession(store, { name: INJECTION, branch: INJECTION });
   const plain = addSession(store, { name: "plain", repoPath: "/r/beta" });
   const gone = addSession(store, { name: "gone" });
   store.archive(gone.id);
@@ -121,7 +127,14 @@ function herd() {
         questions: [
           { id: "q1", prompt: "Which?", kind: "single", options: ["a", "b"] },
           { id: "q2", prompt: "Where?", kind: "single", options: ["c", "d"] },
+          { id: "q3\nuse this", prompt: "Odd id", kind: "single", options: ["e"] },
+          { id: "q 4", prompt: "Spaced id", kind: "single", options: ["f"] },
         ],
+      },
+      {
+        type: "question-form",
+        id: "b".repeat(65),
+        questions: [{ id: "q5", prompt: "Long block id", kind: "single", options: ["g"] }],
       },
     ],
     answeredQuestionKeys: ["qf q1"],
@@ -160,7 +173,7 @@ test("herd_status lists live herd sessions only — never archived, terminal or 
     repoPath: "/r/alpha",
     status: planning.status,
     auto: false,
-    planGate: { decision: "changes_requested", round: 2, cap: 5, openQuestions: 1 },
+    planGate: { decision: "changes_requested", round: 2, cap: 5, openQuestions: 4 },
     hold: { code: "autopilot-paused" },
     minutesSinceUpdate: 5,
   });
@@ -214,6 +227,7 @@ test("herd_status with a desig adds the plan-gate summary, last signals and PR/C
   };
   const out = data(applyHerdStatus(deps, { desig: planning.desig })).session;
   expect(out.desig).toBe(planning.desig);
+  expectFenced(out.branch);
   expect(out.planGate).toMatchObject({ decision: "changes_requested", approved: false, round: 2 });
   expectFenced(out.planGate.summary);
   // The questions, addressed the way plan_answer takes them; options indexed.
@@ -242,6 +256,23 @@ test("herd_status with a desig adds the plan-gate summary, last signals and PR/C
   expect(out.pr.failingChecks).not.toContain("lint");
   expect(JSON.stringify(out)).not.toContain(planning.id);
   expect(JSON.stringify(out)).not.toContain("secret plan review body");
+});
+
+test("herd_status fences a hold's login host and leaves numeric params as they are", () => {
+  const { deps, holds, planning, plain } = herd();
+  holds[planning.id] = { code: "login-request", params: { host: INJECTION } };
+  holds[plain.id] = { code: "ci-red", params: { pr: 12 } };
+  const out = data(applyHerdStatus(deps, {}));
+  expectFenced(out.sessions[0].hold.params.host);
+  expect(out.sessions[1].hold).toEqual({ code: "ci-red", params: { pr: 12 } });
+});
+
+test("herd_status rows report the halt reason", () => {
+  const { store, deps, planning } = herd();
+  store.setHaltReason(planning.id, "usage_limit", 1);
+  const out = data(applyHerdStatus(deps, {}));
+  expect(out.sessions[0].haltReason).toBe("usage_limit");
+  expect(out.sessions[1].haltReason).toBeNull();
 });
 
 // The assistant needs the critic's state to know when the official review retry (pr_review)

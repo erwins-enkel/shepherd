@@ -6449,7 +6449,7 @@
   "settings_assistant_approve_title": "Approvals & merge",
   "settings_assistant_approve_hint": "Start an approved plan, approve a build queue, mark a PR ready, merge a PR. Never takes over a merge someone else is responsible for.",
   "settings_assistant_automation_title": "Automation",
-  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, issue queue and priority, releasing orphaned claims, creating, editing, deleting and running repo schedules, and creating issues.",
+  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd (retrying also needs Steering & answers), issue queue and priority, releasing orphaned claims, creating, editing, deleting and running repo schedules, and creating issues.",
   "settings_assistant_save_failed": "Couldn't save what the assistant may do.",
   "operator_assistant_mode_asks": "Asks first",
   "operator_assistant_mode_acts": "Acts itself",

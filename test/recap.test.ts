@@ -1881,6 +1881,37 @@ test("generate: empty diff + null current branch + landed evidence + unknown anc
   });
 });
 
+test("generate: ancestry check gets the full base ref; skip params show the short form", async () => {
+  const fullDiff: DiffResult = { ...EMPTY_DIFF, baseRef: "refs/remotes/origin/main" };
+  for (const [outcome, code] of [
+    ["unknown", "ancestry-check-failed"],
+    ["not-contained", "empty-diff-contradicted"],
+  ] as const) {
+    const s = makeSession({ status: "idle" });
+    const store = makeStore([s]);
+    const herdr = makeHerdr();
+    const seen: string[] = [];
+    const svc = buildSvc({
+      store,
+      herdr,
+      nowFn: () => 200_000,
+      diff: fullDiff,
+      currentBranch: async () => "shepherd/x",
+      headContainedInBase: async (_path, baseRef) => {
+        seen.push(baseRef);
+        return outcome;
+      },
+      landedWorkEvidence: () => ({ kind: "review", summary: "PR review recorded for this head" }),
+    });
+    await expect(svc.generate(s)).resolves.toBe("error");
+    expect(seen).toEqual(["refs/remotes/origin/main"]);
+    expect(store.getRecap("s1")?.skip).toEqual({
+      code,
+      params: { evidenceKind: "review", baseRef: "origin/main" },
+    });
+  }
+});
+
 // ── considerForArchive tests ──────────────────────────────────────────────────────
 
 test("considerForArchive: existing recap at current head → 'skip', no spawn", async () => {

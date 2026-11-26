@@ -18,11 +18,27 @@ function stripPrefix(p: string): string {
   return p.replace(/^[ab]\//, "");
 }
 
+/**
+ * Path from a `diff --git a/P b/P` header. When both halves are the same path it is taken
+ * exactly, so a name that itself contains " b/" is not split in the wrong place; otherwise
+ * (renames, differing sides) falls back to the last `b/` segment.
+ */
+function headerPath(raw: string): string {
+  const rest = raw.slice("diff --git ".length);
+  const h = (rest.length - 1) / 2;
+  if (Number.isInteger(h) && rest[h] === " ") {
+    const a = rest.slice(0, h);
+    const b = rest.slice(h + 1);
+    if (a.startsWith("a/") && b.startsWith("b/") && a.slice(2) === b.slice(2)) return b.slice(2);
+  }
+  const m = raw.match(/^diff --git a\/(.+) b\/(.+)$/);
+  return m ? m[2]! : "";
+}
+
 /** Start a fresh DiffFile from a `diff --git a/… b/…` header line. */
 function startFile(raw: string): DiffFile {
-  const m = raw.match(/^diff --git a\/(.+) b\/(.+)$/);
   return {
-    path: m ? m[2]! : "",
+    path: headerPath(raw),
     status: "modified",
     additions: 0,
     deletions: 0,
@@ -60,12 +76,23 @@ function applyFileHeader(cur: DiffFile, raw: string): boolean {
   return true;
 }
 
-/** Parse a `@@ -a,b +c,d @@` hunk header into 1-based old/new starting line numbers. */
-function parseHunkHeader(raw: string): { oldNo: number; newNo: number } {
-  const m = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+/**
+ * Parse a `@@ -a,b +c,d @@` hunk header into 1-based old/new starting line numbers and the
+ * line counts of each side (an omitted `,N` means 1; an unparseable header means 0).
+ */
+function parseHunkHeader(raw: string): {
+  oldNo: number;
+  newNo: number;
+  oldLen: number;
+  newLen: number;
+} {
+  const m = raw.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+  if (!m) return { oldNo: 0, newNo: 0, oldLen: 0, newLen: 0 };
   return {
-    oldNo: m ? parseInt(m[1]!, 10) : 0,
-    newNo: m ? parseInt(m[2]!, 10) : 0,
+    oldNo: parseInt(m[1]!, 10),
+    newNo: parseInt(m[3]!, 10),
+    oldLen: m[2] === undefined ? 1 : parseInt(m[2], 10),
+    newLen: m[4] === undefined ? 1 : parseInt(m[4], 10),
   };
 }
 
@@ -108,6 +135,7 @@ interface ParseState {
   lineCount: number; // add/del/ctx lines accumulated for cur
   totalLines: number; // global tally across all files
   capped: boolean; // true once MAX_TOTAL_LINES is reached
+  left: { old: number; new: number }; // lines the open hunk still owes per side; both <= 0 = between hunks
   rawBuf: string[]; // raw lines for cur, from its "diff --git" header on; feeds cur.patch
 }
 
@@ -129,6 +157,38 @@ function finishFile(state: ParseState): void {
   state.files.push(state.cur);
 }
 
+/** Account for one body line against the lines the open hunk still owes. */
+function consumeHunkLine(left: { old: number; new: number }, marker: string | undefined): void {
+  // An empty line is a blank context line (as `git apply` reads it).
+  if (marker === " " || marker === undefined) {
+    left.old--;
+    left.new--;
+  } else if (marker === "-") {
+    left.old--;
+  } else if (marker === "+") {
+    left.new--;
+  }
+}
+
+/** Between hunks: handle a file-metadata or `@@` line. Returns true when consumed. */
+function handleHeaderLine(state: ParseState, raw: string): boolean {
+  if (applyFileHeader(state.cur!, raw)) return true;
+
+  if (raw.startsWith("@@")) {
+    const start = parseHunkHeader(raw);
+    state.cursor.oldNo = start.oldNo;
+    state.cursor.newNo = start.newNo;
+    state.left = { old: start.oldLen, new: start.newLen };
+    // Under cap: accumulate. Over cap: body lines are skipped, no hunk slot needed.
+    if (!state.capped) {
+      state.hunk = { header: raw, lines: [] };
+      state.cur!.hunks.push(state.hunk);
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * Dispatch one raw diff line against the current parse state.
  * Always processes file-header and hunk-header lines — O(files), not O(body-lines) —
@@ -138,6 +198,7 @@ function handleDiffLine(state: ParseState, raw: string): void {
   if (raw.startsWith("diff --git ")) {
     finishFile(state);
     state.hunk = null;
+    state.left = { old: 0, new: 0 };
     state.lineCount = 0;
     state.cur = startFile(raw);
     state.rawBuf = [raw];
@@ -147,19 +208,8 @@ function handleDiffLine(state: ParseState, raw: string): void {
   // Buffer the raw line for cur.patch. Skipped once globally capped — those files are
   // truncated anyway, so there's no point holding onto their (large) raw text.
   if (!state.capped) state.rawBuf.push(raw);
-  if (applyFileHeader(state.cur, raw)) return;
-
-  if (raw.startsWith("@@")) {
-    const start = parseHunkHeader(raw);
-    state.cursor.oldNo = start.oldNo;
-    state.cursor.newNo = start.newNo;
-    // Under cap: accumulate. Over cap: body lines are skipped, no hunk slot needed.
-    if (!state.capped) {
-      state.hunk = { header: raw, lines: [] };
-      state.cur.hunks.push(state.hunk);
-    }
-    return;
-  }
+  if (state.left.old > 0 || state.left.new > 0) consumeHunkLine(state.left, raw[0]);
+  else if (handleHeaderLine(state, raw)) return;
 
   // Skip body-line work once globally capped; mark file truncated on first visit.
   if (state.capped) {
@@ -203,6 +253,7 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
     lineCount: 0,
     totalLines: 0,
     capped: false,
+    left: { old: 0, new: 0 },
     rawBuf: [],
   };
   for (const raw of text.split("\n")) handleDiffLine(state, raw);
@@ -210,10 +261,22 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
   return state.files;
 }
 
-/** Session-wire shape: send raw `patch`, drop the redundant structured `hunks`. */
+/**
+ * The short form of a full ref that clients show (`refs/remotes/origin/main` → `origin/main`).
+ * Strips one leading `refs/remotes/` or `refs/heads/`; never pass the result back to git.
+ */
+export function displayRef(ref: string): string {
+  for (const prefix of ["refs/remotes/", "refs/heads/"]) {
+    if (ref.startsWith(prefix)) return ref.slice(prefix.length);
+  }
+  return ref;
+}
+
+/** Session-wire shape: send raw `patch`, drop the redundant structured `hunks`, show the short base ref. */
 export function toSessionDiff(result: DiffResult): DiffResult {
   return {
     ...result,
+    baseRef: displayRef(result.baseRef),
     files: result.files.map(({ hunks, ...f }) => {
       void hunks; // intentionally dropped from the wire shape; see doc comment above
       return f as DiffFile;
@@ -231,8 +294,8 @@ export async function pinFor(worktreePath: string, repoPath?: string): Promise<G
 
 async function refExists(cwd: string, ref: string, pin: GitPin | null): Promise<boolean> {
   try {
-    await timedAsync("git rev-parse", () =>
-      execGit(["rev-parse", "--verify", "--quiet", ref], { cwd, pin }),
+    await timedAsync("git show-ref", () =>
+      execGit(["show-ref", "--verify", "--quiet", "--end-of-options", ref], { cwd, pin }),
     );
     return true;
   } catch {
@@ -241,9 +304,21 @@ async function refExists(cwd: string, ref: string, pin: GitPin | null): Promise<
 }
 
 /**
+ * The full name of the ref to diff against: the remote-tracking ref when it exists, else the
+ * local branch. Exact full names only, so a tag or stray file named like the base is never used.
+ */
+async function pickBaseRef(cwd: string, base: string, pin: GitPin | null): Promise<string> {
+  for (const ref of [`refs/remotes/${REMOTE}/${base}`, `refs/heads/${base}`]) {
+    if (await refExists(cwd, ref, pin)) return ref;
+  }
+  throw new Error(`base branch not found: ${base}`);
+}
+
+/**
  * Best-effort fetch the base from origin, then choose the ref to diff against:
- * prefer origin/<base>; fall back to local <base> when the fetch fails or the
- * remote-tracking ref doesn't resolve. Returns the chosen ref + whether fetch failed.
+ * prefer refs/remotes/origin/<base>; fall back to local refs/heads/<base> when the fetch fails
+ * or the remote-tracking ref doesn't exist. Returns the chosen full ref + whether fetch failed;
+ * throws when neither ref exists.
  */
 export async function resolveBaseRef(
   cwd: string,
@@ -252,22 +327,24 @@ export async function resolveBaseRef(
 ): Promise<{ ref: string; fetchFailed: boolean }> {
   let fetchFailed = false;
   try {
-    await timedAsync("git fetch", () => execGit(["fetch", REMOTE, base], { cwd, pin }));
+    await timedAsync("git fetch", () =>
+      execGit(["fetch", "--end-of-options", REMOTE, `refs/heads/${base}`], { cwd, pin }),
+    );
   } catch {
     fetchFailed = true;
   }
-  const remoteRef = `${REMOTE}/${base}`;
-  if (await refExists(cwd, remoteRef, pin)) return { ref: remoteRef, fetchFailed };
-  return { ref: base, fetchFailed: true }; // no remote-tracking ref → local base
+  const ref = await pickBaseRef(cwd, base, pin);
+  // A local fallback means the remote-tracking ref was missing → report as fetch failure.
+  return { ref, fetchFailed: fetchFailed || ref !== `refs/remotes/${REMOTE}/${base}` };
 }
 
 /**
  * Cheap, no-network check: does this branch have any committed changes vs base?
  *
- * Ref resolution: prefers `origin/<base>` when the local remote-tracking ref
+ * Ref resolution: prefers `refs/remotes/origin/<base>` when the local remote-tracking ref
  * exists (avoids a fetch — three-dot merge-base diff means a stale local base
  * can never produce a *false* diff, so no fetch is needed for correctness).
- * Falls back to `<base>` when no remote-tracking ref is present.
+ * Falls back to `refs/heads/<base>`; throws when neither exists.
  *
  * Exit-code semantics: `git diff --quiet` exits 0 (no diff → false) or 1 (diff
  * exists → true). Any other non-zero exit is a real error and is rethrown so the
@@ -288,12 +365,14 @@ export async function hasCommittedChanges(
   if (branch === null) return false;
 
   const pin = await pinFor(worktreePath, repoPath);
-  const remoteRef = `${REMOTE}/${base}`;
-  const ref = (await refExists(worktreePath, remoteRef, pin)) ? remoteRef : base;
+  const ref = await pickBaseRef(worktreePath, base, pin);
 
   try {
     await timedAsync("git diff --quiet", () =>
-      execGit(["diff", "--quiet", `${ref}...HEAD`], { cwd: worktreePath, pin }),
+      execGit(["diff", "--quiet", "--end-of-options", `${ref}...HEAD`, "--"], {
+        cwd: worktreePath,
+        pin,
+      }),
     );
     return false; // exit 0 → no diff
   } catch (err) {
@@ -313,7 +392,7 @@ async function diffRange(
 ): Promise<string> {
   if (!worktree) return `${ref}...HEAD`;
   const { stdout } = await timedAsync("git merge-base", () =>
-    execGit(["merge-base", ref, "HEAD"], { cwd, pin }),
+    execGit(["merge-base", "--end-of-options", ref, "HEAD"], { cwd, pin }),
   );
   return stdout.trim();
 }
@@ -339,10 +418,11 @@ export async function computeDiff(
   const { ref, fetchFailed } = await resolveBaseRef(worktreePath, base, pin);
   const range = await diffRange(worktreePath, ref, pin, opts.worktree === true);
   const { stdout } = await timedAsync("git diff", () =>
-    execGit(["diff", "--no-color", range], {
+    execGit(["diff", "--no-color", "--end-of-options", range, "--"], {
       cwd: worktreePath,
       maxBuffer: MAX_BUFFER,
       pin,
+      config: [["diff.suppressBlankEmpty", "false"]],
     }),
   );
   const files = parseUnifiedDiff(stdout);

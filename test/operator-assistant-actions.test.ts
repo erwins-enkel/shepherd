@@ -500,12 +500,13 @@ test("held_task spawns or discards a held task that exists", async () => {
 });
 
 test("herd_halt and herd_retry: the herd routes, retry by desig", async () => {
-  const { worker, requests, run } = setup({
+  const { store, worker, requests, run } = setup({
     answer: (req) => ({
       status: 200,
       body: req.path === "/api/halt" ? { halted: 3 } : { resumed: 1, steered: 0, total: 1 },
     }),
   });
+  store.setHaltReason(worker.id, "usage_limit", 1);
   expect(await run("herd_halt", {})).toEqual({
     ok: true,
     data: { ok: true, action: "herd_halt", target: "herd", halted: 3 },
@@ -517,6 +518,91 @@ test("herd_halt and herd_retry: the herd routes, retry by desig", async () => {
     path: "/api/retry",
     body: { text: "continue", ids: [worker.id] },
   });
+});
+
+test("herd_retry refuses a session that is not halted", async () => {
+  const { worker, requests, run } = setup();
+  const res = await run("herd_retry", { desigs: [worker.desig], text: "continue" });
+  expect(refusal(res)).toEqual({
+    status: 409,
+    error: `session "${worker.desig}" is not halted — herd_retry only resumes halted sessions; session_steer or session_resume reach the others`,
+  });
+  expect(requests).toEqual([]);
+});
+
+test("herd_retry takes at most 20 sessions per call", async () => {
+  const { store, requests, run } = setup();
+  const desigs = Array.from({ length: 21 }, (_, i) => {
+    const s = addSession(store, `w${i}`);
+    store.setHaltReason(s.id, "usage_limit", 1);
+    return s.desig;
+  });
+  expect(refusal(await run("herd_retry", { desigs }))).toEqual({
+    status: 400,
+    error: "desigs: at most 20 sessions per call",
+  });
+  expect(requests).toEqual([]);
+});
+
+test("herd_retry targets a repeated desig once", async () => {
+  const { store, worker, requests, run } = setup();
+  store.setHaltReason(worker.id, "usage_limit", 1);
+  expect((await run("herd_retry", { desigs: [worker.desig, worker.desig] })).ok).toBe(true);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]!.body).toMatchObject({ ids: [worker.id] });
+});
+
+test("herd_retry targets one session once however its desig is written", async () => {
+  const { store, worker, requests, run } = setup();
+  store.setHaltReason(worker.id, "usage_limit", 1);
+  const bare = String(Number(worker.desig.replace(/^TASK-/, "")));
+  const desigs = [worker.desig, worker.desig.toLowerCase(), bare];
+  const res = await run("herd_retry", { desigs });
+  expect(res.ok && res.data).toMatchObject({ target: worker.desig });
+  expect(requests).toHaveLength(1);
+  expect(requests[0]!.body).toMatchObject({ ids: [worker.id] });
+});
+
+test("herd_retry needs the steer group as well as automation", async () => {
+  const steerOff = setup({ permissions: { automation: "allow", steer: "off" } });
+  steerOff.store.setHaltReason(steerOff.worker.id, "usage_limit", 1);
+  const res = await steerOff.run("herd_retry", { desigs: [steerOff.worker.desig] });
+  expect(res).toMatchObject({ ok: false, status: 403 });
+  if (!res.ok) expect(res.error).toMatch(/^steer actions are turned off/);
+  expect(steerOff.requests).toEqual([]);
+
+  const autoOff = setup({ permissions: { automation: "off", steer: "allow" } });
+  autoOff.store.setHaltReason(autoOff.worker.id, "usage_limit", 1);
+  const res2 = await autoOff.run("herd_retry", { desigs: [autoOff.worker.desig] });
+  expect(res2).toMatchObject({ ok: false, status: 403 });
+  if (!res2.ok) expect(res2.error).toMatch(/^automation actions are turned off/);
+  expect(autoOff.requests).toEqual([]);
+});
+
+test("herd_retry asks when steer is ask, and rechecks steer after approval", async () => {
+  const { service } = approvals();
+  const ask = setup({
+    permissions: { automation: "allow", steer: "ask" },
+    actionRequests: service,
+  });
+  ask.store.setHaltReason(ask.worker.id, "usage_limit", 1);
+  const pending = await ask.run("herd_retry", { desigs: [ask.worker.desig] });
+  expect(pending).toMatchObject({ ok: true, data: { status: "awaiting_approval" } });
+  expect(ask.requests).toEqual([]);
+
+  const { service: svc2 } = approvals();
+  const h = setup({ permissions: { automation: "allow", steer: "ask" }, actionRequests: svc2 });
+  h.store.setHaltReason(h.worker.id, "usage_limit", 1);
+  h.deps.actionWaitMs = 5000;
+  const waiting = h.run("herd_retry", { desigs: [h.worker.desig] });
+  await Bun.sleep(0);
+  const open = svc2.snapshot()[ASSISTANT_ID]!;
+  h.deps.operatorActions.permissions().steer = "off";
+  svc2.resolve(ASSISTANT_ID, open.id, "approved");
+  const res = await waiting;
+  expect(res).toMatchObject({ ok: false, status: 403 });
+  if (!res.ok) expect(res.error).toBe("steer actions were turned off");
+  expect(h.requests).toEqual([]);
 });
 
 // The official review retry (the operator's "Erneut prüfen"): the route's status IS the result —
@@ -553,6 +639,8 @@ test("a scoped assistant acts on its own repo's sessions and refuses every other
       error: `session "${worker.desig}" is outside this assistant's repo beta — the global Operator Assistant covers every repo; the operator can ask there`,
     });
   }
+  store.setHaltReason(beta.id, "usage_limit", 1);
+  store.setHaltReason(worker.id, "usage_limit", 1);
   expect(
     refusal(await runScoped("/r/beta", "herd_retry", { desigs: [beta.desig, worker.desig] })),
   ).toMatchObject({ status: 403 });

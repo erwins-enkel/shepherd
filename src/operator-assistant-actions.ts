@@ -40,6 +40,8 @@ import { normalizeRepoDefaultModelSetting } from "./default-model";
 import type { GitState } from "./forge/types";
 import {
   actionGroupOf,
+  type AssistantActionGroup,
+  type AssistantActionLevel,
   type AssistantActionTool,
   type AssistantPermissions,
 } from "./operator-assistant-permissions";
@@ -135,7 +137,7 @@ interface Built {
 }
 
 interface Resolve {
-  session(desig: unknown): { id: string; desig: string } | Fail;
+  session(desig: unknown): { id: string; desig: string; halted: boolean } | Fail;
   repo(repo: unknown): string | Fail;
   held(id: unknown): string | Fail;
   /** The session's cached PR state, if any. */
@@ -154,6 +156,8 @@ interface Resolve {
 type Builder = (args: Record<string, unknown>, resolve: Resolve) => Built | Fail;
 
 const MAX_ERROR_CHARS = 500;
+/** Most sessions one herd_retry call may target. */
+const MAX_RETRY_DESIGS = 20;
 /** Scalars a route answer may carry back: counts and the plan-answer delivery flag. Nothing else of
  *  a route's body reaches the agent. */
 const ANSWER_FIELDS = ["delivered", "halted", "resumed", "steered", "total"] as const;
@@ -564,11 +568,22 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
     if (!Array.isArray(args.desigs) || args.desigs.length === 0) {
       return fail(400, "desigs must be a non-empty array");
     }
+    const unique = [...new Set(args.desigs)];
+    if (unique.length > MAX_RETRY_DESIGS) {
+      return fail(400, `desigs: at most ${MAX_RETRY_DESIGS} sessions per call`);
+    }
     const ids: string[] = [];
     const desigs: string[] = [];
-    for (const d of args.desigs) {
+    for (const d of unique) {
       const s = resolve.session(d);
       if (isFail(s)) return s;
+      if (!s.halted) {
+        return fail(
+          409,
+          `session "${s.desig}" is not halted — herd_retry only resumes halted sessions; session_steer or session_resume reach the others`,
+        );
+      }
+      if (ids.includes(s.id)) continue;
       ids.push(s.id);
       desigs.push(s.desig);
     }
@@ -731,7 +746,7 @@ function resolver(deps: ActionDeps, scope: AssistantScope): Resolve {
       const s = typeof desig === "string" ? deps.store.getByDesig(desig) : null;
       if (!s || !isHerdSession(s)) return fail(404, `session "${String(desig)}" not found`);
       if (!inScope(scope, s.repoPath)) return outsideScope(`session "${s.desig}"`, scope!);
-      return { id: s.id, desig: s.desig };
+      return { id: s.id, desig: s.desig, halted: s.haltReason !== null };
     },
     repo(repo) {
       if (typeof repo !== "string" || repo === "") return fail(400, "repo is required");
@@ -831,6 +846,25 @@ async function awaitApproval(
   };
 }
 
+/** Groups a tool needs on top of its own: herd_retry pastes text into sessions, so it also needs steer. */
+const ALSO_REQUIRES: Partial<Record<AssistantActionTool, AssistantActionGroup>> = {
+  herd_retry: "steer",
+};
+const LEVEL_RANK: Record<AssistantActionLevel, number> = { off: 0, ask: 1, allow: 2 };
+
+/** The level that governs `tool` and the group it comes from: the stricter of its own group and ALSO_REQUIRES. */
+function effectiveLevel(
+  perms: AssistantPermissions,
+  tool: AssistantActionTool,
+): { group: AssistantActionGroup; level: AssistantActionLevel } {
+  const own = actionGroupOf(tool)!;
+  const extra = ALSO_REQUIRES[tool];
+  if (extra && LEVEL_RANK[perms[extra]] < LEVEL_RANK[perms[own]]) {
+    return { group: extra, level: perms[extra] };
+  }
+  return { group: own, level: perms[own] };
+}
+
 /** Run one action tool for `caller` — the assistant session and its repo scope
  *  (`Session.assistantRepo`): null for the global assistant, which reaches the whole herd. */
 export async function applyOperatorAction(
@@ -848,8 +882,7 @@ export async function applyOperatorAction(
   const { scope } = caller;
   const actions = deps.operatorActions;
   if (!actions) return fail(503, "operator actions unavailable");
-  const group = actionGroupOf(tool)!;
-  const level = actions.permissions()[group];
+  const { group, level } = effectiveLevel(actions.permissions(), tool);
   if (level === "off") {
     return fail(
       403,
@@ -873,8 +906,8 @@ export async function applyOperatorAction(
     const answer = await awaitApproval(deps, tool, bound, built.target, caller);
     if (answer) return answer;
     // Turned off while it waited: the setting outranks a stale approval.
-    if (actions.permissions()[group] === "off")
-      return fail(403, `${group} actions were turned off`);
+    const after = effectiveLevel(actions.permissions(), tool);
+    if (after.level === "off") return fail(403, `${after.group} actions were turned off`);
   }
   return dispatchOperatorAction(actions, tool, built);
 }
@@ -1179,11 +1212,16 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
   },
   {
     name: "herd_retry",
-    description: `[automation] Resume halted sessions and steer them with text.${NOTE}`,
+    description: `[automation + steer] Resume up to ${MAX_RETRY_DESIGS} halted sessions (herd_status shows haltReason) and steer them with text; needs both groups.${NOTE}`,
     inputSchema: {
       type: "object",
       properties: {
-        desigs: { type: "array", minItems: 1, items: { type: "string" } },
+        desigs: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_RETRY_DESIGS,
+          items: { type: "string" },
+        },
         text: { type: "string", description: "The steer each resumed session gets." },
       },
       required: ["desigs"],

@@ -70,6 +70,10 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     approveBuildQueue: approveBuildQueueFn,
     replySession: replySessionFn,
     putBuildQueue: putBuildQueueFn,
+    getCodexSpeedOptions: vi.fn(async () => ({ fastUnavailable: null, standardAvailable: true })),
+    putSessionCodexSpeed: vi.fn(async (id: string, codexSpeed: Session["codexSpeed"]) =>
+      session({ id, codexSpeed, agentProvider: "codex" }),
+    ),
   };
 });
 
@@ -3305,4 +3309,51 @@ describe("Viewport — phone keeps the Chat tall", () => {
     await page.getByRole("tab", { name: m.viewport_terminal_tab() }).click();
     await expect.poll(() => container.querySelector(".steer-row")).not.toBeNull();
   });
+});
+
+it("shows the saved Codex speed as pending while the live session still reports Standard", async () => {
+  const s = session({
+    id: "codex-speed",
+    agentProvider: "codex",
+    codexSpeed: "standard",
+    codexSpeedLaunch: { applied: "standard", reason: null, startedAt: 10 },
+    codexSpeedObserved: { tier: "default", at: 11 },
+  });
+  render(Viewport, { props: { session: s } });
+  await expect
+    .element(page.getByRole("button", { name: m.codex_speed_effective({ speed: "Standard" }) }))
+    .toBeVisible();
+  await page.getByText(m.codex_speed_session_label(), { exact: true }).click();
+  await page.getByRole("combobox", { name: m.codex_speed_session_label() }).selectOptions("fast");
+  await expect.element(page.getByText(m.codex_speed_pending())).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: m.codex_speed_effective({ speed: "Standard" }) }))
+    .toBeVisible();
+});
+
+it("explains sandboxed Codex speed and leaves Codex settings selectable", async () => {
+  const { getCodexSpeedOptions } = await import("#lib/api.js");
+  vi.mocked(getCodexSpeedOptions).mockResolvedValueOnce({
+    fastUnavailable: "sandboxed",
+    standardAvailable: false,
+  });
+  render(Viewport, {
+    props: {
+      session: session({
+        id: "sandboxed-codex-speed",
+        agentProvider: "codex",
+        codexSpeed: "standard",
+        codexStandardBlocked: true,
+      }),
+    },
+  });
+  await page.getByText(m.codex_speed_session_label(), { exact: true }).click();
+  await expect.element(page.getByText(m.codex_speed_sandboxed())).toBeVisible();
+  const select = page.getByRole("combobox", { name: m.codex_speed_session_label() });
+  await expect
+    .element(select.getByRole("option", { name: m.codex_speed_standard() }))
+    .toBeDisabled();
+  await expect.element(select.getByRole("option", { name: m.codex_speed_fast() })).toBeDisabled();
+  await select.selectOptions("codex");
+  await expect.element(select).toHaveValue("codex");
 });

@@ -8,6 +8,7 @@ import {
   signalFrom,
   withCiPolling,
   type SessionActivity,
+  type RuntimeIdentity,
 } from "./activity-signal";
 import { recordTs, tokenNum, trailingCiPolling, type CiCall, type CiPolling } from "./ci-polling";
 import { snapshotFrom, type ActivitySnapshot } from "./stall";
@@ -278,15 +279,92 @@ function latestCodexRecordTs(text: string): number {
   return max;
 }
 
+/** Read only the durable settings belonging to the pinned conversation. */
+export function readCodexResumeIdentity(threadId: string, cwd: string) {
+  const path = findCodexRolloutById(threadId);
+  if (!path) return null;
+  const meta = readSessionMeta(path);
+  if (!meta?.modelProvider || normalize(meta.cwd) !== normalize(cwd)) return null;
+  let model: string | null = null;
+  try {
+    for (const value of eachJsonlObject(readTranscriptTail(path))) {
+      const { type, payload } = value as { type?: unknown; payload?: Record<string, unknown> };
+      if (
+        type !== "event_msg" ||
+        payload?.type !== "thread_settings_applied" ||
+        payload.thread_id !== threadId
+      )
+        continue;
+      const settings = payload.thread_settings as Record<string, unknown> | undefined;
+      model =
+        settings?.model_provider_id === meta.modelProvider && typeof settings?.model === "string"
+          ? settings.model
+          : null;
+    }
+  } catch {
+    return null;
+  }
+  return { provider: meta.modelProvider, model };
+}
+
+interface CodexSpeedObservationTarget {
+  threadId: string;
+  startedAt: number;
+}
+
+function codexSpeedSnapshot(
+  payload: Record<string, unknown> | undefined,
+  timestamp: number,
+  target: CodexSpeedObservationTarget,
+): RuntimeIdentity["codexSpeedObserved"] {
+  if (
+    timestamp < target.startedAt ||
+    payload?.type !== "thread_settings_applied" ||
+    payload.thread_id !== target.threadId
+  )
+    return undefined;
+  const settings = payload.thread_settings as Record<string, unknown> | undefined;
+  if (!settings) return undefined;
+  return {
+    at: timestamp,
+    tier: typeof settings.service_tier === "string" ? settings.service_tier : null,
+  };
+}
+
 /** Runtime environment reported by a Codex rollout. Each turn_context repeats the effective
  * model and effort; session_meta provenance covers the short window before the first turn. */
 export function codexRuntimeIdentity(
   text: string,
-): Pick<SessionActivity, "runtimeModel" | "runtimeEffort"> {
+  speedTarget?: CodexSpeedObservationTarget,
+): RuntimeIdentity {
+  return codexRuntimeIdentityFrom([...eachJsonlObject(text)], speedTarget);
+}
+
+function codexRuntimeIdentityFrom(
+  records: unknown[],
+  speedTarget?: CodexSpeedObservationTarget,
+): RuntimeIdentity {
+  const identity = codexModelIdentity(records);
+  if (!speedTarget) return identity;
+  for (const value of records) {
+    const event = value as {
+      type?: unknown;
+      payload?: Record<string, unknown>;
+      timestamp?: unknown;
+    };
+    if (event.type !== "event_msg") continue;
+    const observation = codexSpeedSnapshot(event.payload, recordTs(event), speedTarget);
+    if (observation && observation.at >= (identity.codexSpeedObserved?.at ?? 0))
+      identity.codexSpeedObserved = observation;
+  }
+  return identity;
+}
+
+function codexModelIdentity(records: unknown[]): RuntimeIdentity {
   let provenanceModel: string | undefined;
   let runtimeModel: string | undefined;
   let runtimeEffort: string | undefined;
-  for (const value of eachJsonlObject(text)) {
+  for (const value of records) {
     const record = value as { type?: unknown; payload?: unknown };
     const payload = record.payload as Record<string, unknown> | undefined;
     if (record.type === "session_meta") {
@@ -306,7 +384,10 @@ export function codexRuntimeIdentity(
 }
 
 /** Pure: derive both signals from already-read rollout text (one parse). */
-function codexSignalsFromText(text: string): {
+function codexSignalsFromText(
+  text: string,
+  speedTarget?: CodexSpeedObservationTarget,
+): {
   snapshot: ActivitySnapshot | null;
   activity: SessionActivity | null;
 } {
@@ -316,7 +397,7 @@ function codexSignalsFromText(text: string): {
   return {
     snapshot: snapshotFrom(entries, lastTs),
     activity: withCiPolling(
-      signalFrom(entries, lastTs, codexRuntimeIdentity(text)),
+      signalFrom(entries, lastTs, codexRuntimeIdentityFrom(objs, speedTarget)),
       codexCiPolling(objs),
     ),
   };
@@ -382,7 +463,10 @@ export function codexCiPolling(objs: Iterable<unknown>): CiPolling | null {
  * both null. Feeding `snapshotFrom` AND `signalFrom` from one parse means summary,
  * heat-strip, error tint and stall all hang on the same pipeline as Claude.
  */
-export function readCodexTranscriptSignals(path: string): {
+export function readCodexTranscriptSignals(
+  path: string,
+  speedTarget?: CodexSpeedObservationTarget,
+): {
   snapshot: ActivitySnapshot | null;
   activity: SessionActivity | null;
 } {
@@ -392,7 +476,7 @@ export function readCodexTranscriptSignals(path: string): {
   } catch {
     return { snapshot: null, activity: null };
   }
-  return codexSignalsFromText(text);
+  return codexSignalsFromText(text, speedTarget);
 }
 
 /**

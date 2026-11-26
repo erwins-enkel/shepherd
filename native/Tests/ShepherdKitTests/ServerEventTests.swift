@@ -208,6 +208,19 @@ struct ServerEventTests {
     #expect(name == "epic:progress")
   }
 
+  @Test("Codex speed changes retain their payload for stream consumers")
+  func codexSpeedEvent() throws {
+    let event = try decode(#"{"event":"session:codex-speed","data":{"id":"a","codexSpeed":"fast"}}"#)
+    guard case .unknown(let name, let payload) = event else {
+      Issue.record("expected an .unknown event")
+      return
+    }
+    #expect(name == "session:codex-speed")
+    let data = try JSONDecoder().decode(Components.Schemas.SessionCodexSpeedEvent.self, from: try #require(payload))
+    #expect(data.id == "a")
+    #expect(data.codexSpeed == .fast)
+  }
+
   @Test("a known event name with an undecodable payload becomes .unknown, not a throw")
   func knownNameBadPayload() throws {
     // A frame the client cannot make sense of must not kill the stream.

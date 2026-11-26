@@ -161,3 +161,76 @@ test("Codex account: provider displays authoritative account data without a loca
     resetStatus: { availableCount: 3 },
   });
 });
+
+test("Codex speed: queries the retained provider and restored model across catalog pages", async () => {
+  const c =
+    client(`require('node:readline').createInterface({input:process.stdin}).on('line', l => {
+    const {id, method, params} = JSON.parse(l);
+    if (!id) return;
+    let result = {};
+    if (method === "account/read") result = {account:{type:"chatgpt"}};
+    if (method === "config/read") result = {config:{model:"other", model_provider:"openai"}};
+    if (method === "model/list") {
+      if (params.modelProvider !== "retained") return console.log(JSON.stringify({id,error:{code:-1}}));
+      result = params.cursor
+        ? {data:[{model:"restored",serviceTiers:[{id:"priority",name:"Fast"}]}],nextCursor:null}
+        : {data:[],nextCursor:"next"};
+    }
+    console.log(JSON.stringify({id,result}));
+  });`);
+  try {
+    expect(await c.readFastTier({ cwd: "/task", provider: "retained", model: "restored" })).toEqual(
+      {
+        tier: "priority",
+      },
+    );
+  } finally {
+    c.close();
+  }
+});
+
+test.each([
+  [{ account: null }, { config: {} }, {}, { data: [] }, "login"],
+  [{ account: {} }, { config: { features: { fast_mode: false } } }, {}, { data: [] }, "disabled"],
+  [
+    { account: {} },
+    { config: {} },
+    { requirements: { featureRequirements: { fast_mode: false } } },
+    { data: [] },
+    "disabled",
+  ],
+  [{ account: {} }, { config: {} }, {}, { data: [{ isDefault: true }] }, "version"],
+  [
+    { account: {} },
+    { config: { model: "selected" } },
+    {},
+    {
+      data: [
+        { isDefault: true, model: "default", serviceTiers: [{ id: "priority", name: "Fast" }] },
+        { model: "selected", serviceTiers: [{ id: "ultrafast", name: "Ultrafast" }] },
+      ],
+    },
+    "model",
+  ],
+  [{ account: {} }, {}, {}, { data: [] }, "unknown"],
+] as const)(
+  "Codex speed withholds Fast without matching account/config/catalog evidence (%#)",
+  async (account, config, policy, models, reason) => {
+    const responses = {
+      "account/read": account,
+      "config/read": config,
+      "configRequirements/read": policy,
+      "model/list": models,
+    };
+    const c =
+      client(`require('node:readline').createInterface({input:process.stdin}).on('line', l => {
+    const {id, method} = JSON.parse(l);
+    if (id) console.log(JSON.stringify({id,result:${JSON.stringify(responses)}[method] ?? {}}));
+  });`);
+    try {
+      expect(await c.readFastTier({ cwd: "/task" })).toEqual({ reason });
+    } finally {
+      c.close();
+    }
+  },
+);

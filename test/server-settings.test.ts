@@ -1976,3 +1976,29 @@ test("resource settings report a list-file failure without persisting a change",
     config.heavyListPath = old;
   }
 });
+
+test("Codex speed default persists and an ineligible Fast choice is rejected", async () => {
+  const previous = config.defaultCodexSpeed;
+  const store = new SessionStore(":memory:");
+  let tierAdvertised = false;
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {
+      codexFastAvailability: async () =>
+        tierAdvertised ? { tier: "priority" } : { reason: "model" },
+    } as unknown as AppDeps["service"],
+    usageLimits: { limits: () => ({}) } as unknown as AppDeps["usageLimits"],
+  });
+  try {
+    config.defaultCodexSpeed = "codex";
+    expect((await put(app, { defaultCodexSpeed: "standard" })).status).toBe(400);
+    expect((await put(app, { defaultCodexSpeed: "fast" })).status).toBe(409);
+    expect(store.getSetting("defaultCodexSpeed")).toBeNull();
+    tierAdvertised = true;
+    expect((await put(app, { defaultCodexSpeed: "fast" })).status).toBe(200);
+    expect(store.getSetting("defaultCodexSpeed")).toBe("fast");
+  } finally {
+    config.defaultCodexSpeed = previous;
+  }
+});

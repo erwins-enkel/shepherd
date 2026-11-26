@@ -15,6 +15,17 @@ import { buildAssistantHandoff, type AssistantSwitchState } from "./operator-ass
 import { sessionMessages, type SessionMessages } from "./agent-messages";
 import { jsonlPathFor } from "./usage";
 import { findCodexRolloutById } from "./codex-session-id";
+import { readCodexResumeIdentity } from "./codex-activity";
+import { codexHome } from "./codex-usage";
+import {
+  CODEX_STANDARD_SANDBOXED,
+  CODEX_STANDARD_UNAVAILABLE,
+  codexStandardSupported,
+  type CodexFastAvailability,
+  type CodexSpeed,
+  type CodexSpeedLaunch,
+  type CodexSpeedTarget,
+} from "./codex-speed";
 import { prepareTaskPrompt, removeTaskPromptFile } from "./task-prompt-file";
 import { goalArmCommand, splitHeldGoal } from "./goal";
 import {
@@ -419,6 +430,9 @@ function usedBaseCommit(input: StandardCreateInput, wt: WorktreeResult): string 
 }
 
 export interface ServiceDeps {
+  probeCodexFast?: (binary: string, target: CodexSpeedTarget) => Promise<CodexFastAvailability>;
+  codexSpeedBinary?: () => string | null;
+  codexStandardSupported?: typeof codexStandardSupported;
   /** House Stack version resolver for bootstrap spawns (#3109); defaults to the shared one. */
   houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Filesystem seam for persisted conversation availability; defaults to the real transcript file check. */
@@ -2920,9 +2934,16 @@ type SpawnSuccess = {
    *  OWNED account for herdr-restore re-drive; excludes the api-key mirror, which shares
    *  ~/.claude/projects/. */
   spawnAccountDir: string | null;
+  codexSpeedLaunch?: CodexSpeedLaunch;
 };
 type SpawnOutcome =
-  SpawnSuccess | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
+  | SpawnSuccess
+  | {
+      ok: false;
+      holdReason: string;
+      abortCause?: PluginSpawnAborted;
+      standardRefused?: true;
+    };
 
 /** Total char budget for the issue-comment block appended to a spawn prompt. Generous —
  *  comments ride separately like the body; this bounds a runaway thread from bloating
@@ -3637,13 +3658,31 @@ export class SessionService {
     ctx: Parameters<SessionService["prepareSpawn"]>[1],
     envParts: Parameters<SessionService["runSpawnHookPatch"]>[2],
   ): Promise<
-    | { patchEnv: Record<string, string>; finalInnerArgv: string[]; secrets: AgentSecretsPrep }
-    | { holdReason: string; abortCause?: PluginSpawnAborted }
+    | {
+        patchEnv: Record<string, string>;
+        finalInnerArgv: string[];
+        secrets: AgentSecretsPrep;
+        codexSpeedLaunch?: CodexSpeedLaunch;
+      }
+    | Omit<Extract<SpawnOutcome, { ok: false }>, "ok">
   > {
     const hook = await this.runSpawnHookPatch(innerArgv, ctx, envParts);
     if ("holdReason" in hook) return hook;
     const secrets = await this.prepareAgentSecrets(ctx);
-    return "holdReason" in secrets ? secrets : { ...hook, secrets };
+    if ("holdReason" in secrets) return secrets;
+    const prepared = await this.prepareCodexSpawnSpeed(
+      innerArgv,
+      { ...hook, secrets },
+      ctx,
+      envParts.willWrap,
+    );
+    if ("holdReason" in prepared) return prepared;
+    return {
+      patchEnv: hook.patchEnv,
+      finalInnerArgv: prepared.argv,
+      secrets,
+      codexSpeedLaunch: prepared.launch,
+    };
   }
 
   /** Run plugin onSpawn hooks (issue #1124) and fold the result into spawn inputs: the
@@ -3838,6 +3877,134 @@ export class SessionService {
     return prepare(ctx.worktreePath, ctx.claudeSessionId ?? "");
   }
 
+  private speedBinary(): string | null {
+    return this.deps.codexSpeedBinary ? this.deps.codexSpeedBinary() : (Bun.which("codex") ?? null);
+  }
+
+  async codexFastAvailability(
+    cwd: string,
+    model: string | null,
+    {
+      threadId,
+      resolvedBinary,
+      probeCwd = cwd,
+    }: {
+      threadId?: string;
+      resolvedBinary?: string;
+      probeCwd?: string;
+    } = {},
+  ): Promise<CodexFastAvailability> {
+    const binary = resolvedBinary ?? this.speedBinary();
+    if (!binary || (!resolvedBinary && !codexNoDaemonArgs(this.deps.readCodexHelp).length))
+      return { reason: "version" };
+    const retained = threadId ? readCodexResumeIdentity(threadId, cwd) : null;
+    if (threadId && (!retained || (!model && !retained.model))) return { reason: "unknown" };
+    return (
+      this.deps.probeCodexFast?.(binary, {
+        cwd: probeCwd,
+        provider: retained?.provider,
+        model: model ?? retained?.model,
+      }) ?? { reason: "unknown" }
+    );
+  }
+
+  sessionCodexSpeedSandboxed(s: Session): boolean {
+    // Match prepareResumeSpawn's stored override and prepareSpawn's wrapping predicate.
+    const profile = resolveProfile(
+      s.sandboxApplied,
+      this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
+      this.defaultProfile,
+    );
+    return profile !== "trusted" && this.detectBackend() !== null;
+  }
+
+  sessionCodexFastAvailability(s: Session): Promise<CodexFastAvailability> {
+    if (this.sessionCodexSpeedSandboxed(s)) return Promise.resolve({ reason: "sandboxed" });
+    const threadId = s.providerSessionId;
+    if (!threadId || !s.codexLaunchId) return Promise.resolve({ reason: "unknown" });
+    const model = clampCodexModelForAuth(s.model, "codex", this.codexAuthMode());
+    // An archived worktree is gone, but its path still identifies the pinned rollout.
+    return this.codexFastAvailability(s.worktreePath, model, {
+      threadId,
+      probeCwd: s.status === "archived" ? s.repoPath : s.worktreePath,
+    });
+  }
+
+  codexStandardAvailable(s: Session): boolean {
+    if (this.sessionCodexSpeedSandboxed(s)) return false;
+    const binary = this.speedBinary();
+    const cwd = s.status === "archived" ? s.repoPath : s.worktreePath;
+    return (
+      !!binary &&
+      codexNoDaemonArgs(this.deps.readCodexHelp).length > 0 &&
+      (this.deps.codexStandardSupported ?? codexStandardSupported)(binary, cwd)
+    );
+  }
+
+  private async prepareCodexSpawnSpeed(
+    innerArgv: string[],
+    hook: { finalInnerArgv: string[]; patchEnv: Record<string, string>; secrets: AgentSecretsPrep },
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+    willWrap: boolean,
+  ): Promise<{ argv: string[]; launch?: CodexSpeedLaunch } | Extract<SpawnOutcome, { ok: false }>> {
+    const { codexSpeed: speed, worktreePath } = ctx;
+    const { finalInnerArgv, patchEnv, secrets } = hook;
+    if (speed === undefined) return { argv: finalInnerArgv };
+    const launch: CodexSpeedLaunch = { applied: "codex", reason: null, startedAt: 0 };
+    if (speed === "codex") return { argv: finalInnerArgv, launch };
+    if (willWrap) {
+      if (speed === "standard")
+        return { ok: false, holdReason: CODEX_STANDARD_SANDBOXED, standardRefused: true };
+      return { argv: finalInnerArgv, launch: { ...launch, reason: "sandboxed" } };
+    }
+
+    // Reuse the probe only when we can match the local process and its launch context.
+    const unchangedArgv =
+      finalInnerArgv.length === innerArgv.length &&
+      finalInnerArgv.every((arg, index) => arg === innerArgv[index]);
+    const changedEnv = [...Object.keys(patchEnv), ...secrets.names];
+    const binary = unchangedArgv && innerArgv.includes("--no-daemon") ? this.speedBinary() : null;
+    if (speed === "standard") {
+      const affectsStartup = changedEnv.some((key) =>
+        /^(?:PATH$|HOME$|XDG_|CODEX_|LD_|DYLD_)/i.test(key),
+      );
+      if (
+        !binary ||
+        affectsStartup ||
+        !(this.deps.codexStandardSupported ?? codexStandardSupported)(binary, worktreePath)
+      )
+        return { ok: false, holdReason: CODEX_STANDARD_UNAVAILABLE, standardRefused: true };
+      launch.applied = "standard";
+      return { argv: [binary, "-c", 'service_tier="default"', ...innerArgv.slice(1)], launch };
+    }
+    return this.prepareCodexFastArgv(binary, changedEnv, finalInnerArgv, worktreePath, launch);
+  }
+
+  private async prepareCodexFastArgv(
+    binary: string | null,
+    changedEnv: string[],
+    argv: string[],
+    cwd: string,
+    launch: CodexSpeedLaunch,
+  ) {
+    if (!binary || changedEnv.length) {
+      launch.reason = argv.includes("--no-daemon") ? "unknown" : "version";
+      return { argv, launch };
+    }
+    const modelIndex = argv.indexOf("--model");
+    const result = await this.codexFastAvailability(
+      cwd,
+      modelIndex < 0 ? null : (argv[modelIndex + 1] ?? null),
+      { threadId: argv[1] === "resume" ? argv[2] : undefined, resolvedBinary: binary },
+    );
+    if ("reason" in result) {
+      launch.reason = result.reason;
+      return { argv, launch };
+    }
+    launch.applied = "fast";
+    return { argv: [binary, "-c", `service_tier="${result.tier}"`, ...argv.slice(1)], launch };
+  }
+
   private async prepareSpawn(
     innerArgv: string[],
     ctx: {
@@ -3858,6 +4025,8 @@ export class SessionService {
        *  its read-only argv (e.g. append a permission bypass) or its env. */
       operatorAssistant?: boolean;
       resumeAllowed?: () => void;
+      beforeStart?: () => Promise<void>;
+      codexSpeed?: CodexSpeed;
       /** Claude session UUID — keys the scratchpad bound into a sandboxed claude's membrane. */
       claudeSessionId?: string;
     },
@@ -3930,9 +4099,8 @@ export class SessionService {
       rendererEnv,
       apiKeyPassthrough,
     });
-    if ("holdReason" in hook)
-      return { ok: false, holdReason: hook.holdReason, abortCause: hook.abortCause };
-    const { patchEnv, finalInnerArgv, secrets } = hook;
+    if ("holdReason" in hook) return { ...hook, ok: false };
+    const { patchEnv, finalInnerArgv, secrets, codexSpeedLaunch } = hook;
 
     const membrane: MembraneInputs = willWrap
       ? {
@@ -4014,10 +4182,7 @@ export class SessionService {
       ...browserEnv,
       ...slotShimEnv,
     };
-    ctx.resumeAllowed?.();
-    const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
-      signal: ctx.signal,
-    });
+    const agent = await this.startPreparedSpawn(ctx, wrapped, spawnEnv, codexSpeedLaunch);
     this.startGhHostsRefresh(ctx, membrane);
     this.recordAgentSecretInjection(ctx.sessionId, secrets.repoKey, secrets.names);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
@@ -4037,7 +4202,24 @@ export class SessionService {
       egressApplied: egressOn,
       egressDegraded,
       spawnAccountDir: patchEnv.CLAUDE_CONFIG_DIR ?? null,
+      codexSpeedLaunch,
     };
+  }
+
+  private async startPreparedSpawn(
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+    argv: string[],
+    env: Record<string, string>,
+    speed?: CodexSpeedLaunch,
+  ): Promise<HerdrAgent> {
+    ctx.resumeAllowed?.();
+    if (ctx.beforeStart) {
+      await ctx.beforeStart();
+      ctx.resumeAllowed?.();
+    }
+    if (speed?.applied === "fast") env.CODEX_HOME = codexHome();
+    if (speed) speed.startedAt = Date.now();
+    return this.deps.herdr.start(ctx.name, ctx.worktreePath, argv, env, { signal: ctx.signal });
   }
 
   /**
@@ -4382,7 +4564,10 @@ export class SessionService {
     ctx: Parameters<SessionService["prepareSpawn"]>[1],
   ): Promise<SpawnSuccess> {
     const outcome = await this.prepareSpawn(innerArgv, ctx);
-    if (!outcome.ok) throw new SandboxAutoRefused(outcome.holdReason, outcome.abortCause);
+    if (!outcome.ok) {
+      if (!outcome.standardRefused) await ctx.beforeStart?.();
+      throw new SandboxAutoRefused(outcome.holdReason, outcome.abortCause);
+    }
     return outcome;
   }
 
@@ -4961,9 +5146,29 @@ export class SessionService {
     return false;
   }
 
-  /** Stable manual-API refusal; autonomous callers keep resume()'s null/no-spawn contract. */
-  resumeRefusalCode(id: string): "transcript-missing" | null {
+  private recordStandardRefusal(id: string, blocked: boolean): void {
+    this.deps.store.setCodexStandardBlocked(id, blocked);
     const s = this.deps.store.get(id);
+    if (s)
+      this.deps.events?.emit("session:codex-speed", {
+        id,
+        codexStandardBlocked: s.codexStandardBlocked,
+      });
+  }
+
+  /** Stable manual-API refusal; autonomous callers keep resume()'s null/no-spawn contract. */
+  resumeRefusalCode(
+    id: string,
+  ):
+    | "transcript-missing"
+    | typeof CODEX_STANDARD_UNAVAILABLE
+    | typeof CODEX_STANDARD_SANDBOXED
+    | null {
+    const s = this.deps.store.get(id);
+    if (s?.codexStandardBlocked)
+      return this.sessionCodexSpeedSandboxed(s)
+        ? CODEX_STANDARD_SANDBOXED
+        : CODEX_STANDARD_UNAVAILABLE;
     return s &&
       s.status !== "archived" &&
       (s.agentProvider ?? "claude") === "claude" &&
@@ -5007,6 +5212,7 @@ export class SessionService {
     session: Session,
     innerArgv: string[],
     resumeAllowed?: () => void,
+    beforeStart?: () => Promise<void>,
   ): Promise<SpawnOutcome> {
     return this.prepareSpawn(innerArgv, {
       sessionId: session.id,
@@ -5025,6 +5231,8 @@ export class SessionService {
       agentProvider: session.agentProvider,
       operatorAssistant: isOperatorAssistant(session),
       resumeAllowed,
+      beforeStart,
+      codexSpeed: session.codexSpeed,
       claudeSessionId: session.claudeSessionId,
     }).catch((err) => {
       if (err instanceof UsagePauseResumeCanceled)
@@ -5045,6 +5253,8 @@ export class SessionService {
       // any earlier switch failure is moot for the fresh process.
       activeEffort: phaseEffort(session),
     });
+    if (outcome.codexSpeedLaunch)
+      this.deps.store.setCodexSpeedLaunch(session.id, outcome.codexSpeedLaunch);
     this.deps.store.setPlanGateEffortSwitchError(session.id, null);
     this.deps.store.setSandboxState(session.id, {
       applied: outcome.applied,
@@ -5053,7 +5263,16 @@ export class SessionService {
       egressDegraded: outcome.egressDegraded,
     });
     this.persistSpawnIdentity(session, outcome);
-    return this.deps.store.get(session.id);
+    const updated = this.deps.store.get(session.id);
+    if (outcome.codexSpeedLaunch && updated) {
+      this.deps.events?.emit("session:codex-speed", {
+        id: updated.id,
+        codexSpeedLaunch: updated.codexSpeedLaunch,
+        codexSpeedObserved: null,
+        codexStandardBlocked: false,
+      });
+    }
+    return updated;
   }
 
   /**
@@ -5673,6 +5892,7 @@ export class SessionService {
       } = await phases.phase("launch", () =>
         this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId),
       );
+      const codexSpeed = agentProvider === "codex" ? config.defaultCodexSpeed : undefined;
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       // The longest phase by far: `herdr.start` waits for herdr to auto-detect a trusted agent,
       // which in practice means waiting out the agent CLI's own startup (bounded at 30s). The
@@ -5690,6 +5910,7 @@ export class SessionService {
           model: spawnInput.model,
           agentProvider,
           signal: phases.signal,
+          codexSpeed,
           claudeSessionId,
         }),
       );
@@ -5725,6 +5946,8 @@ export class SessionService {
         agentProvider,
         model: resolvedInput.model,
         effort: spawnInput.effort ?? null,
+        codexSpeed,
+        codexSpeedLaunch: outcome.codexSpeedLaunch,
         // #3434: only a plan-gated session has an execution phase to switch into.
         executionEffort: planGateOn
           ? effortForProvider(agentProvider, spawnInput.executionEffort)
@@ -7084,6 +7307,24 @@ export class SessionService {
     removeTaskPromptFile(taskFile);
   }
 
+  private async prepareReplacementSpawn(
+    argv: string[],
+    ctx: Parameters<SessionService["prepareSpawn"]>[1],
+    stopSource: () => Promise<void>,
+  ): Promise<SpawnSuccess> {
+    if (ctx.codexSpeed === "standard") {
+      try {
+        return await this.prepareSpawnOrThrow(argv, { ...ctx, beforeStart: stopSource });
+      } catch (error) {
+        if (error instanceof SandboxAutoRefused && error.holdReason === CODEX_STANDARD_UNAVAILABLE)
+          this.recordStandardRefusal(ctx.sessionId, true);
+        throw error;
+      }
+    }
+    await stopSource();
+    return this.prepareSpawnOrThrow(argv, ctx);
+  }
+
   private async replaceAgentInner(
     id: string,
     opts: {
@@ -7153,36 +7394,45 @@ export class SessionService {
         launch.profileOverride,
         this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
       );
-      record.sourceStopped = true;
-      this.saveProviderHandoff(record);
-      await this.stopProviderHandoffSource(s);
-      record.phase = "stopped";
-      this.saveProviderHandoff(record);
-      const finalPacket = await this.collectHandoff(s, record.id, agentProvider);
-      finalPacket.previousId = previousId;
-      record.packet = finalPacket;
-      record.targetRun =
-        agentProvider === "codex"
-          ? `codex:${launch.launchIdentity.codexLaunchId}`
-          : `claude:${claudeSessionId}`;
-      record.phase = "bootstrap";
-      this.saveProviderHandoff(record);
-      const outcome = await this.prepareSpawnOrThrow(launch.argv, {
-        sessionId: s.id,
-        name: s.name,
-        worktreePath: s.worktreePath,
-        repoPath: s.repoPath,
-        isolated: s.isolated,
-        auto: false,
-        profileOverride: launch.profileOverride,
-        model: launch.spawnInput.model,
-        agentProvider,
-        claudeSessionId,
-      });
+      const codexSpeed =
+        agentProvider === "codex" ? (s.codexSpeed ?? config.defaultCodexSpeed) : undefined;
+      const stopSource = async () => {
+        record.sourceStopped = true;
+        this.saveProviderHandoff(record);
+        await this.stopProviderHandoffSource(s);
+        record.phase = "stopped";
+        this.saveProviderHandoff(record);
+        const finalPacket = await this.collectHandoff(s, record.id, agentProvider);
+        finalPacket.previousId = previousId;
+        record.packet = finalPacket;
+        record.targetRun =
+          agentProvider === "codex"
+            ? `codex:${launch.launchIdentity.codexLaunchId}`
+            : `claude:${claudeSessionId}`;
+        record.phase = "bootstrap";
+        this.saveProviderHandoff(record);
+      };
+      const outcome = await this.prepareReplacementSpawn(
+        launch.argv,
+        {
+          sessionId: s.id,
+          name: s.name,
+          worktreePath: s.worktreePath,
+          repoPath: s.repoPath,
+          isolated: s.isolated,
+          auto: false,
+          profileOverride: launch.profileOverride,
+          model: launch.spawnInput.model,
+          agentProvider,
+          codexSpeed,
+          claudeSessionId,
+        },
+        stopSource,
+      );
 
       target = outcome.terminalId;
       record.phase = "pending";
-      await this.persistReplacementOrStop(s, agentProvider, launch, outcome, record);
+      await this.persistReplacementOrStop(s, agentProvider, launch, outcome, record, codexSpeed);
       this.#syncReplacedGoal(s, agentProvider, held?.condition ?? null);
 
       const current = this.deps.store.get(id)!;
@@ -7294,7 +7544,8 @@ export class SessionService {
     agentProvider: AgentProvider,
     launch: Awaited<ReturnType<SessionService["resolveCreateLaunch"]>>,
     outcome: SpawnSuccess,
-    handoff?: HandoffRecord,
+    handoff: HandoffRecord,
+    codexSpeed: CodexSpeed | undefined,
   ): Promise<void> {
     try {
       const persist = () => {
@@ -7328,12 +7579,18 @@ export class SessionService {
           egressApplied: outcome.egressApplied,
           egressDegraded: outcome.egressDegraded,
         });
+        if (agentProvider === "codex") {
+          if (s.agentProvider !== "codex") this.deps.store.setCodexSpeed(s.id, codexSpeed);
+          this.deps.store.setCodexSpeedLaunch(s.id, outcome.codexSpeedLaunch);
+        } else if (s.agentProvider === "codex") {
+          this.deps.store.setCodexSpeed(s.id, undefined);
+          this.deps.store.setCodexSpeedLaunch(s.id, null);
+        }
         this.deps.store.setPlanGateEffortSwitchError(s.id, null);
         const updated = this.deps.store.get(s.id);
         if (updated) this.persistSpawnIdentity(updated, outcome);
       };
-      if (handoff) this.deps.store.commitProviderHandoff(handoff, persist);
-      else persist();
+      this.deps.store.commitProviderHandoff(handoff, persist);
     } catch (e) {
       try {
         await this.deps.herdr.stop(outcome.terminalId);
@@ -7840,6 +8097,16 @@ export class SessionService {
     // re-applied, BEFORE a human PTY attaches to it (raw keystrokes bypass the steer gate). The
     // teardown + prepareResumeSpawn below does exactly that; persistSpawnIdentity records the heal.
 
+    return this.respawnSession(session, provider, agent, opts);
+  }
+
+  private async respawnSession(
+    session: Session,
+    provider: AgentProvider,
+    agent: HerdrAgent | null,
+    opts: NonNullable<Parameters<SessionService["resume"]>[1]>,
+  ): Promise<Session | null> {
+    const { id } = session;
     if (!this.canRespawnConversation(session)) return null;
 
     // Re-check the auto-gate BEFORE tearing down the existing husk — a refused resume
@@ -7854,16 +8121,17 @@ export class SessionService {
     // Capacity/trim can yield: refuse a transcript removed while we prepared, before teardown.
     if (!this.canRespawnConversation(session)) return null;
     if (!this.resumeStillAllowed(id, opts)) return null;
-    // Forced respawn over a live agent: close the stale husk tab first so it doesn't
-    // leak alongside the fresh one. (No-op when the agent is already gone.)
-    // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
-    // re-drive of a herdr-restored account pane (needsAccountRedrive above) — the only two
-    // ways past the adopt early-return with a live agent. So if a plugin onSpawn then
-    // hard-blocks via abortSpawn, the husk is already gone and the session is left stopped —
-    // intended: replacing the live agent is deliberate (an explicit "bring agent back", or a
-    // restored wrong-account husk), and aborting it (e.g. "don't run
-    // under the wrong account") is honored by NOT spawning a replacement.
-    if (agent) await this.deps.herdr.stop(agent.terminalId);
+    const stopAgent = agent
+      ? async () => {
+          if (!this.resumeStillAllowed(id, opts)) throw new UsagePauseResumeCanceled();
+          await this.deps.herdr.stop(agent.terminalId);
+        }
+      : undefined;
+    // Standard must validate the invocation after the plugin hook. Other resumes retain their
+    // stop-before-hook ordering. A veto after deferred teardown still leaves the pane stopped.
+    const deferStop = session.codexSpeed === "standard";
+    if (!deferStop) await stopAgent?.();
+    if (session.codexStandardBlocked) this.recordStandardRefusal(id, false);
 
     const outcome = await this.prepareResumeSpawn(
       session,
@@ -7871,8 +8139,14 @@ export class SessionService {
       () => {
         if (!this.resumeStillAllowed(id, opts)) throw new UsagePauseResumeCanceled();
       },
+      deferStop ? stopAgent : undefined,
     );
     if (!outcome.ok) {
+      if (outcome.standardRefused) {
+        this.recordStandardRefusal(id, true);
+      } else if (deferStop && this.resumeStillAllowed(id, opts)) {
+        await stopAgent?.();
+      }
       this.spawnConnectorStamp.delete(session.id);
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
       // server returns 409 — so an auto-refused resume resolves null rather than throwing.
@@ -8076,6 +8350,7 @@ export class SessionService {
       await this.buildResumeArgv(s, provider, trim, codexSessionId),
     );
     if (!outcome.ok) {
+      if (outcome.standardRefused) this.recordStandardRefusal(s.id, true);
       console.warn(`[restore] spawn refused for ${s.id}: ${outcome.holdReason}`);
       if (worktreeCreated) {
         try {

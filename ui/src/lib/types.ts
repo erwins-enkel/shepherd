@@ -1,3 +1,14 @@
+export type CodexSpeed = "codex" | "standard" | "fast";
+export type CodexSpeedReason = "version" | "login" | "disabled" | "model" | "sandboxed" | "unknown";
+export interface CodexSpeedOptions {
+  fastUnavailable: CodexSpeedReason | null;
+  standardAvailable?: boolean;
+}
+export interface CodexSpeedObservation {
+  tier: string | null;
+  at: number;
+}
+
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
 /** Coarse liveness of a session's agent process (#1630). `alive` = a live agent backs the pane;
  *  `husk` = the agent process is gone but not a daemon-restart strand (e.g. a normal Codex
@@ -465,6 +476,7 @@ export interface Settings {
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
   /** Raw Codex default-model setting (default|<curated Codex alias>). */
+  defaultCodexSpeed?: Exclude<CodexSpeed, "standard">;
   defaultCodexModel: string;
   /** Global default-effort setting ("default"|<tier>); "default" emits no effort flag. */
   defaultEffort: string;
@@ -2130,6 +2142,7 @@ export interface SessionActivity {
   runtimeModel?: string;
   /** Effective reasoning effort reported by the provider's runtime log. */
   runtimeEffort?: string;
+  codexSpeedObserved?: CodexSpeedObservation;
   /** The agent polls CI itself (#2863): CI reads in its trailing run, the input tokens they cost,
    *  and when the run began. Absent when it is not polling. */
   ciPolling?: { polls: number; inputTokens: number; since: number };
@@ -2201,6 +2214,14 @@ export interface Session {
    *  Read through `sessionEnvironment()` rather than directly. */
   runtimeModel?: string | null;
   runtimeEffort?: string | null;
+  codexSpeed?: CodexSpeed;
+  codexSpeedLaunch?: {
+    applied: CodexSpeed;
+    reason: CodexSpeedReason | null;
+    startedAt: number;
+  } | null;
+  codexSpeedObserved?: CodexSpeedObservation | null;
+  codexStandardBlocked?: boolean;
   /** COLD-RESUME reading (#2042) — what the FIRST turn back into this parked session will cost,
    *  measured server-side from the transcript when the session parked and cleared again when it
    *  resumes. All three move together; null/absent means there is no current park to price
@@ -3924,6 +3945,13 @@ export type WsEvent =
   | {
       event: "session:status";
       data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>;
+    }
+  | {
+      event: "session:codex-speed";
+      data: { id: string } & Pick<
+        Session,
+        "codexSpeed" | "codexSpeedLaunch" | "codexSpeedObserved" | "codexStandardBlocked"
+      >;
     }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
   /** #2863: a background CI restart failed — at the cancel (CI unchanged) or after it (the run is

@@ -6,6 +6,8 @@ import type { Settings as SettingsPayload, DiagnosticCheck } from "#lib/types.js
 import { m } from "#lib/paraglide/messages.js";
 import {
   getSettings,
+  getCodexSpeedOptions,
+  putDefaultCodexSpeed,
   createAccessToken,
   verifyApiKey,
   putAnthropicApiKey,
@@ -34,6 +36,8 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   return {
     ...actual,
     getSettings: vi.fn(),
+    getCodexSpeedOptions: vi.fn(),
+    putDefaultCodexSpeed: vi.fn(),
     listAccessTokens: vi.fn(async () => ({ tokens: [] })),
     listRepos: vi.fn(async () => ({ repos: [] })),
     getRepoRunDefaults: vi.fn(async () => ({ repos: [] })),
@@ -415,6 +419,36 @@ describe("Settings default coding environment", () => {
       .selectOptions("codex");
     await expect.element(claude).toHaveValue("opus");
     await expect.element(codex).toHaveValue("gpt-5.4");
+  });
+
+  it("shows Fast costs and saves a Codex speed default independently of the default CLI", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({ defaultAgentProvider: "claude", defaultCodexSpeed: "codex" }),
+    );
+    vi.mocked(getCodexSpeedOptions).mockResolvedValue({ fastUnavailable: null });
+    vi.mocked(putDefaultCodexSpeed).mockResolvedValue({ defaultCodexSpeed: "fast" });
+    await mountCodingAgents();
+
+    await expect.element(page.getByText(m.codex_speed_cost(), { exact: false })).toBeVisible();
+    const speed = page.getByRole("combobox", { name: m.codex_speed_default_label() });
+    await speed.selectOptions("fast");
+    await vi.waitFor(() => expect(putDefaultCodexSpeed).toHaveBeenCalledWith("fast"));
+    await expect.element(speed).toHaveValue("fast");
+  });
+
+  it("explains unavailable Codex Fast settings and reverts a rejected save", async () => {
+    mockGetSettings.mockResolvedValue(settings({ defaultCodexSpeed: "fast" }));
+    vi.mocked(getCodexSpeedOptions).mockResolvedValue({ fastUnavailable: "disabled" });
+    vi.mocked(putDefaultCodexSpeed).mockRejectedValue(new Error("save failed"));
+    await mountCodingAgents();
+
+    await expect.element(page.getByText(m.codex_speed_unavailable_policy())).toBeVisible();
+    const speed = page.getByRole("combobox", { name: m.codex_speed_default_label() });
+    await speed.selectOptions("codex");
+    await expect
+      .element(page.getByRole("alert").filter({ hasText: m.codex_speed_save_failed() }))
+      .toBeVisible();
+    await expect.element(speed).toHaveValue("fast");
   });
 
   it("saves the Codex model while Claude Code is the default CLI", async () => {

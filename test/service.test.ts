@@ -11987,3 +11987,200 @@ test("handoff lifecycle: backend restart recovers a pre-delivery generation with
   expect(calls.started).toHaveLength(0);
   expect(store.getProviderHandoff(s.id)?.packet.goal).toBe(s.prompt);
 });
+
+test.each(["veto", "conflict", "sandboxed", "standard"] as const)(
+  "Codex forced resume distinguishes %s from a Standard refusal",
+  async (behavior) => {
+    const { PluginSpawnAborted } = await import("../src/plugins/types");
+    const store = new SessionStore(":memory:");
+    const sandboxed = behavior === "sandboxed";
+    const s = resumable(store, {
+      agentProvider: "codex",
+      codexSpeed: "standard",
+      sandboxApplied: sandboxed ? "standard" : "trusted",
+    });
+    const stopped: string[] = [];
+    const starts: string[][] = [];
+    let hooks = 0;
+    const svc = new SessionService({
+      store,
+      namer: () => "x",
+      worktree: {} as any,
+      detectBackend: () => "bwrap",
+      readCodexHelp: () => "      --no-daemon\n",
+      codexSpeedBinary: () => "/test/codex",
+      codexStandardSupported: () => true,
+      probeCodexFast: async () => ({ reason: "unknown" }),
+      runSpawnHooks: async () => {
+        hooks++;
+        if (behavior === "veto") throw new PluginSpawnAborted("declined", "test");
+        return behavior === "conflict" ? { extraArgs: ["-c", 'service_tier="priority"'] } : {};
+      },
+      herdr: {
+        listAsync: async () => [
+          { terminalId: s.herdrAgentId, cwd: s.worktreePath, agent: "codex" },
+        ],
+        stop: async (id: string) => {
+          stopped.push(id);
+        },
+        start: async (_name: string, _cwd: string, argv: string[]) => {
+          starts.push(argv);
+          return { terminalId: "term_new" };
+        },
+      } as any,
+    });
+    if (sandboxed) {
+      expect(await svc.sessionCodexFastAvailability(s)).toEqual({ reason: "sandboxed" });
+      expect(svc.codexStandardAvailable(s)).toBe(false);
+    }
+    await svc.resume(s.id, { force: true });
+    expect(hooks).toBe(1);
+    expect(stopped).toEqual(behavior === "conflict" || sandboxed ? [] : [s.herdrAgentId]);
+    expect(svc.resumeRefusalCode(s.id)).toBe(
+      sandboxed
+        ? "codex-standard-sandboxed"
+        : behavior === "conflict"
+          ? "codex-standard-unavailable"
+          : null,
+    );
+    if (behavior === "standard") {
+      expect(starts[0]).toContain('service_tier="default"');
+      expect(store.get(s.id)?.codexSpeedLaunch?.applied).toBe("standard");
+    } else {
+      expect(starts).toHaveLength(0);
+    }
+  },
+);
+
+test("Codex Fast on cold resume uses the retained provider and restored model", async () => {
+  const id = "codex-pinned";
+  const file = `rollout-2026-11-26T12-00-00-${id}.jsonl`;
+  await withCodexHome(
+    [{ name: file, payload: { id, cwd: "/wt/x", model_provider: "retained", source: "cli" } }],
+    async () => {
+      const path = join(process.env.CODEX_HOME!, "sessions", file);
+      writeFileSync(
+        path,
+        readFileSync(path, "utf8") +
+          JSON.stringify({
+            type: "event_msg",
+            payload: {
+              type: "thread_settings_applied",
+              thread_id: id,
+              thread_settings: { model_provider_id: "retained", model: "restored" },
+            },
+          }) +
+          "\n",
+      );
+      const store = new SessionStore(":memory:");
+      const s = resumable(store, { agentProvider: "codex", codexSpeed: "fast", effort: "high" });
+      const targets: unknown[] = [];
+      const extra = {
+        codexSpeedBinary: () => "/test/codex",
+        probeCodexFast: async (_binary: string, target: unknown) => {
+          targets.push(target);
+          return { tier: "priority" };
+        },
+      };
+      const args = await resumeArgv(store, s.id, undefined, extra);
+      expect(targets).toEqual([{ cwd: "/wt/x", provider: "retained", model: "restored" }]);
+      expect(args).toContain('service_tier="priority"');
+      expect(args).toContain("model_reasoning_effort=high");
+      expect(store.get(s.id)?.codexSpeedLaunch?.applied).toBe("fast");
+      const modified = await resumeArgv(store, s.id, undefined, {
+        ...extra,
+        runSpawnHooks: async () => ({ env: { CODEX_HOME: "/different" } }),
+      });
+      expect(targets).toHaveLength(1);
+      expect(modified).not.toContain('service_tier="priority"');
+      expect(store.get(s.id)?.codexSpeed).toBe("fast");
+      expect(store.get(s.id)?.codexSpeedLaunch).toMatchObject({
+        applied: "codex",
+        reason: "unknown",
+      });
+      await resumeArgv(store, s.id, undefined, {
+        ...extra,
+        probeCodexFast: async () => {
+          store.setCodexSpeed(s.id, "standard");
+          return { tier: "priority" };
+        },
+      });
+      expect(store.get(s.id)).toMatchObject({
+        codexSpeed: "standard",
+        codexSpeedLaunch: { applied: "fast" },
+      });
+    },
+  );
+});
+
+test("archived Codex speed availability uses the repo cwd and retains the pinned provider", async () => {
+  const id = "codex-archived";
+  const worktreePath = "/wt/removed";
+  await withCodexHome(
+    [
+      {
+        name: `rollout-2026-11-26T12-00-00-${id}.jsonl`,
+        payload: { id, cwd: worktreePath, model_provider: "retained", source: "cli" },
+      },
+    ],
+    async () => {
+      const repoPath = process.cwd();
+      const { store, service } = codexHarness(true, "unknown", undefined, {
+        codexSpeedBinary: () => "/test/codex",
+        codexStandardSupported: (_binary: string, cwd: string) => cwd === repoPath,
+        probeCodexFast: async (_binary: string, target: unknown) => {
+          expect(target).toEqual({ cwd: repoPath, provider: "retained", model: "gpt-6-astra" });
+          return { tier: "priority" };
+        },
+      });
+      const s = archivedWithSession(store, {
+        repoPath,
+        worktreePath,
+        agentProvider: "codex",
+        providerSessionId: id,
+        codexLaunchId: "archived-launch",
+        model: "gpt-6-astra",
+        sandboxApplied: "trusted",
+      });
+      expect(await service.sessionCodexFastAvailability(s)).toEqual({ tier: "priority" });
+      expect(service.codexStandardAvailable(s)).toBe(true);
+    },
+  );
+});
+
+test("new Codex sessions snapshot the Fast default without rewriting existing choices", async () => {
+  const savedDefault = config.defaultCodexSpeed;
+  const cwd = "/wt/repo-codex";
+  const targets: unknown[] = [];
+  const { store, service, calls } = codexHarness(true, "unknown", undefined, {
+    detectBackend: () => "bwrap",
+    codexSpeedBinary: () => "/test/codex",
+    probeCodexFast: async (_binary: string, target: unknown) => {
+      targets.push(target);
+      return { tier: "priority" };
+    },
+  });
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), sandboxProfile: "standard" });
+  const old = resumable(store, { agentProvider: "codex" });
+  try {
+    config.defaultCodexSpeed = "fast";
+    const created = await service.create({
+      prompt: "x",
+      images: [],
+      repoPath: "/r",
+      baseBranch: "main",
+      agentProvider: "codex",
+      model: "gpt-6-astra",
+      effort: "high",
+    });
+    expect(calls.start.argv).toContain('service_tier="priority"');
+    expect(calls.start.argv).toContain("model_reasoning_effort=high");
+    expect(targets).toEqual([{ cwd, provider: undefined, model: "gpt-6-astra" }]);
+    expect(created.codexSpeedLaunch?.applied).toBe("fast");
+    config.defaultCodexSpeed = "codex";
+    expect(store.get(created.id)?.codexSpeed).toBe("fast");
+    expect(store.get(old.id)?.codexSpeed).toBe("codex");
+  } finally {
+    config.defaultCodexSpeed = savedDefault;
+  }
+});

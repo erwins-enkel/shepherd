@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { LimitWindow } from "./usage-limits";
+import type { CodexFastAvailability, CodexSpeedTarget } from "./codex-speed";
 
 export interface CodexResetCredits {
   availableCount: number;
@@ -24,6 +25,23 @@ function record(value: unknown): Record<string, unknown> {
     throw new Error("Invalid Codex account response");
   return value as Record<string, unknown>;
 }
+function fastModeDisabled(config: Record<string, unknown>, policy: Record<string, unknown>) {
+  const features = record(config.features ?? {});
+  const requirements = record(policy.requirements ?? {});
+  const managedFeatures = record(requirements.featureRequirements ?? {});
+  return features.fast_mode === false || managedFeatures.fast_mode === false;
+}
+
+function catalogFastTier(model: Record<string, unknown>): CodexFastAvailability {
+  if (!Array.isArray(model.serviceTiers)) return { reason: "version" };
+  const tier = model.serviceTiers
+    .map(record)
+    .find((entry) => typeof entry.name === "string" && entry.name.toLowerCase() === "fast");
+  return typeof tier?.id === "string" && /^(?:fast|priority)$/.test(tier.id)
+    ? { tier: tier.id }
+    : { reason: "model" };
+}
+
 function number(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
     throw new Error("Invalid Codex account number");
@@ -173,6 +191,48 @@ export class CodexAccountClient {
       this.deps.now?.() ?? Date.now(),
     );
   }
+  async readFastTier(target: CodexSpeedTarget): Promise<CodexFastAvailability> {
+    try {
+      await this.connect();
+      const account = record(await this.request("account/read", { refreshToken: false }));
+      if (!account.account) return { reason: "login" };
+      const config = record(
+        record(await this.request("config/read", { cwd: target.cwd, includeLayers: false })).config,
+      );
+      const policy = record(await this.request("configRequirements/read"));
+      if (fastModeDisabled(config, policy)) return { reason: "disabled" };
+      const provider = target.provider ?? config.model_provider ?? "openai";
+      const model = target.model ?? config.model;
+      if (typeof provider !== "string" || (model != null && typeof model !== "string"))
+        return { reason: "unknown" };
+      return await this.findCatalogFastTier(provider, model);
+    } catch {
+      return { reason: "unknown" };
+    }
+  }
+
+  private async findCatalogFastTier(
+    provider: string,
+    model: string | null | undefined,
+  ): Promise<CodexFastAvailability> {
+    let cursor: string | undefined;
+    const visited = new Set<string>();
+    do {
+      const page = record(await this.request("model/list", { modelProvider: provider, cursor }));
+      if (!Array.isArray(page.data)) return { reason: "unknown" };
+      const row = page.data
+        .map(record)
+        .find((entry) =>
+          model == null ? entry.isDefault === true : entry.model === model || entry.id === model,
+        );
+      if (row) return catalogFastTier(row);
+      cursor = typeof page.nextCursor === "string" ? page.nextCursor : undefined;
+      if (cursor && visited.has(cursor)) return { reason: "unknown" };
+      if (cursor) visited.add(cursor);
+    } while (cursor);
+    return { reason: "model" };
+  }
+
   async consumeReset(params: CodexResetRequest): Promise<CodexResetOutcome> {
     if (!params.idempotencyKey || params.creditId === "")
       throw new Error("Invalid Codex reset request");

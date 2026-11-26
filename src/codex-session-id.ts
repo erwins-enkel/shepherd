@@ -12,6 +12,7 @@ export interface SessionMetaHeader {
   id: string | null;
   cwd: string;
   source: string | null;
+  modelProvider?: string;
 }
 
 /** Generous negative clock-skew allowance when filtering rollout files by mtime against a session's
@@ -205,14 +206,25 @@ export function readSessionMeta(path: string): SessionMetaHeader | null {
   if (!obj || typeof obj !== "object") return null;
   const rec = obj as { type?: unknown; payload?: unknown };
   if (rec.type !== "session_meta" || !rec.payload || typeof rec.payload !== "object") return null;
-  const p = rec.payload as { session_id?: unknown; id?: unknown; cwd?: unknown; source?: unknown };
+  const p = rec.payload as {
+    session_id?: unknown;
+    id?: unknown;
+    cwd?: unknown;
+    source?: unknown;
+    model_provider?: unknown;
+  };
   const cwd = typeof p.cwd === "string" ? p.cwd : null;
   if (!cwd) return null;
   // The thread id identifies the resume target; a session root can be shared by forks.
   const id =
     typeof p.id === "string" ? p.id : typeof p.session_id === "string" ? p.session_id : null;
   const source = typeof p.source === "string" ? p.source : null;
-  return { id, cwd, source };
+  return {
+    id,
+    cwd,
+    source,
+    ...(typeof p.model_provider === "string" ? { modelProvider: p.model_provider } : {}),
+  };
 }
 
 /** Read the first line of a file without loading the whole thing — a rollout grows to many MB, but

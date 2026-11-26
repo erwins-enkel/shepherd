@@ -13,6 +13,7 @@ import { recapSummary } from "./recap-core";
 import { SessionActivityPublisher } from "./activity-publisher";
 import { enablePowerPaneJournal } from "./power-panes";
 import { watchBatteryPauseNotice } from "./battery-pause-notice";
+import { spawn } from "node:child_process";
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
 import { LoginRequestService } from "./login-request";
@@ -559,6 +560,7 @@ if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
 }
+config.defaultCodexSpeed = store.getSetting("defaultCodexSpeed") === "fast" ? "fast" : "codex";
 const savedDcm = store.getSetting("defaultCodexModel");
 config.defaultCodexModel = resolvePersistedDefaultCodexModel(savedDcm, config.defaultCodexModel);
 const savedDe = store.getSetting("defaultEffort");
@@ -1192,6 +1194,16 @@ await agentSecrets.load();
 
 const assistantView = new AssistantViewRegistry();
 const service = new SessionService({
+  probeCodexFast: async (binary, target) => {
+    const client = new CodexAccountClient({
+      spawn: () => spawn(binary, ["app-server", "--stdio"], { cwd: target.cwd, stdio: "pipe" }),
+    });
+    try {
+      return await client.readFastTier(target);
+    } finally {
+      client.close();
+    }
+  },
   capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
   store,
   prepareMembraneState: prepareMembraneClaudeState,

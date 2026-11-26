@@ -1,5 +1,6 @@
 import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import { SvelteMap } from "svelte/reactivity";
+import { doneSessions } from "./done.svelte";
 import { clearDecommissioning } from "./decommissioning.svelte";
 import type {
   TerminalClientInfo,
@@ -592,10 +593,13 @@ export class HerdStore {
    *  array (which would re-run every keyed {#each} row for a one-session
    *  change). Full-array replacement is reserved for events that change the SET
    *  of sessions (session:new / session:archived / setAll). */
-  private patchSession(id: string, patch: Partial<Session>) {
-    // The assistant is not in the herd, but its status/rename/… pushes arrive as the same per-session
-    // events, so it is the one other row this chokepoint patches.
-    const s = this.byId(id) ?? this.assistants.find((a) => a.id === id);
+  private patchSession(id: string, patch: Partial<Session>, includeArchived = false) {
+    // Per-session pushes also address assistants. Codex speed changes can reach an archived
+    // session from its recap, so that event may patch the lazily loaded Done list as well.
+    const s =
+      this.byId(id) ??
+      this.assistants.find((a) => a.id === id) ??
+      (includeArchived ? doneSessions.sessions.find((row) => row.id === id) : undefined);
     // `Object.assign` uses [[Set]], so an own `__proto__` key in a decoded WS payload would set the
     // target's prototype instead of landing as a property. Guarded HERE rather than in the callers
     // because this is the single Object.assign chokepoint — every present and future caller of
@@ -1018,6 +1022,9 @@ export class HerdStore {
    *  switch stays under the complexity gate. Returns true if `ev` was handled. */
   private applySessionCardEvent(ev: WsEvent): boolean {
     switch (ev.event) {
+      case "session:codex-speed":
+        this.patchSession(ev.data.id, ev.data, true);
+        return true;
       case "session:recap":
         recaps.apply(ev.data);
         return true;

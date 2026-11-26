@@ -174,6 +174,8 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
+            case .forbidden: throw ShepherdError.forbidden
+            case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
             case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "patchSettings")
             }
         } catch { throw ShepherdError.from(error, route: "patchSettings") }

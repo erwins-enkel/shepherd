@@ -16,6 +16,21 @@ struct ShepherdClientSettingsTests {
         }
         #expect(try await client(server).patchSettings(body: .init(reducedPushMode:true)).reducedPushMode == true)
     }
+    @Test(.timeLimit(.minutes(1))) func patchSettingsMapsForbiddenAndConflict() async throws {
+        let server = FakeShepherdServer(); defer { server.tearDown() }
+        server.on("PATCH", "/api/settings") { _ in
+            FakeResponse(statusCode: 403, body: Data(#"{"error":"operator_session_required"}"#.utf8))
+        }
+        await #expect(throws: ShepherdError.forbidden) {
+            _ = try await client(server).patchSettings(body: .init(defaultCodexSpeed: .fast))
+        }
+        server.on("PATCH", "/api/settings") { _ in
+            FakeResponse(statusCode: 409, body: Data(#"{"error":"Fast unavailable","code":"model"}"#.utf8))
+        }
+        await #expect(throws: ShepherdError.conflict(code: "model", message: "Fast unavailable")) {
+            _ = try await client(server).patchSettings(body: .init(defaultCodexSpeed: .fast))
+        }
+    }
     @Test func adminUsesCookieWithoutBearerAndAnotherJarCannotSeeIt() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("POST", "/api/login") { request in

@@ -29,6 +29,7 @@ const EVENTS = eventsForStream("actions");
 
 let s: ContractServer;
 let token: string;
+let cookie: string;
 
 /** JSON POST with the bearer. Every route in this block takes a JSON body or none; the ones
  *  that gate on the content-type (reply/rename/amendments/ready) get one unconditionally. */
@@ -56,13 +57,55 @@ async function createSession(prompt: string): Promise<string> {
 beforeAll(async () => {
   await withAuth();
   s = startContractServer();
-  ({ token } = await mintToken(s, await login(s), "actions contract test"));
+  cookie = await login(s);
+  ({ token } = await mintToken(s, cookie, "actions contract test"));
 });
 afterAll(() => {
   try {
     s?.stop();
   } finally {
     restoreAuth();
+  }
+});
+
+test("Codex speed session contract validates local options and writes", async () => {
+  const id = await createSession("Codex speed options");
+  const template = "/api/sessions/{id}/codex-speed";
+  const path = template.replace("{id}", id);
+  const request = async (
+    method: "GET" | "PUT",
+    status: number,
+    headers: Record<string, string>,
+    body?: { speed: string },
+  ) => {
+    const res = await fetch(s.baseUrl + path, {
+      method,
+      headers: { "content-type": "application/json", ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    expect(res.status).toBe(status);
+    return validateResponse(method, template, res);
+  };
+  for (const method of ["GET", "PUT"] as const) {
+    await request(method, 401, {});
+    await request(method, 403, bearer(token));
+    await request(method, 404, { cookie });
+  }
+  s.deps.store.update(id, { agentProvider: "codex" });
+  const original = s.deps.service.codexStandardAvailable;
+  s.deps.service.codexStandardAvailable = () => true;
+  try {
+    expect(await request("GET", 200, { cookie })).toMatchObject({
+      fastUnavailable: "unknown",
+      standardAvailable: true,
+    });
+    await request("PUT", 400, { cookie }, { speed: "invalid" });
+    await request("PUT", 409, { cookie }, { speed: "fast" });
+    expect(await request("PUT", 200, { cookie }, { speed: "standard" })).toMatchObject({
+      codexSpeed: "standard",
+    });
+  } finally {
+    s.deps.service.codexStandardAvailable = original;
   }
 });
 
@@ -367,6 +410,13 @@ describe("actions events", () => {
     const frames = await collectEvents(s, token, async () => {
       await post(`/api/sessions/${id}/amendments`, { text: "Event-driving amendment." });
       s.deps.events.emit("session:recap", { id, recap: recapSummary(fx.recap) });
+      s.deps.store.update(id, { agentProvider: "codex" });
+      const speed = await fetch(`${s.baseUrl}/api/sessions/${id}/codex-speed`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ speed: "standard" }),
+      });
+      expect(speed.status).toBe(200);
     });
     const seen = new Set<string>();
     for (const frame of frames) {

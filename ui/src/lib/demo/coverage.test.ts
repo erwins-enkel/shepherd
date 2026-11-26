@@ -337,6 +337,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/heavy-slot/release",
   ],
 
+  // Speed controls require a locally installed Codex and are absent from demo payloads.
+  "local Codex speed": ["/api/settings/codex-speed", "/api/sessions/:p/codex-speed"],
+
   // Actions on a session that the scripted demo never drives. Each returns `{ok:true}`,
   // which every one of these callers either ignores or reads only for `ok`.
   "session lifecycle actions": [

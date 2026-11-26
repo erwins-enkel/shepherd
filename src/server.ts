@@ -665,6 +665,7 @@ import {
   type CodexAuthMode,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
+import { CODEX_STANDARD_UNAVAILABLE, isCodexSpeed } from "./codex-speed";
 import { isMythosModel, ModelUnavailableError } from "./claude-account-models";
 import {
   normalizeDefaultEffortSetting,
@@ -8247,6 +8248,68 @@ function handleSessionQuotaDismiss({ req, parts, deps }: Ctx): Response | null {
   return json({ ok: true, status: "dismissed" }, 202);
 }
 
+function localCodexTask(s: Session | null): s is Session {
+  return !!s && s.agentProvider === "codex" && !s.operatorAssistant && !s.terminal;
+}
+
+async function handleSessionCodexSpeed(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps, token, agentIngress } = ctx;
+  if (!parts[2] || parts[3] !== "codex-speed" || parts[4]) return null;
+  if (req.method !== "GET" && req.method !== "PUT") return null;
+  const denied = requireOperatorSession(req);
+  if (denied) return denied;
+  if (agentIngress || !tokenSessionAllowed(token, deps, parts[2]))
+    return json({ error: "not found" }, 404);
+  const id = parts[2];
+  const s = deps.store.get(id);
+  if (!localCodexTask(s)) return json({ error: "not found" }, 404);
+  if (req.method === "GET") {
+    const fast = await deps.service.sessionCodexFastAvailability(s);
+    return json(
+      {
+        fastUnavailable: "reason" in fast ? fast.reason : null,
+        standardAvailable: deps.service.codexStandardAvailable(s),
+      },
+      200,
+      NO_STORE,
+    );
+  }
+  return putSessionCodexSpeed(req, deps, s);
+}
+
+async function putSessionCodexSpeed(
+  req: Request,
+  deps: Ctx["deps"],
+  s: Session,
+): Promise<Response> {
+  const { id } = s;
+  const body = (await readJsonBody(req)) as { speed?: unknown } | null;
+  if (!isCodexSpeed(body?.speed)) return json({ error: "invalid Codex speed" }, 400);
+  if (body.speed === "fast") {
+    const fast = await deps.service.sessionCodexFastAvailability(s);
+    if ("reason" in fast) return json({ error: "Fast unavailable", code: fast.reason }, 409);
+    const current = deps.store.get(id);
+    if (
+      !localCodexTask(current) ||
+      current.codexLaunchId !== s.codexLaunchId ||
+      current.model !== s.model
+    )
+      return json({ error: "Codex launch changed", code: "unknown" }, 409);
+  }
+  const current = deps.store.get(id);
+  if (!localCodexTask(current)) return json({ error: "not found" }, 404);
+  if (body.speed === "standard" && deps.service.sessionCodexSpeedSandboxed(current))
+    return json({ error: "Standard unavailable in the sandbox", code: "sandboxed" }, 409);
+  deps.store.setCodexSpeed(id, body.speed);
+  const updated = deps.store.get(id)!;
+  deps.events.emit("session:codex-speed", {
+    id,
+    codexSpeed: updated.codexSpeed,
+    codexStandardBlocked: false,
+  });
+  return json(updated);
+}
+
 // PUT /api/sessions/:id/autopilot — set the per-session opt-in override.
 // Body: { enabled: boolean | null }  (null = inherit the repo default)
 async function handleSessionAutopilot({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -8511,6 +8574,8 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
           { error: e.message, code: e.code, handoff: deps.store.getProviderHandoff?.(id)?.phase },
           409,
         );
+      if (e instanceof SandboxAutoRefused && e.holdReason === CODEX_STANDARD_UNAVAILABLE)
+        return json({ error: e.holdReason, code: e.holdReason }, 409);
       return spawnFailureJson(e, "replace failed");
     }
     deps.events.emit("session:status", session);
@@ -9152,6 +9217,10 @@ async function handleSessionRestore({ req, parts, deps }: Ctx): Promise<Response
     }
     if (!s) {
       if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+      if (deps.store.get(id)?.codexStandardBlocked) {
+        const code = deps.service.resumeRefusalCode(id) ?? CODEX_STANDARD_UNAVAILABLE;
+        return json({ error: code, code }, 409);
+      }
       return json({ error: "could not restore", code: "spawn_refused" }, 409);
     }
     deps.events.emit("session:new", s);
@@ -10094,6 +10163,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionQuotaResume,
     handleSessionQuotaDismiss,
     handleSessionAutopilot,
+    handleSessionCodexSpeed,
     handleSessionAutoMerge,
     handleSessionRelaunch,
     handleSessionReplace,
@@ -11876,6 +11946,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
       defaultCodexModel: resolvedCodexSetting(config.defaultCodexModel, deps),
+      defaultCodexSpeed: config.defaultCodexSpeed,
       defaultEffort: config.defaultEffort,
       // per-engine default effort ("inherit" follows defaultEffort).
       defaultClaudeEffort: config.defaultClaudeEffort,
@@ -11964,7 +12035,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
     // the first matching field. Anything else is a repo-root change. One row per setting.
     if (body && body.repoRoot === undefined) {
       for (const [field, handler] of SETTING_PATCHES) {
-        if (field in body) return handler(body[field], deps);
+        if (field in body) return handler(body[field], deps, req);
       }
     }
     return putRepoRoot(body?.repoRoot, deps);
@@ -11980,14 +12051,14 @@ async function patchSetting(req: Request, deps: Ctx["deps"]): Promise<Response> 
   const field = Object.keys(body)[0]!;
   const handler = SETTING_PATCHES.find(([key]) => key === field)?.[1];
   if (!handler) return json({ error: "unknown setting" }, 400);
-  return handler(body[field], deps);
+  return handler(body[field], deps, req);
 }
 
 // Standalone settings patches: field name → its validating handler. Each handler
 // validates the value, live-updates config, and persists to the store.
 const SETTING_PATCHES: [
   string,
-  (value: unknown, deps: Ctx["deps"]) => Response | Promise<Response>,
+  (value: unknown, deps: Ctx["deps"], req: Request) => Response | Promise<Response>,
 ][] = [
   ["remoteControlAtStartup", putRemoteControl],
   ["reducedPushMode", putReducedPushMode],
@@ -11998,6 +12069,7 @@ const SETTING_PATCHES: [
   ["warmRepoDays", putWarmRepoDays],
   ["defaultModel", putDefaultModel],
   ["defaultCodexModel", putDefaultCodexModel],
+  ["defaultCodexSpeed", putDefaultCodexSpeed],
   ["defaultEffort", putDefaultEffort],
   ["defaultExecutionEffort", putDefaultExecutionEffort],
   ["defaultClaudeEffort", makeEngineEffortPatch("claude")],
@@ -12229,6 +12301,46 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
+}
+
+function defaultCodexFastAvailability(deps: Ctx["deps"]) {
+  // resolveCreateLaunch forces fresh Codex tasks to trusted, regardless of the repo default.
+  const model = resolvedCodexSetting(config.defaultCodexModel, deps);
+  return deps.service.codexFastAvailability(config.repoRoot, model === "default" ? null : model);
+}
+
+async function handleDefaultCodexSpeed({ req, parts, deps, agentIngress }: Ctx) {
+  if (
+    req.method !== "GET" ||
+    parts[0] !== "api" ||
+    parts[1] !== "settings" ||
+    parts[2] !== "codex-speed" ||
+    parts[3] ||
+    agentIngress
+  )
+    return null;
+  const denied = requireOperatorSession(req);
+  if (denied) return denied;
+  const fast = await defaultCodexFastAvailability(deps);
+  return json({ fastUnavailable: "reason" in fast ? fast.reason : null }, 200, NO_STORE);
+}
+
+async function putDefaultCodexSpeed(
+  value: unknown,
+  deps: Ctx["deps"],
+  req: Request,
+): Promise<Response> {
+  const denied = requireOperatorSession(req);
+  if (denied) return denied;
+  if (value !== "codex" && value !== "fast")
+    return json({ error: "invalid Codex default speed" }, 400);
+  if (value === "fast") {
+    const fast = await defaultCodexFastAvailability(deps);
+    if ("reason" in fast) return json({ error: "Fast unavailable", code: fast.reason }, 409);
+  }
+  config.defaultCodexSpeed = value;
+  deps.store.setSetting("defaultCodexSpeed", value);
+  return json({ defaultCodexSpeed: value });
 }
 
 function putDefaultCodexModel(value: unknown, deps: Ctx["deps"]): Response {
@@ -16094,6 +16206,7 @@ const ROUTE_HANDLERS = [
   handleGithubAccess,
   handleGitCredentials,
   handleSettingsVerifyKey,
+  handleDefaultCodexSpeed,
   handleSettings,
   handleHouseStackResolve,
   handleSettingsSource,

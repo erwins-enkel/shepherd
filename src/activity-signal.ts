@@ -4,6 +4,7 @@ import {
   readTranscriptTail,
   type ActivityEntry,
 } from "./activity";
+import type { CodexSpeedObservation } from "./codex-speed";
 import { claudeCiPolling, type CiPolling } from "./ci-polling";
 import { eachJsonlObject } from "./jsonl";
 import { snapshotFrom, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
@@ -24,12 +25,16 @@ export interface SessionActivity {
   runtimeModel?: string;
   /** Concrete reasoning-effort tier reported by the provider transcript, when available. */
   runtimeEffort?: string;
+  codexSpeedObserved?: CodexSpeedObservation;
   /** The agent is polling CI itself (#2863): its trailing tool calls only sleep and read CI.
    *  Absent when it is not. */
   ciPolling?: CiPolling;
 }
 
-export type RuntimeIdentity = Pick<SessionActivity, "runtimeModel" | "runtimeEffort">;
+export type RuntimeIdentity = Pick<
+  SessionActivity,
+  "runtimeModel" | "runtimeEffort" | "codexSpeedObserved"
+>;
 
 /**
  * Tools that represent internal bookkeeping rather than observable agent work.

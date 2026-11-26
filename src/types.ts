@@ -1,3 +1,4 @@
+import type { CodexSpeed, CodexSpeedLaunch, CodexSpeedObservation } from "./codex-speed";
 import type { HerdrRuntimeStatus } from "./herdr-runtime";
 import type { SandboxProfile } from "./sandbox";
 import type { GhGrant } from "./agent-gh-env";
@@ -107,6 +108,10 @@ export interface Session {
    *  `runtimeEffort` stays null for Claude sessions: Claude transcripts don't record one. */
   runtimeModel?: string | null;
   runtimeEffort?: string | null;
+  codexSpeed?: CodexSpeed;
+  codexSpeedLaunch?: CodexSpeedLaunch | null;
+  codexSpeedObserved?: CodexSpeedObservation | null;
+  codexStandardBlocked?: boolean;
   /** COLD-RESUME reading (#2042) — what the next turn into this session will cost, measured by the
    *  poller from the transcript at the moment the session PARKED, and cleared again the moment it
    *  resumes. All three move together; null means there is no current park to price (running,

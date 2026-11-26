@@ -3535,6 +3535,8 @@
         else if (e.code === "branch_gone") fail(m.restore_branch_gone());
         else if (e.code === "branch_in_use") fail(m.restore_branch_in_use());
         else if (e.code === "not_archived") fail(m.restore_not_archived());
+        else if (e.code === "codex-standard-sandboxed") fail(m.codex_speed_sandboxed());
+        else if (e.code === "codex-standard-unavailable") fail(m.codex_speed_standard_refused());
         else if (e.code === "in_progress") fail(m.restore_in_progress());
         else fail(m.restore_failed());
       } else {

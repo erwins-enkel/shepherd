@@ -608,9 +608,14 @@ memory and swap until the host stalled.
    - If a slot is free, the command runs as usual.
    - If not, what happens depends on **When waiting** in Settings → Resources.
      By default the command does **not** run: the agent gets its place in line
-     and an estimated wait (exit code 75), plus what holds the slot and for how
-     long. It keeps working, and Shepherd messages it when it's its turn. The
-     slot is then held for it for five minutes.
+     and an estimated wait (exit code 75), plus which sessions hold the slot,
+     with their commands and for how long. Nothing runs by itself later: the
+     agent keeps working, Shepherd messages it when it's its turn, and the
+     agent then reruns the command. The slot is held for it for five minutes.
+   - The whole command line counts as one check. If any part of it is heavy,
+     none of it runs, not even the light parts before it, and the message says
+     so.
+   - The strip and host popover show a waiting check as **Not run yet**.
    - Shepherd passes over a waiting session that has a prompt on screen, since
      its message would land in the prompt. The next session in line gets the
      slot; the skipped one keeps its place and gets the next free slot once the

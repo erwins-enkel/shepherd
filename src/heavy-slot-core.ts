@@ -10,6 +10,8 @@
 // binden"). FIFO, no barging: a free slot goes to the queue head as an offer, never to a newcomer.
 // The one exception: a session with a prompt on screen is passed over, keeping its place (#3631).
 
+import { segments } from "../scripts/tool-guard.mjs";
+
 export type HeavyJobState = "queued" | "offered" | "running" | "lingering" | "done" | "dropped";
 /** Why a job ended without running to completion. `unverified`: a running job nothing has vouched
  *  for during {@link UNVERIFIED_HOLD_MAX_MS} (its runner never reported an exit). */
@@ -560,23 +562,87 @@ function age(ms: number): string {
   return ms < 60 * 60_000 ? minutes(ms) : `~${Math.floor(ms / (60 * 60_000))} h`;
 }
 
-type HolderLine = Pick<HeavyJob, "state" | "startedAt" | "finishedAt">;
+/** A holder as the queued message names it: `label` is who (a session, "this session", the
+ *  operator's terminal), null when unknown. */
+type HolderLine = Pick<HeavyJob, "state" | "startedAt" | "finishedAt" | "command"> & {
+  label?: string | null;
+};
 
-/** Who holds the slot, so a long wait reads as a cause and not as a stall (#3631). */
+/** Longest holder command the queued message quotes. */
+const HOLDER_COMMAND_MAX = 80;
+
+function shortCommand(command: string): string {
+  const flat = normalizeCommand(command);
+  return flat.length > HOLDER_COMMAND_MAX ? `${flat.slice(0, HOLDER_COMMAND_MAX - 1)}…` : flat;
+}
+
+/** One holder: named with its command when known, else the anonymous phrasing (#3631). */
+function holderLine(h: HolderLine, now: number): string {
+  const cmd = `\`${shortCommand(h.command)}\``;
+  if (h.state === "offered")
+    return h.label
+      ? `${h.label}, just offered the slot`
+      : "a session ahead of you that was just offered the slot";
+  if (h.state === "lingering") {
+    const ago = age(now - (h.finishedAt ?? now));
+    return h.label
+      ? `${h.label}: leftover processes of ${cmd}, finished ${ago} ago`
+      : `leftover processes of a check that finished ${ago} ago`;
+  }
+  const ran = age(now - (h.startedAt ?? now));
+  return h.label ? `${h.label}: ${cmd}, running ${ran}` : `a check running for ${ran}`;
+}
+
+/** Who holds the slot, so a long wait reads as a cause and not as a stall (#3631, #3626). */
 function heldBy(holders: readonly HolderLine[], now: number): string {
-  const items = holders.map((h) => {
-    if (h.state === "lingering")
-      return `leftover processes of a check that finished ${age(now - (h.finishedAt ?? now))} ago`;
-    if (h.state === "offered") return "a session ahead of you that was just offered the slot";
-    return `a check running for ${age(now - (h.startedAt ?? now))}`;
-  });
+  const items = holders.map((h) => holderLine(h, now));
   return items.length > 0 ? ` Held by: ${items.join("; ")}.` : "";
 }
 
+const FD_REDIRECT = /\d*[<>]&(?:\d+-?|-)|&>>?/g;
+
+/**
+ * True when `command` runs more than one command (`a && b`, `a | b`, `a; b`, several lines).
+ * Pass the RAW command: {@link normalizeCommand} flattens the newlines heredocs depend on. An
+ * ambiguous line (unterminated quote or heredoc) counts as one command.
+ */
+export function isCompoundCommand(command: string): boolean {
+  // `2>&1`, `>&2`, `&>log` are redirections, not the `&` separator the splitter cuts at.
+  return segments(command.replace(FD_REDIRECT, " > ")).length > 1;
+}
+
+/** The queued message's place line, and what to do next: an agent is steered when it's its turn;
+ *  an operator terminal (`shepherd slot run`) is not queued at all (#3550). */
+function placeAndNext(
+  out: { position: number; total: number; repeat: boolean; operator?: boolean },
+  rest: string,
+): [string, string] {
+  const place = `place ${out.position} of ${out.total}`;
+  if (out.operator)
+    return [
+      `Not queued (a terminal can't be messaged): ${place}, ${rest}`,
+      "Re-run the command to try again.",
+    ];
+  return [
+    `Nothing runs by itself: you ${out.repeat ? "still " : ""}hold ${place} in the heavy-check ` +
+      `queue, ${rest}`,
+    "Do not retry, poll, or skip this check. Continue with other work, or end your turn if nothing " +
+      "else is left. Shepherd will message you when the slot is yours; then rerun the command " +
+      "yourself.",
+  ];
+}
+
+/** Said when a compound command was held back: its light parts did not run either (#3626). */
+const COMPOUND_NOTE =
+  "None of this command ran, not even its non-heavy parts. Run the ones you need on their own " +
+  "now; when it's your turn, rerun just the heavy check (with any `cd` it depends on).";
+
 /**
  * What the runner prints when the check did NOT run. Typed into the agent's tool result, so fixed
- * English (the same precedent as ciFinishedSteer). It has to stop the three failure modes a refusal
- * invites: polling, reading exit 75 as a test failure, and skipping the check altogether.
+ * English (the same precedent as ciFinishedSteer). It has to stop the failure modes a refusal
+ * invites: polling, reading exit 75 as a test failure, skipping the check altogether, reading the
+ * queue place as "will run by itself", and missing that a compound command's other parts were
+ * skipped too (#3626).
  */
 export function queuedMessage(
   command: string,
@@ -589,18 +655,22 @@ export function queuedMessage(
     /** The jobs holding a slot right now. */
     holders: readonly HolderLine[];
     now: number;
+    /** The command line runs more than one command ({@link isCompoundCommand}). */
+    compound?: boolean;
+    /** `shepherd slot run` from an operator terminal: answered, not queued. */
+    operator?: boolean;
   },
 ): string {
   const wait = out.etaMs === null ? "wait unknown" : `estimated wait ${minutes(out.etaMs)}`;
   const pressure =
     out.reason === "pressure" ? " The host is under memory pressure; starts are on hold." : "";
+  const [place, next] = placeAndNext(out, `${wait}.${heldBy(out.holders, out.now)}${pressure}`);
   return [
     `Shepherd: NOT RUN. \`${command}\` is a heavy check (tests, type checks, builds), and this host ` +
       "runs those one at a time so it stays responsive.",
-    `${out.repeat ? "Still queued" : "Queued"} for the heavy-check slot: place ${out.position} of ` +
-      `${out.total}, ${wait}.${heldBy(out.holders, out.now)}${pressure}`,
-    "Do not retry, poll, or skip this check. Continue with other work, or end your turn if nothing " +
-      "else is left. Shepherd will message you when the slot is yours; then rerun this exact command.",
+    ...(out.compound ? [COMPOUND_NOTE] : []),
+    place,
+    next,
   ].join("\n");
 }
 
@@ -617,11 +687,14 @@ export function heavyOomMessage(limitBytes: number): string {
   );
 }
 
-/** The steer that hands the queue head its slot. Fixed English, typed into the PTY. */
-export function offerSteer(job: HeavyJob, ttlMs = OFFER_TTL_MS): string {
+/** The steer that hands the queue head its slot. Fixed English, typed into the PTY. `compound`:
+ *  the queued command line ran more than one command ({@link isCompoundCommand} of the RAW
+ *  command — `job.command` is normalized and can't tell). */
+export function offerSteer(job: HeavyJob, compound = false, ttlMs = OFFER_TTL_MS): string {
+  const part = compound ? "; just its heavy part if you already ran the rest" : "";
   return (
     `Shepherd: the heavy-check slot is free for you now. Rerun the check you queued ` +
-    `(\`${job.command}\`) within ${Math.round(ttlMs / 60_000)} minutes — Shepherd routes it ` +
+    `(\`${job.command}\`${part}) within ${Math.round(ttlMs / 60_000)} minutes — Shepherd routes it ` +
     "through the slot automatically. After that the slot passes to the next session."
   );
 }

@@ -481,8 +481,8 @@
 "heavyslot_source_agents" = "Shepherd-Agenten";
 "heavyslot_source_foreign" = "Fremdlast";
 "heavyslot_strip_brake" = "Bremse aktiv: Speicherdruck hält neue Starts zurück";
-"heavyslot_strip_wait" = "Wartet · Platz %1$@";
-"heavyslot_strip_wait_pressure" = "Wartet · Speicherdruck · Platz %1$@";
+"heavyslot_strip_wait" = "Noch nicht gelaufen · wartet · Platz %1$@";
+"heavyslot_strip_wait_pressure" = "Noch nicht gelaufen · Speicherdruck · Platz %1$@";
 "heavyslot_swap_row" = "Swap";
 "heavyslot_unknown_session" = "Unbekannte Session";
 "herd_all_title" = "Alle Sitzungen im Herd anzeigen";

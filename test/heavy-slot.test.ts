@@ -57,7 +57,14 @@ afterEach(() => {
 function harness(over: Partial<HeavySlotDeps> = {}, store = new SessionStore(":memory:")): Harness {
   const sessions = new Map<string, Partial<Session>>();
   for (const id of ["s1", "s2", "s3"])
-    sessions.set(id, { id, status: "running", repoPath: "/repo", worktreePath: `/wt/${id}` });
+    sessions.set(id, {
+      id,
+      desig: `TASK-${id.slice(1)}`,
+      name: `fix ${id}`,
+      status: "running",
+      repoPath: "/repo",
+      worktreePath: `/wt/${id}`,
+    });
   const h = {
     store,
     sessions,
@@ -103,6 +110,52 @@ async function advance(h: Harness, ms: number) {
 }
 
 describe("HeavySlotService", () => {
+  test("a queued compound command says its other parts did not run; holders are named (#3626)", async () => {
+    const h = harness();
+    await h.svc.start();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    const raw = "python3 - <<'EOF'\nopen('f', 'a').write('x')\nEOF\nbun run check";
+    const b = await h.svc.acquire("s2", raw, "/wt/s2");
+    const message = b?.decision === "queued" ? b.message : "";
+    expect(message).toContain("not even its non-heavy parts");
+    expect(message).toContain("Nothing runs by itself: you hold place 1 of 1");
+    expect(message).toContain("Held by: TASK-1 (fix s1): `bun run test`");
+    h.sessions.set("s1", { ...h.sessions.get("s1"), name: "  multi\n line   name  " });
+    const again = await h.svc.acquire("s2", "bun run check", "/wt/s2");
+    const second = again?.decision === "queued" ? again.message : "";
+    expect(second).not.toContain("non-heavy parts");
+    expect(second).toContain("you still hold place 1 of 1");
+    expect(second).toContain("Held by: TASK-1 (multi line name): `bun run test`");
+  });
+
+  test("the offer steer for a multi-line or heredoc command says to rerun only the heavy part (#3626)", async () => {
+    const h = harness();
+    await h.svc.start();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    const raw = "python3 - <<'EOF'\nopen('f', 'a').write('x')\nEOF\nbun run check";
+    await h.svc.acquire("s2", raw, "/wt/s2");
+    await h.svc.acquire("s3", "bun run test\nbun run check", "/wt/s3");
+    await h.svc.finish("s1", "j1", 0);
+    expect(h.steers.map(([id]) => id)).toEqual(["s2"]);
+    expect(h.steers[0]![1]).toContain("; just its heavy part if you already ran the rest) within");
+    expect(await h.svc.acquire("s2", "bun run check", "/wt/s2")).toEqual({
+      decision: "run",
+      jobId: "j2",
+    });
+    await h.svc.finish("s2", "j2", 0);
+    expect(h.steers.map(([id]) => id)).toEqual(["s2", "s3"]);
+    expect(h.steers[1]![1]).toContain("just its heavy part");
+
+    // A single command queued after a compound one from the same session drops the hint.
+    const h2 = harness();
+    await h2.svc.start();
+    await h2.svc.acquire("s1", "bun run test", "/wt/s1");
+    await h2.svc.acquire("s2", "cd ui && bun run check", "/wt/s2");
+    await h2.svc.acquire("s2", "bun run check", "/wt/s2");
+    await h2.svc.finish("s1", "j1", 0);
+    expect(h2.steers[0]![1]).not.toContain("heavy part");
+  });
+
   test("two sessions at once: one runs, the other gets place and a NOT RUN message", async () => {
     const h = harness();
     await h.svc.start();
@@ -117,7 +170,9 @@ describe("HeavySlotService", () => {
       etaMs: null,
     });
     expect(b && "message" in b && b.message).toContain("NOT RUN");
-    expect(b && "message" in b && b.message).toContain("Held by: a check running for ~1 min.");
+    expect(b && "message" in b && b.message).toContain(
+      "Held by: TASK-1 (fix s1): `bun run test`, running ~1 min.",
+    );
     expect(h.svc.waiting("s2")).toBe(true);
     expect(h.emitted.at(-1)).toMatchObject({
       holders: [{ sessionId: "s1" }],
@@ -732,6 +787,10 @@ describe("operator holder (shepherd slot run, #3550)", () => {
     await h.svc.acquire("s1", "bun run test", "/wt/s1");
     const out = await h.svc.acquireOperator("cargo clippy", "/repo");
     expect(out).toMatchObject({ decision: "queued", position: 1 });
+    const message = out.decision === "queued" ? out.message : "";
+    expect(message).toContain("Not queued (a terminal can't be messaged): place 1 of 1");
+    expect(message).toContain("Held by: TASK-1 (fix s1): `bun run test`");
+    expect(message).not.toContain("will message you");
     expect(h.svc.snapshot().waiters).toEqual([]);
     expect(h.store.listHeavySlotJobs(["dropped"])).toMatchObject([
       { sessionId: "operator", dropReason: "released" },

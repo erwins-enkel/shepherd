@@ -12,6 +12,7 @@ import {
   heavyEtaKey,
   nextBrake,
   normalizeCommand,
+  isCompoundCommand,
   offerSteer,
   queuedMessage,
   type HeavyJob,
@@ -453,7 +454,7 @@ describe("estimateWaits", () => {
 });
 
 describe("text and keys", () => {
-  test("the queued message says NOT RUN, place, wait and what to do", () => {
+  test("the queued message says NOT RUN, place, wait and that the agent reruns it (#3626)", () => {
     const text = queuedMessage("bun run test", {
       position: 2,
       total: 3,
@@ -464,9 +465,13 @@ describe("text and keys", () => {
       now: 0,
     });
     expect(text).toContain("NOT RUN");
-    expect(text).toContain("place 2 of 3, estimated wait ~4 min");
+    expect(text).toContain(
+      "Nothing runs by itself: you hold place 2 of 3 in the heavy-check queue, estimated wait ~4 min",
+    );
     expect(text).toContain("memory pressure");
     expect(text).toContain("Do not retry, poll, or skip this check");
+    expect(text).toContain("then rerun the command yourself.");
+    expect(text).not.toContain("non-heavy parts");
     expect(
       queuedMessage("x", {
         position: 1,
@@ -477,7 +482,43 @@ describe("text and keys", () => {
         holders: [],
         now: 0,
       }),
-    ).toContain("Still queued for the heavy-check slot: place 1 of 1, wait unknown.\nDo not");
+    ).toContain("you still hold place 1 of 1 in the heavy-check queue, wait unknown.\nDo not");
+  });
+
+  test("a compound command's message says its light parts did not run either (#3626)", () => {
+    const text = queuedMessage("python3 edit.py && bun run check", {
+      position: 1,
+      total: 1,
+      etaMs: null,
+      reason: "slot",
+      repeat: false,
+      holders: [],
+      now: 0,
+      compound: true,
+    });
+    expect(text.split("\n")[1]).toBe(
+      "None of this command ran, not even its non-heavy parts. Run the ones you need on their own " +
+        "now; when it's your turn, rerun just the heavy check (with any `cd` it depends on).",
+    );
+  });
+
+  test("an operator terminal is told it is not queued and to re-run (#3626)", () => {
+    const text = queuedMessage("bun run test", {
+      position: 1,
+      total: 1,
+      etaMs: null,
+      reason: "slot",
+      repeat: false,
+      holders: [],
+      now: 0,
+      operator: true,
+    });
+    expect(text).toContain(
+      "Not queued (a terminal can't be messaged): place 1 of 1, wait unknown.",
+    );
+    expect(text).toContain("Re-run the command to try again.");
+    expect(text).not.toContain("will message you");
+    expect(text).not.toContain("Nothing runs by itself");
   });
 
   test("the queued message says who holds the slot and for how long (#3631)", () => {
@@ -492,26 +533,90 @@ describe("text and keys", () => {
         holders,
         now,
       });
-    expect(text([{ state: "running", startedAt: now - 4 * 60_000, finishedAt: null }])).toContain(
-      "wait unknown. Held by: a check running for ~4 min.",
-    );
+    const cmd = "bun run test";
     expect(
-      text([{ state: "lingering", startedAt: 0, finishedAt: now - 11.5 * 60 * 60_000 }]),
+      text([{ state: "running", startedAt: now - 4 * 60_000, finishedAt: null, command: cmd }]),
+    ).toContain("wait unknown. Held by: a check running for ~4 min.");
+    expect(
+      text([
+        { state: "lingering", startedAt: 0, finishedAt: now - 11.5 * 60 * 60_000, command: cmd },
+      ]),
     ).toContain("Held by: leftover processes of a check that finished ~11 h ago.");
     expect(
       text([
-        { state: "offered", startedAt: null, finishedAt: null },
-        { state: "running", startedAt: now - 10_000, finishedAt: null },
+        { state: "offered", startedAt: null, finishedAt: null, command: cmd },
+        { state: "running", startedAt: now - 10_000, finishedAt: null, command: cmd },
       ]),
     ).toContain(
       "Held by: a session ahead of you that was just offered the slot; a check running for ~1 min.",
     );
   });
 
+  test("named holders show who and which command (#3626)", () => {
+    const now = 12 * 60 * 60_000;
+    const text = queuedMessage("x", {
+      position: 1,
+      total: 1,
+      etaMs: null,
+      reason: "slot",
+      repeat: false,
+      now,
+      holders: [
+        {
+          state: "running",
+          startedAt: now - 4 * 60_000,
+          finishedAt: null,
+          command: "bun run test",
+          label: "TASK-103 (shepherd fix)",
+        },
+        {
+          state: "lingering",
+          startedAt: 0,
+          finishedAt: now - 2 * 60_000,
+          command: `bun run ${"a".repeat(200)}`,
+          label: "this session",
+        },
+        {
+          state: "offered",
+          startedAt: null,
+          finishedAt: null,
+          command: "cargo test",
+          label: "TASK-9 (x)",
+        },
+      ],
+    });
+    expect(text).toContain(
+      "Held by: TASK-103 (shepherd fix): `bun run test`, running ~4 min; this session: leftover " +
+        `processes of \`bun run ${"a".repeat(71)}…\`, finished ~2 min ago; TASK-9 (x), just ` +
+        "offered the slot.",
+    );
+  });
+
+  test("isCompoundCommand: more than one command position, quote- and heredoc-aware", () => {
+    expect(isCompoundCommand("bun run check")).toBe(false);
+    expect(isCompoundCommand("cd ui && bun run check")).toBe(true);
+    expect(isCompoundCommand("bun run test | tail -5")).toBe(true);
+    expect(isCompoundCommand("bunx prettier --write a; bun run check")).toBe(true);
+    expect(isCompoundCommand("bun run test\nbun run check")).toBe(true);
+    expect(isCompoundCommand('bun run test -t "a && b"')).toBe(false);
+    expect(isCompoundCommand("cat > f <<'EOF'\na; b && c\nEOF")).toBe(false);
+    expect(isCompoundCommand("python3 - <<'EOF'\nx = 1\nEOF\nbun run check")).toBe(true);
+    expect(isCompoundCommand('bun run test -t "open')).toBe(false);
+    expect(isCompoundCommand("bun run test 2>&1")).toBe(false);
+    expect(isCompoundCommand("bun run test &> log.txt")).toBe(false);
+    expect(isCompoundCommand("bun run test >&2")).toBe(false);
+    expect(isCompoundCommand("bun run test 2>&1 | tail -5")).toBe(true);
+    expect(isCompoundCommand("bun run test &")).toBe(false);
+  });
+
   test("the offer steer names the command and the deadline", () => {
     const text = offerSteer({ command: "cargo clippy" } as HeavyJob);
     expect(text).toContain("`cargo clippy`");
     expect(text).toContain("within 5 minutes");
+    expect(text).not.toContain("heavy part");
+    expect(offerSteer({ command: "cd cli && cargo clippy" } as HeavyJob, true)).toContain(
+      "(`cd cli && cargo clippy`; just its heavy part if you already ran the rest) within",
+    );
   });
 
   test("eta key: repo, cwd relative to the worktree, normalized command", () => {

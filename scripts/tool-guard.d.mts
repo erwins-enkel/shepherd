@@ -50,6 +50,10 @@ export function installTmpfsReason(path: string): string;
  *  the path — Shepherd points agents' `TMPDIR` at a DISK-backed dir on purpose (#1875). */
 export function isTmpfsPath(path: string, statfs?: (p: string) => { type: number }): boolean;
 
+/** The command positions of a command line, split outside quotes with heredoc bodies skipped;
+ *  [] for an ambiguous line (unterminated quote or heredoc). */
+export function segments(command: string): string[];
+
 /** Injectable environment for the rules. `isTmpfs` defaults to {@link isTmpfsPath}; the run and
  *  branch lookups (consulted only by a literal-id `gh run watch`) default to one `gh` / `git` call
  *  each and return null on any failure. */

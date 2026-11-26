@@ -315,6 +315,69 @@ test("repo boundary: live events filter foreign payloads and disconnect on a cha
   }
 });
 
+test("scope: read and submit sockets get status events without review, plan, draft, amendment or recap bodies", async () => {
+  const server = serve(deps, 0);
+  const id = sessions[0]!.id;
+  const sockets = (["read", "submit", "full"] as const).map((scope) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/events`, {
+      headers: { Authorization: `Bearer ${mint(scope, null).token}` },
+    } as never);
+    const messages: { event: string; data: unknown }[] = [];
+    const delivered = new Promise<void>((resolve) =>
+      ws.addEventListener("message", (event) => {
+        const message = JSON.parse(String(event.data));
+        messages.push(message);
+        if (message.data?.marker === "last") resolve();
+      }),
+    );
+    return { scope, ws, messages, delivered };
+  });
+  const gate = {
+    approved: true,
+    plan: "PLAN-TEXT",
+    body: "GATE-BODY",
+    findings: ["GATE-FINDING"],
+    summary: "GATE-SUMMARY",
+  };
+  const sensitive: [string, unknown][] = [
+    [
+      "session:review",
+      {
+        id,
+        review: { body: "REVIEW-BODY", findings: ["F"], findingsMeta: [{ text: "META" }] },
+      },
+    ],
+    ["session:plangate", { id, gate }],
+    ["session:epic-draft", { sessionId: id, id, children: [{ body: "DRAFT-BODY" }] }],
+    ["session:amendments", { id, amendments: [{ text: "AMENDMENT-TEXT" }] }],
+    ["session:recap", { id, recap: { headline: "RECAP-HEADLINE" } }],
+    ["herdr-update:log", { line: "UPDATE-LOG" }],
+  ];
+  try {
+    await Promise.all(sockets.map(({ ws }) => socketEvent(ws, "open")));
+    for (const [event, data] of sensitive) deps.events.emit(event, data);
+    deps.events.emit("session:status", { id, status: "idle", marker: "last" });
+    await Promise.all(sockets.map(({ delivered }) => delivered));
+    for (const { scope, messages } of sockets) {
+      const received = messages.filter((m) => m.event !== "terminal:owners");
+      if (scope === "full") {
+        expect(received).toEqual([
+          ...sensitive.map(([event, data]) => ({ event, data })),
+          { event: "session:status", data: { id, status: "idle", marker: "last" } },
+        ]);
+        continue;
+      }
+      expect(received).toEqual([
+        { event: "session:plangate", data: { id, gate: { approved: true } } },
+        { event: "session:status", data: { id, status: "idle", marker: "last" } },
+      ]);
+    }
+  } finally {
+    for (const { ws } of sockets) ws.close();
+    server.stop(true);
+  }
+});
+
 test("repo boundary: formerly unrestricted sockets close on restriction and revoked sockets close", async () => {
   const server = serve(deps, 0);
   try {

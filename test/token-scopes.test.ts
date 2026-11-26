@@ -4,6 +4,7 @@ import {
   TOKEN_SCOPES,
   isTokenScope,
   scopeAllows,
+  scopeEventData,
   type TokenScope,
 } from "../src/token-scopes";
 
@@ -209,4 +210,81 @@ test("isTokenScope accepts exactly the three levels", () => {
 test("the mint default is full — the pre-#2083 behaviour a scope-less request keeps", () => {
   expect(DEFAULT_TOKEN_SCOPE).toBe("full");
   expect(isTokenScope(DEFAULT_TOKEN_SCOPE)).toBe(true);
+});
+
+// ── /events delivery per scope ──────────────────────────────────────────────────────────────────
+
+const gate = {
+  sessionId: "s1",
+  decision: "approve",
+  summary: "looks fine",
+  body: "full reviewer write-up",
+  findings: ["tighten step 3"],
+  plan: "# the plan text",
+  blocks: [{ type: "rich-text", id: "b1", markdown: "plan block" }],
+  round: 1,
+  cap: 3,
+  approved: true,
+  reviewerModel: "opus",
+};
+const BODY_EVENTS: readonly [string, unknown][] = [
+  ["session:review", { id: "s1", review: { body: "findings prose", findings: ["fix x"] } }],
+  ["session:epic-draft", { id: "s1", children: [{ title: "child", body: "draft body" }] }],
+  ["session:amendments", { id: "s1", amendments: [{ text: "operator note" }] }],
+  ["session:recap", { id: "s1", recap: { headline: "recap headline" } }],
+  ["session:block", { id: "s1", block: { tail: ["terminal line"] } }],
+  ["session:activity", { id: "s1", activity: { label: "Editing" } }],
+  ["herdr-update:log", { line: "update output" }],
+  ["codex-update:log", { line: "update output" }],
+  ["usage:limits", { session5h: { pct: 10 } }],
+  ["some-future:event", { id: "s1" }],
+];
+
+test("events: full receives every payload untouched", () => {
+  for (const [event, data] of [...BODY_EVENTS, ["session:plangate", { id: "s1", gate }]] as const)
+    expect(scopeEventData("full", event, data)).toBe(data);
+});
+
+test("events: read and submit never receive verdict, plan, draft, amendment, recap or log bodies", () => {
+  for (const scope of ["read", "submit"] as const)
+    for (const [event, data] of BODY_EVENTS)
+      expect(`${scope} ${event} → ${scopeEventData(scope, event, data) === undefined}`).toBe(
+        `${scope} ${event} → true`,
+      );
+});
+
+test("events: read and submit receive status events verbatim", () => {
+  const status = [
+    ["session:status", { id: "s1", status: "idle" }],
+    ["session:hold", { id: "s1", hold: { code: "ci-red", params: { pr: 4 } } }],
+    ["session:git", { id: "s1", git: { pr: { number: 4 } } }],
+    ["session:reviewing", { id: "s1", reviewing: true, env: { model: "opus" } }],
+    ["session:archived", { id: "s1" }],
+    ["held:changed", { count: 2 }],
+  ] as const;
+  for (const scope of ["read", "submit"] as const)
+    for (const [event, data] of status) expect(scopeEventData(scope, event, data)).toBe(data);
+});
+
+test("events: read and submit see only whether a plan is approved", () => {
+  for (const scope of ["read", "submit"] as const) {
+    expect(scopeEventData(scope, "session:plangate", { id: "s1", gate })).toEqual({
+      id: "s1",
+      gate: { approved: true },
+    });
+    expect(scopeEventData(scope, "session:plangate", { id: "s1", planPhase: "executing" })).toEqual(
+      { id: "s1", planPhase: "executing" },
+    );
+    expect(scopeEventData(scope, "session:plangate", { id: "s1", gate: null })).toEqual({
+      id: "s1",
+      gate: null,
+    });
+  }
+});
+
+test("events: an unrecognized stored scope receives nothing", () => {
+  for (const scope of ["", "wat", "READ", "admin"]) {
+    expect(scopeEventData(scope, "session:status", { id: "s1", status: "idle" })).toBeUndefined();
+    expect(scopeEventData(scope, "session:plangate", { id: "s1", gate })).toBeUndefined();
+  }
 });

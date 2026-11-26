@@ -32,6 +32,7 @@ import {
   type DrainRepoState,
   type HoldReason,
   type RunSummary,
+  type StandalonePool,
 } from "./drain-core";
 import { bootstrapMissing } from "./bootstrap";
 import { assembleEpic, withIntegrationFacts, withRetiredPrs } from "./epic-model";
@@ -1714,6 +1715,7 @@ export class DrainService {
           codeReviewGate: codeReviewGate(cfg, snapshot[s.id]?.claudeShip),
           fullAuto: isFullAuto(s, cfg),
           epicParent: sessionEpicParent(s),
+          incrementalEpicParent: s.incrementalEpicParent ?? null,
           landingRepair: !!s.landingRepair,
           misrouted: !!s.misroutedTarget,
           shelved: !!s.shelved,
@@ -1779,6 +1781,8 @@ export class DrainService {
       );
       summaryCandidates = candidates;
     }
+    // #4103: standalone labeled issues beside the leading epic, when the repo opted in.
+    const alongside = await this.standaloneCandidates(repoPath, cfg, epicRun, builtEpic);
     // summaryCandidates ⊇ candidates: one check covers the decision and runSummary.next.
     const mappedIssueNumbers = await this.mappedIssues(
       repoPath,
@@ -1786,7 +1790,7 @@ export class DrainService {
         ...allRepoSessions.filter((s) => !this.releasedArchive(s)),
         ...routedHomeViews(allSessions, repoPath),
       ],
-      summaryCandidates,
+      [...summaryCandidates, ...alongside.candidates],
     );
     const spawnState = await this.spawnState(repoPath, candidates, mappedIssueNumbers, {
       epicProvider: epicProviderSettings?.agentProvider ?? null,
@@ -1794,6 +1798,8 @@ export class DrainService {
       epic: builtEpic,
       stackBases: epicStackBases,
     });
+    // After spawnState: mappedIssueNumbers carries the remote dispatches by now.
+    const standalone = await this.standalonePool(repoPath, alongside, mappedIssueNumbers);
     // enabled reflects whether spawning (and retiring) is active — see drainEnabled.
     const enabled = drainEnabled(epicRun, cfg.autoDrainEnabled);
     const stall = this.epicStall(repoPath, epicActive, epicRun, builtEpic, epicParent);
@@ -1844,6 +1850,8 @@ export class DrainService {
         remoteTrouble: this.remoteTrouble.get(repoPath),
         bootstrapMissing: this.bootstrapHoldFor(repoPath),
         ...spawnState,
+        standalone,
+        epicChildIssues: new Set(epicChildren.map((c) => c.number)),
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1853,10 +1861,62 @@ export class DrainService {
           mappedIssueNumbers,
           epicChildren,
           queued: this.deps.store.listEpicQueue(repoPath).map((e) => e.parentIssueNumber),
+          standaloneCandidates: alongside.candidates,
           remoteHolding: spawnState.remoteHolding,
         }),
       },
       epic: builtEpic,
+    };
+  }
+
+  /** #4103: the standalone labeled issues that may use free slots beside the leading epic.
+   *  `engaged` is false — and `candidates` empty — when there is no such pool: no epic leads, the
+   *  repo did not opt in, label-drain is off or not this machine's, or the epic could not be
+   *  assembled (its children unknown → fail closed). An issue that is the leading epic's parent or
+   *  child, or a queued epic's parent, is excluded. */
+  private async standaloneCandidates(
+    repoPath: string,
+    cfg: RepoConfig,
+    run: EpicRun | null,
+    epic: Epic | null,
+  ): Promise<{ engaged: boolean; candidates: Issue[] }> {
+    const off = { engaged: false, candidates: [] };
+    if (run?.status !== "running" && run?.status !== "paused") return off;
+    if (!epic || !cfg.labelDrainAlongsideEpics) return off;
+    if (!this.labelDrainEnabled(repoPath, cfg.autoDrainEnabled)) return off;
+    const excluded = new Set<number>([
+      run.parentIssueNumber,
+      ...epic.children.map((c) => c.number),
+      ...this.deps.store.listEpicQueue(repoPath).map((e) => e.parentIssueNumber),
+    ]);
+    const candidates = selectCandidates(
+      await this.listIssues(repoPath),
+      cfg.autoLabel,
+      cfg.priorityLabels,
+    ).filter((i) => !excluded.has(i.number));
+    return { engaged: true, candidates };
+  }
+
+  /** #4103: the {@link StandalonePool} for an engaged pool (null otherwise): the repo's own
+   *  provider, the next candidate's spawn gate / placement (no epic CLI or machine), and the
+   *  lead-machine hold. */
+  private async standalonePool(
+    repoPath: string,
+    { engaged, candidates }: { engaged: boolean; candidates: Issue[] },
+    mappedIssueNumbers: Set<number>,
+  ): Promise<StandalonePool | null> {
+    if (!engaged) return null;
+    const gate = await this.nextSpawnGate(repoPath, candidates, mappedIssueNumbers, {
+      epicProvider: null,
+      machine: null,
+      epicChildren: null,
+      stackBases: null,
+    });
+    return {
+      candidates,
+      spawnAgentProvider: this.spawnProvider(repoPath, null),
+      leitrechnerHold: this.leitrechnerHold(repoPath, false),
+      ...gate,
     };
   }
 
@@ -5975,8 +6035,10 @@ export class DrainService {
     } catch (err) {
       console.warn(`[drain] claim label for issue #${number} failed:`, err);
     }
-    // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound)
-    this.approvedNext.delete(repoPath);
+    // consume the attended-mode approval on attempt; a failed spawn requires re-approval (approval is not issue-bound).
+    // #4103: only an epic spawn consumes it — a standalone issue beside the epic was never gated.
+    if (decision.epicParent != null || decision.incrementalEpicParent != null)
+      this.approvedNext.delete(repoPath);
     // Hold the created session so we can announce it AFTER the try/catch. Emitting
     // inside the try would route a throwing session:new listener into the catch
     // below (EventHub.emit has no per-listener guard), which releases the claim

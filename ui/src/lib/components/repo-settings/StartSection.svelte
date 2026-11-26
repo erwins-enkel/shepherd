@@ -23,7 +23,8 @@
     sessionId?: string;
     /** That task's plan-gate phase; null when it isn't gated. */
     planPhase?: Session["planPhase"];
-    /** When drain.epicParent is set, label-drain is suspended by the active epic. */
+    /** When drain.epicParent is set, an epic leads: label-drain is suspended unless the repo lets
+     *  standalone labeled issues run alongside it (#4103). */
     drain?: DrainStatus | null;
   } = $props();
 
@@ -31,6 +32,10 @@
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
   const epicParent = $derived(drain?.epicParent ?? null);
   const epicActive = $derived(epicParent != null);
+  // #4103: standalone labeled issues keep draining beside the epic (both switches on).
+  const alongside = $derived(
+    flags.autoDrain && repoConfig.labelDrainAlongsideEpicsOn(repoPath) && !lightweight,
+  );
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
   // The switch is a repo default; the plan gate is also a per-task one-shot set at creation, so a
   // gated task says its own phase — a New Task tick then doesn't read as "off".
@@ -44,7 +49,11 @@
 </script>
 
 {#if epicParent != null && layer !== "rechner"}
-  <div class="epic-mode-banner" role="status">◈ {m.epic_mode_active({ parent: epicParent })}</div>
+  <div class="epic-mode-banner" role="status">
+    ◈ {alongside
+      ? m.epic_mode_active_alongside({ parent: epicParent })
+      : m.epic_mode_active({ parent: epicParent })}
+  </div>
 {/if}
 <RepoSettingRow
   field="autoDrainEnabled"
@@ -76,17 +85,44 @@
   warn={m.automation_autodrain_sandbox_held()}
   warnShown={drainSandboxHeld(repoPath, drain, repoConfig)}
   locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
-  disabled={epicActive}
-  disabledTitle={epicParent != null ? m.epic_mode_active({ parent: epicParent }) : undefined}
-  checked={flags.autoDrain && !epicActive && !lightweight}
+  checked={flags.autoDrain && !lightweight}
   ontoggle={() => repoConfig.toggleAutoDrain(repoPath)}
 />
+<RepoSettingRow
+  field="labelDrainAlongsideEpics"
+  glyph="∥"
+  indent
+  name={m.automation_alongside_epics_name()}
+  desc={m.automation_alongside_epics_desc()}
+  detail={{
+    id: "alongside-epics",
+    intro: m.automation_alongside_epics_detail_intro(),
+    sections: [
+      {
+        title: m.automation_alongside_epics_detail_order_title(),
+        text: m.automation_alongside_epics_detail_order(),
+      },
+      {
+        title: m.automation_alongside_epics_detail_paused_title(),
+        text: m.automation_alongside_epics_detail_paused(),
+      },
+      {
+        title: m.automation_alongside_epics_detail_off_title(),
+        text: m.automation_alongside_epics_detail_off(),
+      },
+    ],
+  }}
+  locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
+  checked={repoConfig.labelDrainAlongsideEpicsOn(repoPath) && !lightweight}
+  ontoggle={() => repoConfig.toggleLabelDrainAlongsideEpics(repoPath)}
+/>
 <!-- The rails (cap / label / usage ceiling) stay while an epic runs: both cap and ceiling are
-     still enforced against its children; only the label field hides then. -->
+     still enforced against its children; the label field hides then unless standalone labeled
+     issues drain alongside it (#4103). -->
 <AutomationDrainFields
   {repoPath}
   active={drainRailsActive(repoPath, drain, repoConfig)}
-  {epicActive}
+  epicActive={epicActive && !alongside}
 />
 {#if layer !== "repo"}<AutomationBootstrap {repoPath} />{/if}
 <RepoSettingRow
@@ -120,8 +156,8 @@
 />
 
 <style>
-  /* Epic-mode precedence banner: unmistakable notice that label-drain is suspended while an epic
-     runs. Sits above the drain row (which is also dimmed). */
+  /* Epic-mode banner: unmistakable notice that an epic leads — label-drain is suspended, or
+     (#4103) standalone labeled issues share its slots. Sits above the drain row. */
   .epic-mode-banner {
     margin: 4px 12px;
     padding: 5px 8px;

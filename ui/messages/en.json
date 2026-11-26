@@ -9445,5 +9445,18 @@
   "newtask_coach_tip_cost_label": "Cost",
   "newtask_coach_tip_cost": "One decision-model call per settled prompt, counted against its daily ceiling. Starting the task as written is always fine.",
   "feat_prompt_coaching_title": "Prompt coaching in New Task",
-  "feat_prompt_coaching_body": "Shape now says whether your prompt prescribes a fix or describes the problem, and which of symptom, outcome and acceptance check it is missing, informed by your latest steering report. With the decision model on, New Task also hints when a prompt names a fix before the problem."
+  "feat_prompt_coaching_body": "Shape now says whether your prompt prescribes a fix or describes the problem, and which of symptom, outcome and acceptance check it is missing, informed by your latest steering report. With the decision model on, New Task also hints when a prompt names a fix before the problem.",
+  "automation_alongside_epics_name": "Labeled issues alongside epics",
+  "automation_alongside_epics_desc": "While an epic runs, standalone labeled issues also use free agent slots",
+  "automation_alongside_epics_detail_intro": "Normally a running or paused epic suspends Auto-Drain for the whole repo. With this switch and Auto-Drain both on, a labeled issue outside the epic can start in a free slot and follow its usual PR workflow.",
+  "automation_alongside_epics_detail_order_title": "Who gets a free slot",
+  "automation_alongside_epics_detail_order": "The epic's children always come first. A labeled issue only starts when the epic has no child ready to start. Both share the same Limit, so when every slot is taken the issue shows \"waiting for a free slot\" in the backlog.",
+  "automation_alongside_epics_detail_paused_title": "While the epic is paused",
+  "automation_alongside_epics_detail_paused": "The epic's children neither start nor hand off. Labeled issues outside the epic keep starting and handing off their PRs.",
+  "automation_alongside_epics_detail_off_title": "When the switch is off",
+  "automation_alongside_epics_detail_off": "Labeled issues wait until the epic finishes or is stopped. Your Auto-Drain setting stays as it is and applies again afterwards.",
+  "epic_mode_active_alongside": "Epic mode · #{parent} — labeled issues use free slots alongside it",
+  "issuelist_waiting_slot": "waiting for a free slot",
+  "feat_label_drain_alongside_epics_title": "Labeled issues alongside epics",
+  "feat_label_drain_alongside_epics_body": "A running epic no longer has to block your other labeled issues. Turn on \"Labeled issues alongside epics\" under Start & flow: standalone labeled issues then use free agent slots while the epic runs or is paused. Epic children still come first, the slot limit is shared, and a queued issue shows \"waiting for a free slot\" in the backlog. Auto-Drain also stays editable during an epic."
 }

@@ -66,7 +66,7 @@ cannot publish shared rules; their settings stay local.
 The shared fields are `criticEnabled`, `criticAllPrs`, `criticSmellLensEnabled`,
 `claudeReviewSkipsCritic`, `autoAddressEnabled`, `autopilotEnabled`, `planGateEnabled`, `autoDrainEnabled`,
 `autoMergeEnabled`, `buildQueueEnabled`, `draftMode`, `signoffAuthority`,
-`manualStepsIssueEnabled`, `preWarmEpicLandingCi`, `epicStacksEnabled`,
+`manualStepsIssueEnabled`, `preWarmEpicLandingCi`, `epicStacksEnabled`, `labelDrainAlongsideEpics`,
 `claudeShipStewardDefer`, `autoLabel`, `defaultModel`, `defaultEffort`,
 `reviewFeedbackMode`, `reviewFeedbackBots`, `reviewFeedbackResolve` and `leitrechner`.
 
@@ -78,6 +78,13 @@ These three review feedback fields used to be machine settings. In a repo that a
 committed file, the machine's saved values no longer apply: the defaults (`autopilot`, the
 preset bot list, `false`) do until someone sets the values again and confirms them as shared
 rules.
+
+`labelDrainAlongsideEpics` (default `false`) lets standalone `autoLabel` issues use free auto
+slots while an epic runs or is paused, when `autoDrainEnabled` is on too. The epic's children
+take a free slot first and `maxAuto` stays one shared cap; a paused epic's children neither start
+nor hand off while standalone issues keep going. The leading epic's parent and children and
+queued epics' parents are never picked up this way. Off, a leading epic suspends label-drain for
+the whole repository.
 
 `claudeShipStewardDefer` (default `false`) hands a PR to Claude Ship's PR Steward while it
 carries the `claude-pr-steward-watching` label: Shepherd then sends no rebase, CI-fix or

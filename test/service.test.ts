@@ -442,6 +442,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") 
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
   } as any);
 }
 
@@ -727,6 +728,7 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
   } as any);
   await service.create({
     repoPath: "/repo",
@@ -5628,6 +5630,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
@@ -6745,6 +6748,7 @@ function buildQueueDeps(
       claudeShipStewardDefer: false,
       mergeWithoutCi: false,
       epicStacksEnabled: false,
+      labelDrainAlongsideEpics: false,
       sharedBrowserEnabled: false,
       claudeAiConnectorsEnabled: false,
       browserAllowedHosts: [],
@@ -9704,6 +9708,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
@@ -9760,6 +9765,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],

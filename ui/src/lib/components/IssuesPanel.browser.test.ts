@@ -747,6 +747,34 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(style).toMatch(/--lc: var\(--data-[1-7]\)/);
   });
 
+  it("a standalone labeled issue says it waits for a free slot while every slot is taken (#4103)", async () => {
+    seed([plain(9, { labels: [], createdAt: Date.now() - 60_000 }), plain(10, { labels: [] })]);
+    const drain = {
+      repoPath: "/repo",
+      enabled: true,
+      paused: false,
+      reason: null,
+      detail: null,
+      queued: 0,
+      inFlight: 1,
+      max: 1,
+      epicParent: null,
+      runSummary: {
+        leadingEpic: null,
+        windingDown: [],
+        slots: { used: 1, max: 1, holders: [] },
+        next: [9],
+        standaloneNext: [9],
+        after: [],
+      },
+    };
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, drain });
+    await expect.poll(() => option("s:10")).not.toBeNull();
+    const meta = (key: string) => option(key)!.querySelector<HTMLElement>(".meta")!.textContent;
+    expect(meta("s:9")).toMatch(new RegExp(`^#9 · ${m.issuelist_waiting_slot()} · \\S`));
+    expect(meta("s:10")).not.toContain(m.issuelist_waiting_slot());
+  });
+
   it("an epic header reads on two lines; its children drop the epic prefix and show a held slot below the title (#2950)", async () => {
     seed([plain(158, { title: "Stack-Angleichung" })], [summary(158)]);
     mockEpic.mockResolvedValue({

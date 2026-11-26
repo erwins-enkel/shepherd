@@ -19,6 +19,7 @@ const RULE_NAMES: Record<RuleField, () => string> = {
   manualStepsIssueEnabled: m.automation_manual_steps_issue_name,
   preWarmEpicLandingCi: m.automation_prewarm_epic_ci_name,
   epicStacksEnabled: m.automation_epic_stacks_name,
+  labelDrainAlongsideEpics: m.automation_alongside_epics_name,
   claudeShipStewardDefer: m.automation_claude_ship_steward_defer_name,
   autoLabel: m.drain_label_label,
   defaultModel: m.automation_default_model_label,

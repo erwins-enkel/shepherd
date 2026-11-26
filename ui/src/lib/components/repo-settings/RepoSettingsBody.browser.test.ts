@@ -209,6 +209,49 @@ describe("RepoSettingsBody — sandbox default + auto-drain hold (#2100)", () =>
   });
 });
 
+describe("RepoSettingsBody — backlog settings while an epic leads (#4103)", () => {
+  const REPO = "/tmp/repo";
+  const drain: DrainStatus = {
+    repoPath: REPO,
+    enabled: true,
+    paused: false,
+    reason: null,
+    detail: null,
+    queued: 0,
+    inFlight: 1,
+    max: 2,
+    epicParent: 42,
+  };
+  const row = (field: string) =>
+    document.querySelector<HTMLButtonElement>(`[data-field="${field}"] [role="switch"]`);
+
+  afterEach(() => {
+    repoConfig.autoDrain = {};
+    repoConfig.labelDrainAlongsideEpics = {};
+  });
+
+  it("the Auto-Drain switch stays usable and shows its stored value during an epic", async () => {
+    repoConfig.autoDrain = { [REPO]: true };
+    await mount("start", { repoPath: REPO, drain });
+    await expect.poll(() => row("autoDrainEnabled")?.disabled).toBe(false);
+    expect(row("autoDrainEnabled")!.getAttribute("aria-checked")).toBe("true");
+    await expect
+      .element(page.getByText(m.epic_mode_active({ parent: 42 }), { exact: false }))
+      .toBeVisible();
+  });
+
+  it("the alongside switch is usable during an epic and turns the banner", async () => {
+    repoConfig.autoDrain = { [REPO]: true };
+    repoConfig.labelDrainAlongsideEpics = { [REPO]: true };
+    await mount("start", { repoPath: REPO, drain });
+    await expect.poll(() => row("labelDrainAlongsideEpics")?.disabled).toBe(false);
+    expect(row("labelDrainAlongsideEpics")!.getAttribute("aria-checked")).toBe("true");
+    await expect
+      .element(page.getByText(m.epic_mode_active_alongside({ parent: 42 }), { exact: false }))
+      .toBeVisible();
+  });
+});
+
 describe("RepoSettingsBody — Open shared browser", () => {
   const REPO = "/tmp/repo";
   const openButton = () => page.getByRole("button", { name: m.automation_shared_browser_open() });
@@ -791,6 +834,7 @@ describe("RepoSettingsBody — lock reasons (#3444)", () => {
     const reason = m.automation_lightweight_unavailable();
     expect(await locks()).toEqual({
       autoDrainEnabled: reason,
+      labelDrainAlongsideEpics: reason,
       criticAllPrs: reason,
       claudeReviewSkipsCritic: reason,
       mergeWithoutCi: reason,

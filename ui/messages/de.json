@@ -9445,5 +9445,18 @@
   "newtask_coach_tip_cost_label": "Kosten",
   "newtask_coach_tip_cost": "Ein Aufruf des Entscheidungsmodells pro fertig getipptem Prompt, angerechnet auf sein Tageslimit. Die Aufgabe so zu starten, wie sie ist, ist immer in Ordnung.",
   "feat_prompt_coaching_title": "Prompt-Coaching in Neue Aufgabe",
-  "feat_prompt_coaching_body": "Schärfen sagt jetzt, ob dein Prompt eine Lösung vorschreibt oder das Problem beschreibt und welches von Symptom, Ziel und Abnahmekriterium fehlt, gestützt auf deinen letzten Steuerungsbericht. Mit eingeschaltetem Entscheidungsmodell weist Neue Aufgabe außerdem darauf hin, wenn ein Prompt eine Lösung vor dem Problem nennt."
+  "feat_prompt_coaching_body": "Schärfen sagt jetzt, ob dein Prompt eine Lösung vorschreibt oder das Problem beschreibt und welches von Symptom, Ziel und Abnahmekriterium fehlt, gestützt auf deinen letzten Steuerungsbericht. Mit eingeschaltetem Entscheidungsmodell weist Neue Aufgabe außerdem darauf hin, wenn ein Prompt eine Lösung vor dem Problem nennt.",
+  "automation_alongside_epics_name": "Gelabelte Issues neben Epics",
+  "automation_alongside_epics_desc": "Während ein Epic läuft, nutzen einzelne gelabelte Issues ebenfalls freie Agenten-Plätze",
+  "automation_alongside_epics_detail_intro": "Normalerweise pausiert ein laufendes oder pausiertes Epic die Backlog-Abarbeitung für das ganze Repo. Sind dieser Schalter und die Backlog-Abarbeitung beide an, kann ein gelabeltes Issue außerhalb des Epics auf einem freien Platz starten und seinen üblichen PR-Ablauf durchlaufen.",
+  "automation_alongside_epics_detail_order_title": "Wer einen freien Platz bekommt",
+  "automation_alongside_epics_detail_order": "Die Kinder des Epics kommen immer zuerst. Ein gelabeltes Issue startet nur, wenn das Epic kein startbereites Kind hat. Beide teilen sich dasselbe Limit: Sind alle Plätze belegt, zeigt das Issue im Backlog „wartet auf freien Platz“.",
+  "automation_alongside_epics_detail_paused_title": "Während das Epic pausiert",
+  "automation_alongside_epics_detail_paused": "Die Kinder des Epics starten nicht und werden nicht übergeben. Gelabelte Issues außerhalb des Epics starten weiter und übergeben ihre PRs.",
+  "automation_alongside_epics_detail_off_title": "Wenn der Schalter aus ist",
+  "automation_alongside_epics_detail_off": "Gelabelte Issues warten, bis das Epic fertig ist oder gestoppt wird. Deine Einstellung der Backlog-Abarbeitung bleibt erhalten und gilt danach wieder.",
+  "epic_mode_active_alongside": "Epic-Modus · #{parent} — gelabelte Issues nutzen freie Plätze daneben",
+  "issuelist_waiting_slot": "wartet auf freien Platz",
+  "feat_label_drain_alongside_epics_title": "Gelabelte Issues neben Epics",
+  "feat_label_drain_alongside_epics_body": "Ein laufendes Epic muss deine anderen gelabelten Issues nicht mehr blockieren. Schalte „Gelabelte Issues neben Epics“ unter Start & Ablauf ein: Einzelne gelabelte Issues nutzen dann freie Agenten-Plätze, während das Epic läuft oder pausiert. Epic-Kinder kommen weiterhin zuerst, das Platz-Limit gilt gemeinsam, und ein wartendes Issue zeigt im Backlog „wartet auf freien Platz“. Die Backlog-Abarbeitung bleibt während eines Epics einstellbar."
 }

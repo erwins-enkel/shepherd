@@ -178,6 +178,15 @@ export function slotHeldBy(
   return i < 0 ? null : { index: i + 1, max: summary.slots.max };
 }
 
+/** #4103: a standalone labeled issue the drain would start next, while every agent slot is taken. */
+export function waitingForSlot(
+  summary: DrainRunSummary | null | undefined,
+  issueNumber: number,
+): boolean {
+  if (!summary?.standaloneNext?.includes(issueNumber)) return false;
+  return summary.slots.used >= summary.slots.max;
+}
+
 export type EpicRunKind =
   | "winding"
   | "queued"

@@ -12,6 +12,7 @@ import {
   queuePosition,
   runOrder,
   slotHeldBy,
+  waitingForSlot,
   stateLabel,
   supersedeImpact,
   usageOverride,
@@ -257,6 +258,20 @@ describe("epicRole / slotHeldBy", () => {
     expect(slotHeldBy(summary(), 11)).toEqual({ index: 1, max: 1 });
     expect(slotHeldBy(summary(), 21)).toBeNull();
     expect(slotHeldBy(null, 11)).toBeNull();
+  });
+});
+
+// #4103: a standalone labeled issue waiting for capacity.
+describe("waitingForSlot", () => {
+  it("is true only for a pending standalone issue while every slot is taken", () => {
+    const full = summary({ standaloneNext: [50, 60] });
+    expect(waitingForSlot(full, 50)).toBe(true);
+    expect(waitingForSlot(full, 60)).toBe(true);
+    expect(waitingForSlot(full, 21)).toBe(false); // an epic child, not standalone
+    const free = summary({ standaloneNext: [50], slots: { used: 0, max: 1, holders: [] } });
+    expect(waitingForSlot(free, 50)).toBe(false);
+    expect(waitingForSlot(summary(), 50)).toBe(false); // older server: no standaloneNext
+    expect(waitingForSlot(null, 50)).toBe(false);
   });
 });
 

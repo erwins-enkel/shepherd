@@ -186,6 +186,7 @@ function makeHarness(
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: opts.epicStacksEnabled ?? false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],

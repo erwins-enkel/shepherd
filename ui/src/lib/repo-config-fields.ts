@@ -18,6 +18,7 @@ export const RULE_FIELDS = [
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
   "epicStacksEnabled",
+  "labelDrainAlongsideEpics",
   "claudeShipStewardDefer",
   "autoLabel",
   "defaultModel",

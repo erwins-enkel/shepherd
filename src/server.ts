@@ -128,8 +128,6 @@ import {
   PLAN_REVIEW_CYCLES_MAX,
   USAGE_HISTORY_RETENTION_MS,
 } from "./config";
-import { normalizeTelemetryConsent } from "./telemetry-consent";
-import { resolveAptabaseHost } from "./telemetry";
 import {
   validateCreate,
   validatePlacementPreview,
@@ -799,12 +797,6 @@ export interface AppDeps {
    *  switch). With `model`: whether it can spawn that exact Mythos id (claude-account-models.ts).
    *  Absent → unavailable: Mythos is hidden and refused. */
   mythosAvailable?: (model?: string) => boolean;
-  /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
-   *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
-   *  so the many test `makeDeps()` builders need no change; wired to the real
-   *  TelemetryService in index.ts. Narrowed to what the routes actually use so a test stub
-   *  only has to provide those two. */
-  telemetry?: Pick<import("./telemetry").TelemetryService, "event" | "health">;
   /** Memo slot (#1092) for the repo-config deep module. Optional so the
    *  many test `makeDeps()` builders need no change; routes never read it directly —
    *  they go through the total `repoConfig(deps)` accessor below,
@@ -11924,7 +11916,6 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       blockJudgeMode: config.blockJudgeMode,
       // Up Next readiness rerank (#2535). Same inertness rule as above.
       upNextReadiness: config.upNextReadiness,
-      ...telemetrySettings(deps.telemetry),
     });
   }
   if (req.method === "PATCH") return patchSetting(req, deps);
@@ -12013,7 +12004,6 @@ const SETTING_PATCHES: [
   ["upNextReadiness", putUpNextReadiness],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
-  ["telemetryConsent", putTelemetryConsent],
   ["machinePlatformOrder", putMachinePlatformOrder],
   ["houseStack", putHouseStack],
   ["issueFilter", putIssueFilter],
@@ -12369,41 +12359,6 @@ function putAssistantPermissions(value: unknown, deps: Ctx["deps"]): Response {
   deps.service.syncOperatorAssistantPermissions();
   emitOperatorAssistantUpdate(deps);
   return json({ assistantPermissions: config.assistantPermissions });
-}
-
-/**
- * The three operator-facing telemetry fields of GET /api/settings, kept together and out of
- * handleSettings (which sits at the cognitive-complexity bar).
- *   - consent: the persisted answer to the first-run prompt.
- *   - available: whether telemetry *can* run — App-Key configured (host resolvable) and
- *     DO_NOT_TRACK unset. Gates the prompt and the toggle.
- *   - health: whether it actually *is* delivering. Null only when no TelemetryService is
- *     wired (tests); the UI renders it under a granted consent so a silent stall shows up.
- */
-function telemetrySettings(telemetry: AppDeps["telemetry"]) {
-  return {
-    telemetryConsent: config.telemetryConsent,
-    telemetryAvailable:
-      !config.doNotTrack &&
-      resolveAptabaseHost(config.aptabaseAppKey, config.aptabaseHostOverride) !== null,
-    telemetryHealth: telemetry?.health() ?? null,
-  };
-}
-
-// Consent is the only persisted telemetry state. Granting for the first time emits
-// app_launched immediately so the very first opt-in records an install without waiting
-// for the next boot. Denying/ungranting is silent. DO_NOT_TRACK still hard-gates emission
-// downstream (TelemetryService.enabled), so a granted consent under DNT sends nothing.
-function putTelemetryConsent(value: unknown, deps: Ctx["deps"]): Response {
-  const v = normalizeTelemetryConsent(value);
-  if (v === null || v === "unset") {
-    return json({ error: "telemetryConsent must be 'granted' or 'denied'" }, 400);
-  }
-  const wasGranted = config.telemetryConsent === "granted";
-  config.telemetryConsent = v; // live: gate re-reads this
-  deps.store.setSetting("telemetryConsent", v); // persist across restarts
-  if (v === "granted" && !wasGranted) deps.telemetry?.event("app_launched");
-  return json({ telemetryConsent: config.telemetryConsent });
 }
 
 function putAnthropicApiKey(value: unknown, deps: Ctx["deps"]): Response {

@@ -1639,7 +1639,6 @@
 "native_settings_field_reducedpushmode" = "Reduced notifications";
 "native_settings_field_remotecontrolatstartup" = "Remote control at startup";
 "native_settings_field_sessionhousekeepingenabled" = "Session housekeeping";
-"native_settings_field_telemetryconsent" = "Telemetry consent";
 "native_settings_field_tuidisablemouse" = "Disable TUI mouse capture";
 "native_settings_field_tuifullscreen" = "Fullscreen TUI";
 "native_settings_field_upnextreadiness" = "Rank Up Next by agent readiness";

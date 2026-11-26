@@ -2296,6 +2296,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `CREATE INDEX IF NOT EXISTS maintain_runs_band ON maintain_runs (bandKey, spawnedAt)`,
     );
     this.retireLearnings(path);
+    this.retireTelemetry();
     // Up Next readiness scores (#2535), keyed by a content hash that already folds in the model
     // (`readinessHash`), so an edited issue or a model re-pin simply misses and is rescored — no
     // invalidation path. Only a usable `p` is ever stored: an unusable answer stays uncached and is
@@ -8276,6 +8277,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     for (const col of ["learningsEnabled", "autoOptimizeFlagged"])
       if (cols.some((c) => c.name === col))
         this.db.run(`ALTER TABLE repo_config DROP COLUMN ${col}`);
+  }
+
+  // Telemetry removed: drop its orphaned settings rows.
+  private retireTelemetry(): void {
+    this.db.run(`DELETE FROM settings WHERE key IN ('telemetryConsent', 'telemetryHealth')`);
   }
 
   // migrate repo_config that predates these opt-in columns. auto-address defaults

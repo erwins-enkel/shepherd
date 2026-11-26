@@ -12,7 +12,6 @@
     putUsageDowngradeEnabled,
     putUsageDowngradePct,
     putUsageDowngradeModel,
-    putTelemetryConsent,
     putTuiFullscreen,
     putTuiDisableMouse,
     logout,
@@ -22,7 +21,6 @@
   import { pickerModels } from "#lib/provider-models.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
   import RestartShepherdDialog from "#lib/components/RestartShepherdDialog.svelte";
-  import { relativeAge } from "#lib/format.js";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
   import SettingsEgressBlock from "./SettingsEgressBlock.svelte";
@@ -51,32 +49,6 @@
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
   let rcBusy = $state(false);
   let restartOpen = $state(false); // the Restart-Shepherd confirm dialog
-  let telemetryOn = $state(false);
-  let telemetryAvailable = $state(false);
-  let telemetryBusy = $state(false);
-  let telemetryHealth = $state<Settings["telemetryHealth"]>(null);
-  // Newest attempt wins: an error after the last success means the pipeline is dropping events.
-  const telemetryFailing = $derived(
-    !!telemetryHealth?.lastErrorAt &&
-      (telemetryHealth.lastSentAt === null ||
-        telemetryHealth.lastErrorAt > telemetryHealth.lastSentAt),
-  );
-  // Ages are resolved when the payload is seeded, not on a ticking clock — this line is a
-  // health check the operator reads on open, not a live counter.
-  const telemetryHealthLine = $derived.by(() => {
-    const h = telemetryHealth;
-    if (!h) return "";
-    const now = Date.now();
-    if (telemetryFailing && h.lastErrorAt !== null) {
-      return m.settings_telemetry_health_failed({
-        age: relativeAge(h.lastErrorAt, now),
-        reason: h.lastError ?? "",
-      });
-    }
-    if (h.lastSentAt !== null)
-      return m.settings_telemetry_health_sent({ age: relativeAge(h.lastSentAt, now) });
-    return m.settings_telemetry_health_never();
-  });
   let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
   let hkBusy = $state(false);
   let autoRevive = $state(false); // auto-revive stranded sessions after a herdr restart
@@ -147,9 +119,6 @@
       usageDowngradeModelSaved = usageDowngradeModel;
       tuiFullscreen = s.tuiFullscreen;
       tuiDisableMouse = s.tuiDisableMouse;
-      telemetryOn = s.telemetryConsent === "granted";
-      telemetryAvailable = s.telemetryAvailable;
-      telemetryHealth = s.telemetryHealth;
     });
   });
 
@@ -195,23 +164,6 @@
       toasts.info(m.settings_auto_revive_save_failed(), { alert: true, key: "auto-revive" });
     } finally {
       arBusy = false;
-    }
-  }
-
-  async function toggleTelemetry() {
-    if (telemetryBusy) return;
-    telemetryBusy = true;
-    const next = !telemetryOn;
-    try {
-      const r = await putTelemetryConsent(next ? "granted" : "denied");
-      telemetryOn = r.telemetryConsent === "granted";
-    } catch {
-      toasts.info(m.settings_telemetry_save_failed(), {
-        key: "telemetry-consent",
-        alert: true,
-      });
-    } finally {
-      telemetryBusy = false;
     }
   }
 
@@ -467,41 +419,6 @@
 
 <SettingsEgressBlock {payload} {query} />
 
-<!-- No onrowclick (#2331): consent is the one setting whose flip leaves no trace — telemetry
-     is fire-and-forget, so an accidental opt-out from a click on the title or the
-     description text is both cheap and silent. The toggle is the only hit target. -->
-<SettingRow
-  title={m.settings_telemetry_title()}
-  description={m.settings_telemetry_hint()}
-  {query}
-  inlineOnMobile={telemetryAvailable}
->
-  {#snippet control()}
-    {#if telemetryAvailable}
-      <SettingToggle
-        checked={telemetryOn}
-        disabled={telemetryBusy}
-        label={m.settings_telemetry_title()}
-        onchange={toggleTelemetry}
-      />
-    {:else}
-      <span class="unavailable">{m.settings_telemetry_unavailable()}</span>
-    {/if}
-  {/snippet}
-  {#snippet below()}
-    <!-- Send health, shown only under granted consent: with the toggle off there is
-         nothing to report, and a stale "last sent" next to an off switch would mislead.
-         Telemetry failures are swallowed by design, so this line is the only place a
-         silently dropping pipeline becomes visible. It is also the one thing in the row an
-         operator reads closely and copies — the failing HTTP status. -->
-    {#if telemetryAvailable && telemetryOn && telemetryHealth}
-      <p class="telemetry-health" class:failing={telemetryFailing} data-testid="telemetry-health">
-        {telemetryHealthLine}
-      </p>
-    {/if}
-  {/snippet}
-</SettingRow>
-
 <SettingRow
   title={m.settings_pr_review_cycles_title()}
   description={m.settings_pr_review_cycles_hint({
@@ -743,19 +660,3 @@
 {#if restartOpen}
   <RestartShepherdDialog onclose={() => (restartOpen = false)} />
 {/if}
-
-<style>
-  .telemetry-health {
-    margin: 6px 0 0;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-  }
-  .telemetry-health.failing {
-    color: var(--color-amber);
-  }
-
-  .unavailable {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-  }
-</style>

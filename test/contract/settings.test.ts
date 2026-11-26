@@ -620,7 +620,10 @@ test("approved core PATCH exception writes one field, preserves GET and refuses 
     expect(settings).not.toHaveProperty("anthropicApiKey");
     // #2494: the CLI's generated type keeps only schema'd fields, so these must be in the contract.
     expect(settings).toHaveProperty("providerFailover");
-    expect(settings).toHaveProperty("telemetryHealth");
+    // Telemetry was removed: no fields in GET, and the setting is unknown to PATCH.
+    for (const key of ["telemetryConsent", "telemetryAvailable", "telemetryHealth"])
+      expect(settings).not.toHaveProperty(key);
+    await request("PATCH", "/api/settings", 400, { telemetryConsent: "granted" });
     await request("PATCH", "/api/settings", 400, { reducedPushMode: "yes" });
     await request("PATCH", "/api/settings", 400, {
       reducedPushMode: true,

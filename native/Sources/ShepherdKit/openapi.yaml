@@ -531,8 +531,6 @@ components:
           type: string
         blockJudgeMode:
           type: string
-        telemetryConsent:
-          type: string
         criticCli:
           type: string
         criticModel:
@@ -575,8 +573,6 @@ components:
           type: boolean
         judgeHasKey:
           type: boolean
-        telemetryAvailable:
-          type: boolean
         prReviewCyclesMin:
           type: integer
         prReviewCyclesMax:
@@ -595,8 +591,6 @@ components:
             - "null"
         providerFailover:
           $ref: "#/components/schemas/ProviderFailoverStatus"
-        telemetryHealth:
-          $ref: "#/components/schemas/TelemetryHealth"
     ProviderFailoverStatus:
       type: object
       additionalProperties: false
@@ -610,26 +604,6 @@ components:
           $ref: "#/components/schemas/AgentProvider"
         current:
           $ref: "#/components/schemas/AgentProvider"
-    TelemetryHealth:
-      type: object
-      additionalProperties: false
-      required:
-        - lastSentAt
-        - lastErrorAt
-        - lastError
-      properties:
-        lastSentAt:
-          type:
-            - integer
-            - "null"
-        lastErrorAt:
-          type:
-            - integer
-            - "null"
-        lastError:
-          type:
-            - string
-            - "null"
     RepoRootRequest:
       type: object
       additionalProperties: false
@@ -10296,8 +10270,6 @@ components:
           type: string
         blockJudgeMode:
           type: string
-        telemetryConsent:
-          type: string
         criticCli:
           type: string
         criticModel:
@@ -10420,8 +10392,6 @@ components:
         usageDowngradeModel:
           type: string
         blockJudgeMode:
-          type: string
-        telemetryConsent:
           type: string
         criticCli:
           type: string

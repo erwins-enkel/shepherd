@@ -703,40 +703,11 @@ its worktree reclaimed by the boot reconcile; the breach is re-diagnosed on the 
 | `SHEPHERD_MAINTAIN_EFFORT`     | `default` | Reasoning-effort tier for the diagnosis spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max` / `ultra` — `ultra` is Codex-only). Env-only                                                                                                                                                                                                                                          |
 | `SHEPHERD_MAINTAIN_THRESHOLDS` | _(unset)_ | JSON object deep-merged over the threshold table above, so a recalibration ships without a deploy. Parsed field-by-field and **fail-soft**: an unparseable value or a typo in one number falls back to that default rather than disarming a band. E.g. `{"critic_error_rate":{"tier1":0.2}}`. Retunes numbers only — a band's tier-3 fix class is not overridable, because `SHEPHERD_MAINTAIN_PR` is the one switch that disarms tier 3 |
 
-## Anonymous usage telemetry
+## Operator language
 
-Off until you opt in. Shepherd can emit **anonymous, privacy-first** usage
-telemetry (OS, version, arch, locale, engine, and which features are used — never
-code, file paths, repo names, or personal data) to an [Aptabase](https://aptabase.com)
-endpoint, to help prioritise the roadmap. It is server-side and best-effort: a
-rejected batch is dropped and the failure never propagates to the code that
-emitted the event.
-
-The drop is recorded, though, so a stalled pipeline is not invisible. Every flush
-stores its outcome — the time of the last accepted batch, and the time and short
-reason (e.g. `HTTP 400` for a rejected payload, `HTTP 401` for a bad App-Key,
-`HTTP 429` for quota) of the last failure — in the SQLite `settings` table, so it
-survives a restart. Shepherd logs `[telemetry] send failed: … — events are being
-dropped` when sending starts failing and `[telemetry] sending again` when it
-recovers, logging only on those transitions rather than once per event. With
-consent granted, the Settings panel shows the same state as a line under the
-telemetry toggle: the last successful send, or the failure that is dropping
-events.
-
-Nothing is sent unless **all** of these hold: consent is `granted`, `DO_NOT_TRACK`
-is unset, and an App-Key is configured (so the ingestion host resolves). Consent
-defaults to `unset`, which surfaces a one-time first-run prompt in the HUD; the
-per-operator consent state is persisted in the SQLite `settings` table and is also
-toggleable any time from the Settings panel. The env vars below seed a fresh DB
-(`SHEPHERD_TELEMETRY_CONSENT`) or override the endpoint.
-
-| Variable                     | Default                                                     | Purpose                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SHEPHERD_APTABASE_APP_KEY`  | `A-EU-2837516646` (Shepherd's public Aptabase Cloud EU key) | Master enable. An Aptabase App-Key is write-only and safe to ship in the client (like a GA measurement ID), so the default lets ordinary installs report **once the operator opts in**. Forks/self-hosters override with their own key, or set it **blank to disable** telemetry entirely                                                                               |
-| `SHEPHERD_APTABASE_HOST`     | _(derived from the App-Key region)_                         | Ingestion host override for self-hosted Aptabase. When unset, the host is derived from the App-Key region prefix: `A-EU-…` → `https://eu.aptabase.com`, `A-US-…` → `https://us.aptabase.com`. A self-hosted (`A-SH-…`) or unknown-region key **requires** this override, else telemetry no-ops                                                                          |
-| `DO_NOT_TRACK`               | _(unset)_                                                   | The [console DNT standard](https://consoledonottrack.com). Truthy (`1`/`true`) **hard-disables** telemetry **and** suppresses the first-run consent prompt, regardless of the persisted consent state                                                                                                                                                                   |
-| `SHEPHERD_TELEMETRY_CONSENT` | `unset`                                                     | Seeds the persisted consent for a fresh DB: `unset` (prompt on first run), `granted`, or `denied`. A UI-set consent in the DB overrides this env seed at boot; unrecognised values are ignored                                                                                                                                                                          |
-| `SHEPHERD_OPERATOR_LANGUAGE` | `en`                                                        | Seeds the operator language for a fresh DB: `en` (agents write to the operator in English — no change) or `de` (agents address the operator in German while keeping code, commands, identifiers, logs, commit messages, and GitHub issue/PR text in their original language). A UI-set value in the DB overrides this env seed at boot; unrecognised values are ignored |
+| Variable                     | Default | Purpose                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SHEPHERD_OPERATOR_LANGUAGE` | `en`    | Seeds the operator language for a fresh DB: `en` (agents write to the operator in English — no change) or `de` (agents address the operator in German while keeping code, commands, identifiers, logs, commit messages, and GitHub issue/PR text in their original language). A UI-set value in the DB overrides this env seed at boot; unrecognised values are ignored |
 
 ## Per-agent sandbox / permission profiles
 

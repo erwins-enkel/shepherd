@@ -13,8 +13,7 @@ fn settings_json() -> serde_json::Value {
         "repoRoot": "/work", "repoRootDisplay": "~/work", "firstRunPending": false,
         "defaultModel": "auto", "defaultEffort": "high", "defaultAgentProvider": "claude",
         "authMode": "subscription", "operatorLanguage": "en", "namerModel": "haiku",
-        "providerFailover": {"active": false, "from": null, "current": "claude"},
-        "telemetryHealth": {"lastSentAt": 5, "lastErrorAt": null, "lastError": null}
+        "providerFailover": {"active": false, "from": null, "current": "claude"}
     })
 }
 
@@ -51,7 +50,6 @@ async fn settings_keeps_contract_fields() {
     let out = h.json();
     assert_eq!(out["namerModel"], "haiku");
     assert_eq!(out["providerFailover"]["current"], "claude");
-    assert_eq!(out["telemetryHealth"]["lastSentAt"], 5);
 
     let h = Harness {
         tty: true,

@@ -87,7 +87,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Configuration",
     path: "/reference/configuration/",
     keywords:
-      "every environment variable and the per-agent sandbox profiles. drain priority labels core operator authentication web push (vapid) native ios push (apns, interim) model, effort and provider defaults where a new session's model and effort come from execution effort for plan-gated sessions role agents review rounds, merge train and spend live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session lifecycle (auto-archive + herdr daemon-restart revival) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) fast stop classifier (the judge) blocked-pane backstop up next readiness maintain loop (self-health bands) tier 3 — the pre-approved fix class anonymous usage telemetry per-agent sandbox / permission profiles per-repo agent secrets claude.ai connectors (per repo) plugins and skills (per repo)",
+      "every environment variable and the per-agent sandbox profiles. drain priority labels core operator authentication web push (vapid) native ios push (apns, interim) model, effort and provider defaults where a new session's model and effort come from execution effort for plan-gated sessions role agents review rounds, merge train and spend live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session lifecycle (auto-archive + herdr daemon-restart revival) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) fast stop classifier (the judge) blocked-pane backstop up next readiness maintain loop (self-health bands) tier 3 — the pre-approved fix class operator language per-agent sandbox / permission profiles per-repo agent secrets claude.ai connectors (per repo) plugins and skills (per repo)",
   },
   {
     title: "External Task API",
@@ -99,7 +99,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo weighted units cold cache cold repo reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo weighted units cold cache cold repo reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci lead time inode",
   },
   {
     title: "Project house rules",

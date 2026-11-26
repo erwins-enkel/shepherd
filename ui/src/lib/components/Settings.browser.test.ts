@@ -12,7 +12,6 @@ import {
   putDefaultCodexModel,
   putDefaultModel,
   fixDiagnostic,
-  putTelemetryConsent,
   putSessionHousekeeping,
   putRoleEffort,
   putDefaultEffort,
@@ -58,7 +57,6 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     putDefaultAgentProvider: vi.fn(async (provider) => ({ defaultAgentProvider: provider })),
     putDefaultModel: vi.fn(async (model) => ({ defaultModel: model })),
     putDefaultCodexModel: vi.fn(async (model) => ({ defaultCodexModel: model })),
-    putTelemetryConsent: vi.fn(async (consent) => ({ telemetryConsent: consent })),
     putSessionHousekeeping: vi.fn(async (enabled) => ({ sessionHousekeepingEnabled: enabled })),
     putUpNextReadiness: vi.fn(async (enabled) => ({ upNextReadiness: enabled })),
     putWarmRepoDays: vi.fn(async (days) => ({ warmRepoDays: days })),
@@ -104,7 +102,6 @@ const mockPutKey = vi.mocked(putAnthropicApiKey);
 const mockPutCodexModel = vi.mocked(putDefaultCodexModel);
 const mockPutModel = vi.mocked(putDefaultModel);
 const mockFix = vi.mocked(fixDiagnostic);
-const mockPutTelemetry = vi.mocked(putTelemetryConsent);
 const mockPutHousekeeping = vi.mocked(putSessionHousekeeping);
 const mockPutUpNextReadiness = vi.mocked(putUpNextReadiness);
 const mockPutWarmRepoDays = vi.mocked(putWarmRepoDays);
@@ -169,9 +166,6 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     tuiFullscreen: false,
     tuiDisableMouse: false,
     reducedPushMode: false,
-    telemetryConsent: "unset",
-    telemetryAvailable: true,
-    telemetryHealth: null,
     docAgentEnabled: false,
     judgeEnabled: false,
     judgeHasKey: false,
@@ -219,8 +213,6 @@ beforeEach(() => {
   mockPutModel.mockImplementation(async (model) => ({ defaultModel: model }));
   // The toggle-only row specs assert these were NOT called, so they must not carry
   // calls over from a neighbouring test.
-  mockPutTelemetry.mockReset();
-  mockPutTelemetry.mockImplementation(async (consent) => ({ telemetryConsent: consent }));
   mockPutHousekeeping.mockReset();
   mockPutHousekeeping.mockImplementation(async (enabled) => ({
     sessionHousekeepingEnabled: enabled,
@@ -1391,141 +1383,12 @@ async function mountSession() {
     .toBeInTheDocument();
 }
 
-describe("telemetry send health", () => {
-  const healthText = () =>
-    document.querySelector('[data-testid="telemetry-health"]')?.textContent?.trim();
-
-  it("reports a failing pipeline under granted consent", async () => {
-    mockGetSettings.mockResolvedValue(
-      settings({
-        telemetryConsent: "granted",
-        telemetryAvailable: true,
-        telemetryHealth: {
-          lastSentAt: null,
-          lastErrorAt: Date.now() - 120_000,
-          lastError: "HTTP 400",
-        },
-      }),
-    );
-    await mountSession();
-
-    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
-    expect(healthText()).toContain("HTTP 400");
-  });
-
-  it("reports the last successful send when the newest attempt succeeded", async () => {
-    mockGetSettings.mockResolvedValue(
-      settings({
-        telemetryConsent: "granted",
-        telemetryAvailable: true,
-        // an older failure must not outrank a newer success
-        telemetryHealth: {
-          lastSentAt: Date.now() - 120_000,
-          lastErrorAt: Date.now() - 600_000,
-          lastError: "HTTP 500",
-        },
-      }),
-    );
-    await mountSession();
-
-    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
-    expect(healthText()).not.toContain("HTTP 500");
-  });
-
-  it("says nothing has been sent when health is empty", async () => {
-    mockGetSettings.mockResolvedValue(
-      settings({
-        telemetryConsent: "granted",
-        telemetryAvailable: true,
-        telemetryHealth: { lastSentAt: null, lastErrorAt: null, lastError: null },
-      }),
-    );
-    await mountSession();
-
-    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
-    expect(healthText()).toBe(m.settings_telemetry_health_never());
-  });
-
-  it("renders no health line when consent is denied", async () => {
-    mockGetSettings.mockResolvedValue(
-      settings({
-        telemetryConsent: "denied",
-        telemetryAvailable: true,
-        telemetryHealth: { lastSentAt: Date.now() - 120_000, lastErrorAt: null, lastError: null },
-      }),
-    );
-    await mountSession();
-
-    expect(document.querySelector('[data-testid="telemetry-health"]')).toBeNull();
-  });
-});
-
 // #2331: most toggle rows pass `onrowclick`, which makes the whole row one hit target —
-// a good affordance when the flip announces itself somewhere. These two rows opt out: a
-// stray click on their title or description text used to change a setting that nothing in
+// a good affordance when the flip announces itself somewhere. This row opts out: a
+// stray click on its title or description text used to change a setting that nothing in
 // the app ever reports back. Each negative assertion is paired with a positive control, so
 // it cannot pass merely because the row failed to render.
 describe("rows whose flip is invisible are toggle-only", () => {
-  const telemetryGranted = () =>
-    settings({
-      telemetryConsent: "granted",
-      telemetryAvailable: true,
-      telemetryHealth: {
-        lastSentAt: null,
-        lastErrorAt: Date.now() - 120_000,
-        lastError: "HTTP 400",
-      },
-    });
-
-  async function mountWithTelemetrySwitch() {
-    mockGetSettings.mockResolvedValue(telemetryGranted());
-    await mountSession();
-    const sw = page.getByRole("switch", { name: m.settings_telemetry_title() });
-    await expect.element(sw).toHaveAttribute("aria-checked", "true");
-    return sw;
-  }
-
-  it("does not flip telemetry consent when the row's title is clicked", async () => {
-    await mountWithTelemetrySwitch();
-
-    await page.getByText(m.settings_telemetry_title(), { exact: true }).click();
-
-    expect(mockPutTelemetry).not.toHaveBeenCalled();
-    await expect
-      .element(page.getByRole("switch", { name: m.settings_telemetry_title() }))
-      .toHaveAttribute("aria-checked", "true");
-  });
-
-  it("does not flip telemetry consent when the row's description is clicked", async () => {
-    await mountWithTelemetrySwitch();
-
-    await page.getByText(m.settings_telemetry_hint(), { exact: true }).click();
-
-    expect(mockPutTelemetry).not.toHaveBeenCalled();
-  });
-
-  it("does not flip telemetry consent when the send-health line is clicked", async () => {
-    // The one thing in the row an operator reads closely and copies (the failing status):
-    // a click or drag-select here must not remove the very line being read.
-    await mountWithTelemetrySwitch();
-
-    await page.getByTestId("telemetry-health").click();
-
-    expect(mockPutTelemetry).not.toHaveBeenCalled();
-    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
-  });
-
-  it("still flips telemetry consent from the switch itself", async () => {
-    const sw = await mountWithTelemetrySwitch();
-
-    await sw.click();
-
-    await vi.waitFor(() => expect(mockPutTelemetry).toHaveBeenCalledWith("denied"));
-    await expect
-      .element(page.getByRole("switch", { name: m.settings_telemetry_title() }))
-      .toHaveAttribute("aria-checked", "false");
-  });
-
   async function mountWithHousekeepingSwitch() {
     mockGetSettings.mockResolvedValue(settings({ sessionHousekeepingEnabled: true }));
     await mountSession();

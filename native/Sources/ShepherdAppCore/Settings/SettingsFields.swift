@@ -62,7 +62,6 @@ public struct SettingsField: Identifiable {
         .init(id:"operatorLanguage", title:"native_settings_field_operatorlanguage", kind:.text, value:{ $0.operatorLanguage.rawValue }, patch:{ .init(operatorLanguage: $0) }, cli:false),
         .init(id:"usageDowngradeModel", title:"native_settings_field_usagedowngrademodel", kind:.text, value:{ $0.usageDowngradeModel ?? "" }, patch:{ .init(usageDowngradeModel: $0) }, cli:true),
         .init(id:"blockJudgeMode", title:"native_settings_field_blockjudgemode", kind:.text, value:{ $0.blockJudgeMode ?? "" }, patch:{ .init(blockJudgeMode: $0) }, cli:false),
-        .init(id:"telemetryConsent", title:"native_settings_field_telemetryconsent", kind:.text, value:{ $0.telemetryConsent ?? "" }, patch:{ .init(telemetryConsent: $0) }, cli:false),
         .init(id:"criticCli", title:"native_settings_field_criticcli", kind:.text, value:{ $0.criticCli ?? "" }, patch:{ .init(criticCli: $0) }, cli:true),
         .init(id:"criticModel", title:"native_settings_field_criticmodel", kind:.text, value:{ $0.criticModel ?? "" }, patch:{ .init(criticModel: $0) }, cli:true),
         .init(id:"criticEffort", title:"native_settings_field_criticeffort", kind:.text, value:{ $0.criticEffort ?? "" }, patch:{ .init(criticEffort: $0) }, cli:true),

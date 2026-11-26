@@ -96,7 +96,7 @@ test("only gated SHEPHERD_* keys require a docs row", () => {
   expect(required("SHEPHERD_A", { docsExempt: true })).toBe(false);
   // Ambient / third-party / another tool's contract — not Shepherd's configuration.
   expect(required("HERDR_BIN", {})).toBe(false);
-  expect(required("DO_NOT_TRACK", {})).toBe(false);
+  expect(required("CI", {})).toBe(false);
   expect(required("NODE_ENV", {})).toBe(false);
 });
 

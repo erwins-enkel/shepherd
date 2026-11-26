@@ -5505,6 +5505,16 @@ describe("NewTask shape round", () => {
     expect(document.querySelector(".coach-hint")).toBeNull();
   });
 
+  it("is offered in epic mode", async () => {
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo", initialPrompt: "plan the rework" }),
+    });
+    await expect.poll(() => segButton(m.newtask_mode_epic())).toBeTruthy();
+    segButton(m.newtask_mode_epic()).click();
+    await expect.poll(() => segActive(m.newtask_mode_epic())).toBe(true);
+    await expect.poll(() => shapeBtn()?.disabled).toBe(false);
+  });
+
   it("is disabled until there is a prompt to shape, and never runs by itself", async () => {
     render(NewTask, { props: base({ initialRepoPath: "/repo" }) });
     await expect.poll(() => shapeBtn()).toBeTruthy();
@@ -5632,7 +5642,7 @@ describe("NewTask shape round", () => {
     expect(document.querySelector(".shape")).toBeNull();
   });
 
-  it("is not offered for research or epic tasks (no code brief to write)", async () => {
+  it("is not offered for research tasks (no brief to write)", async () => {
     render(NewTask, {
       props: base({ initialRepoPath: "/repo", initialPrompt: "x", initialResearch: true }),
     });

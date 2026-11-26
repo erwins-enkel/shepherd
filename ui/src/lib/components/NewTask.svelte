@@ -2878,12 +2878,12 @@
                   {/if}
                 </button>
                 <!-- Optional pre-spawn clarifying round (#2158). Sits with attach/dictate because
-                     it acts on the prompt itself. Hidden outside code mode (a research/epic task
-                     has no code brief) and on the mobile layout: the in-field toolbar's budget at
+                     it acts on the prompt itself. Hidden in research mode (a research task has no
+                     brief) and on the mobile layout: the in-field toolbar's budget at
                      375px is one labelled control beside the attachment chips, and a second
                      control wraps the row (pinned by the mobile no-wrap test). Shaping is
                      optional by design, so mobile keeps the freeform path. -->
-                {#if mode === "code" && !mobile}
+                {#if (mode === "code" || mode === "epic") && !mobile}
                   <!-- While the round runs the button is visibly busy (turning glyph, amber,
                        the clock) rather than merely disabled. -->
                   <button

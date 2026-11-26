@@ -9,15 +9,14 @@ export type ShapeBlocker = "empty_prompt" | "no_repo" | "wrong_mode" | "running"
 export interface ShapeAvailability {
   promptEmpty: boolean;
   repoResolved: boolean;
-  /** The New Task mode. Shaping produces a code-task brief: research has no brief, and epic mode
-   *  already has its own (richer) shaping flow. */
+  /** The New Task mode. Shaping produces a brief for code and epic tasks; research has none. */
   mode: ComposeMode;
   running: boolean;
 }
 
 export function shapeBlocker(i: ShapeAvailability): ShapeBlocker | null {
   if (i.running) return "running";
-  if (i.mode !== "code") return "wrong_mode";
+  if (i.mode !== "code" && i.mode !== "epic") return "wrong_mode";
   if (!i.repoResolved) return "no_repo";
   if (i.promptEmpty) return "empty_prompt";
   return null;

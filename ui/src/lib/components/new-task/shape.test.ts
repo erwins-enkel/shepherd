@@ -35,9 +35,12 @@ describe("shapeBlocker", () => {
     expect(shapeBlocker({ ...ok, repoResolved: false })).toBe("no_repo");
   });
 
-  it("blocks outside code mode (research has no brief; epic has its own shaping)", () => {
+  it("offers the round in epic mode too", () => {
+    expect(shapeBlocker({ ...ok, mode: "epic" })).toBeNull();
+  });
+
+  it("blocks in research mode — a research task has no brief", () => {
     expect(shapeBlocker({ ...ok, mode: "research" })).toBe("wrong_mode");
-    expect(shapeBlocker({ ...ok, mode: "epic" })).toBe("wrong_mode");
   });
 
   it("blocks while a round is already running, ahead of every other reason", () => {

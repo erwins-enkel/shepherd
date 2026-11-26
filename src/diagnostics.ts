@@ -57,6 +57,7 @@ import type { SandboxBackend } from "./sandbox";
 import { AGENT_SLICE, agentScopeEnabled } from "./agent-scope";
 import { execFileAsync } from "./instrument";
 import { sleep } from "./async";
+import type { PostgresStatus } from "./postgres";
 
 /** Reused from herdr-update.ts's parsing discipline — a (major.minor.patch)
  *  capture. Kept local so the regex's lastIndex state is never shared. */
@@ -188,6 +189,9 @@ export interface DiagnosticsDeps {
   /** Read-only count of orphaned worktree Compose projects; null/unwired means uninspectable.
    *  Wired to the shared cleanup instance in index.ts; never starts Docker in unit tests. */
   readComposeOrphans?: () => Promise<number | null>;
+  /** On-demand Postgres status (#4232) for the conditional `postgres` row; absent ⇒ no row.
+   *  Wired to `PostgresService.status` in index.ts; never starts Docker in unit tests. */
+  readPostgres?: () => Promise<PostgresStatus>;
   /** Read temp-filesystem inode facts for the `tmp_inodes` check (#1862). Default statfs's
    *  `tmpdir()` and pairs the result with the live bands; injected in tests so band boundaries are
    *  asserted without touching a real filesystem. Reject ⇒ the probe falls back to
@@ -964,6 +968,23 @@ export function classifyMembraneLaunch(f: MembraneLaunchFacts): DiagnosticCheck 
   return { id: "sandbox_membrane", state: "ok", hintKey: "diagnostics_hint_sandbox_membrane_ok" };
 }
 
+/** postgres (#4232): null (row omitted) while the feature is off. Docker unreachable is an error;
+ *  a running-but-unready server or settings awaiting a recreate are warnings; stopped is ok — it
+ *  starts on demand, pulling the image first if needed. */
+export function classifyPostgres(s: PostgresStatus): DiagnosticCheck | null {
+  if (!s.enabled) return null;
+  const row = (state: DiagnosticCheck["state"], hint: string): DiagnosticCheck => ({
+    id: "postgres",
+    state,
+    hintKey: `diagnostics_hint_postgres_${hint}`,
+  });
+  if (!s.docker) return row("error", "docker");
+  if (s.container === "running" && !s.ready) return row("warning", "unhealthy");
+  if (s.drift) return row("warning", "drift");
+  if (s.container === "running") return row("ok", "running");
+  return row("ok", s.image ? "stopped" : "image");
+}
+
 // ── sandbox_egress check (#3459) ─────────────────────────────────────────────
 
 /** What the `sandbox_egress` row classifies. `egress` is null when `sandboxBackend` is null — no
@@ -1260,6 +1281,7 @@ export class DiagnosticsService {
   private readHostResources: () => Promise<HostCapacityFacts>;
   private readHerdrFleet: () => Promise<HerdrFleetFacts>;
   private readComposeOrphans: () => Promise<number | null>;
+  private readPostgres: (() => Promise<PostgresStatus>) | undefined;
   private readTmpInodes: () => Promise<TmpInodeFacts>;
   private readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
   private readSandboxEgress: () => Promise<SandboxEgressFacts>;
@@ -1332,6 +1354,7 @@ export class DiagnosticsService {
     const reads = resolveUnwiredReads(deps);
     this.readHerdrFleet = reads.readHerdrFleet;
     this.readComposeOrphans = reads.readComposeOrphans;
+    this.readPostgres = deps.readPostgres;
     this.readMembraneLaunch = reads.readMembraneLaunch;
     this.readSandboxEgress = reads.readSandboxEgress;
     this.applyHostLimits = deps.applyHostLimits ?? defaultApplyHostLimits;
@@ -1711,6 +1734,13 @@ export class DiagnosticsService {
     return check ? [check] : [];
   };
 
+  /** postgres (#4232): conditional row, omitted while the feature is off or unwired. */
+  private postgresProbe = async (): Promise<DiagnosticCheck[]> => {
+    if (!this.readPostgres) return [];
+    const check = classifyPostgres(await this.readPostgres());
+    return check ? [check] : [];
+  };
+
   /** preview_probes (#1912): does process/port detection work on this host?
    *  Classifies from BOTH the standalone backend probe AND the live snapshot-cell
    *  health (`probeHealth` is a pure read, so this adds no sync spawn). A probe
@@ -1857,35 +1887,41 @@ export class DiagnosticsService {
   /** Force a fresh run of all probes; sets the TTL cache. A probe that throws /
    *  times out resolves to its defined non-OK fallback — the batch never rejects. */
   async check(now: number): Promise<DiagnosticsSnapshot> {
-    const [checks, agentCliChecks, membraneChecks, egressChecks] = await Promise.all([
-      Promise.all(this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout))),
-      this.agentCliProbes().catch((): DiagnosticCheck[] => [
-        { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
-        { id: "codex", state: "error", hintKey: "diagnostics_hint_codex_missing" },
-      ]),
-      // Conditional row (#2111), which is why it is not in `probes()` — that shape demands exactly
-      // one check per probe. Two distinct absences: the classifier returns null for NOT APPLICABLE
-      // (no agent CLI) and the row is omitted, while a REJECTED read — the
-      // unwired fail-safe, or a read that genuinely failed — is "tried and couldn't" and surfaces
-      // as `optional`. Never a false ok either way.
-      this.membraneLaunchProbe().catch((): DiagnosticCheck[] => [
-        {
-          id: "sandbox_membrane",
-          state: "optional",
-          hintKey: "diagnostics_hint_sandbox_membrane_uninspectable",
-        },
-      ]),
-      // Conditional for the same reason (#3459): omitted without a bwrap backend; a rejected read
-      // (unwired, or a probe that timed out) is "couldn't check" ⇒ `optional`, never a false ok.
-      this.sandboxEgressProbe().catch((): DiagnosticCheck[] => [
-        {
-          id: "sandbox_egress",
-          state: "optional",
-          hintKey: "diagnostics_hint_sandbox_egress_uninspectable",
-        },
-      ]),
-    ]);
+    const [checks, agentCliChecks, membraneChecks, egressChecks, postgresChecks] =
+      await Promise.all([
+        Promise.all(this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout))),
+        this.agentCliProbes().catch((): DiagnosticCheck[] => [
+          { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
+          { id: "codex", state: "error", hintKey: "diagnostics_hint_codex_missing" },
+        ]),
+        // Conditional row (#2111), which is why it is not in `probes()` — that shape demands exactly
+        // one check per probe. Two distinct absences: the classifier returns null for NOT APPLICABLE
+        // (no agent CLI) and the row is omitted, while a REJECTED read — the
+        // unwired fail-safe, or a read that genuinely failed — is "tried and couldn't" and surfaces
+        // as `optional`. Never a false ok either way.
+        this.membraneLaunchProbe().catch((): DiagnosticCheck[] => [
+          {
+            id: "sandbox_membrane",
+            state: "optional",
+            hintKey: "diagnostics_hint_sandbox_membrane_uninspectable",
+          },
+        ]),
+        // Conditional for the same reason (#3459): omitted without a bwrap backend; a rejected read
+        // (unwired, or a probe that timed out) is "couldn't check" ⇒ `optional`, never a false ok.
+        this.sandboxEgressProbe().catch((): DiagnosticCheck[] => [
+          {
+            id: "sandbox_egress",
+            state: "optional",
+            hintKey: "diagnostics_hint_sandbox_egress_uninspectable",
+          },
+        ]),
+        // Conditional too (#4232): omitted while Postgres is off; a failed read is "couldn't check".
+        this.postgresProbe().catch((): DiagnosticCheck[] => [
+          { id: "postgres", state: "optional", hintKey: "diagnostics_hint_postgres_uninspectable" },
+        ]),
+      ]);
     checks.splice(4, 0, ...agentCliChecks, ...membraneChecks, ...egressChecks);
+    checks.push(...postgresChecks);
     // Annotate each non-ok, auto-fixable check with its verbatim Fix command. Only
     // attach the key when a command exists (guidance-only / ok stay absent), so
     // payload-purity expectations hold.

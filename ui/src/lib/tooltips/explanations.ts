@@ -438,6 +438,20 @@ export function sharedBrowserExplanation(): TooltipExplanation {
   };
 }
 
+/** Agent → "Postgres on request" (#4232): what the per-repo switch gives agents, what each one
+ *  gets, its limits, and what it needs. */
+export function postgresExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_postgres_title(),
+    summary: m.tooltip_postgres_summary(),
+    sections: [
+      { label: m.tooltip_postgres_for(), text: m.tooltip_postgres_for_body() },
+      { label: m.tooltip_postgres_lifecycle(), text: m.tooltip_postgres_lifecycle_body() },
+      { label: m.tooltip_postgres_needs(), text: m.tooltip_postgres_needs_body() },
+    ],
+  };
+}
+
 /** Automation → "claude.ai connectors": what the per-repo switch unlocks, what agents can then
  *  reach, what it needs, and what flipping it does to running sessions. */
 export function claudeAiConnectorsExplanation(): TooltipExplanation {

@@ -10224,6 +10224,12 @@ components:
         reviewFeedbackResolve:
           type: boolean
           description: Default false. When on (forge repos only), a task agent that pushed the fix for a steered inline review comment can declare it addressed; Shepherd then replies on the thread with the agent's note and the fixing commit and resolves it. Sessions pick up the tool at their next spawn or resume.
+        postgresMode:
+          type: string
+          enum:
+            - off
+            - on-request
+          description: Machine-local, default off. on-request offers trusted and standard Claude task sessions the postgres_request MCP tool, which hands them their own clone database on Shepherd's shared on-demand Postgres server (Settings → Resources → Postgres must be on). Sessions pick up the tool at their next spawn or resume.
         automationConfirmed:
           type: boolean
         automationRowExists:
@@ -10447,6 +10453,12 @@ components:
         reviewFeedbackResolve:
           type: boolean
           description: Resolve addressed review threads (see RepoConfig.reviewFeedbackResolve). A non-boolean is 400.
+        postgresMode:
+          type: string
+          enum:
+            - off
+            - on-request
+          description: On-demand Postgres for this repo's sessions (see RepoConfig.postgresMode). Another value is 400.
         automationConfirmed:
           type: boolean
     RepoRoles:
@@ -11695,6 +11707,12 @@ components:
             minLength: 1
         usageCeilingPct:
           type: number
+        postgresMode:
+          type: string
+          enum:
+            - off
+            - on-request
+          description: On-demand Postgres for this repo's sessions (see RepoConfig.postgresMode). Another value is 400.
         sandboxProfile:
           description: trusted | standard | autonomous | inherit.
           type: string

@@ -2002,3 +2002,39 @@ test("Codex speed default persists and an ineligible Fast choice is rejected", a
     config.defaultCodexSpeed = previous;
   }
 });
+
+test("postgres (#4232): defaults, patch merges + persists + re-applies, bad input 400s untouched", async () => {
+  const store = new SessionStore(":memory:");
+  let applied = 0;
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    readCodexAuthMode: () => "unknown",
+    postgres: {
+      applySettings: async () => void applied++,
+      request: async () => ({ status: "starting" }),
+      settings: () => ({ enabled: false, port: 54318, idleMinutes: 15, image: "postgres:18" }),
+    },
+  });
+  const get = async () => await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect((await get()).postgres).toEqual({
+    enabled: false,
+    port: 54318,
+    idleMinutes: 15,
+    image: "postgres:18",
+  });
+  const ok = await patch(app, { postgres: { enabled: true, idleMinutes: 5 } });
+  expect(ok.status).toBe(200);
+  const want = { enabled: true, port: 54318, idleMinutes: 5, image: "postgres:18" };
+  expect(await ok.json()).toEqual({ postgres: want });
+  expect(JSON.parse(store.getSetting("postgres")!)).toEqual(want);
+  expect(applied).toBe(1);
+  for (const bad of [{ port: 22 }, { image: "--privileged" }, { idleMinutes: 0 }, {}]) {
+    const res = await patch(app, { postgres: bad });
+    expect(res.status).toBe(400);
+  }
+  expect((await get()).postgres).toEqual(want);
+  expect(applied).toBe(1);
+});

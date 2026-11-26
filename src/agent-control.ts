@@ -80,6 +80,7 @@ import type { RepoConfig, SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
+import { PostgresError, type PostgresService } from "./postgres";
 import {
   BUILD_STEP_STATUSES,
   validateBuildStepStatus,
@@ -132,6 +133,9 @@ export interface AgentControlDeps {
   ghAppModeConfigured?: () => boolean;
   /** Review feedback (#4139); absent ⇒ `review_feedback_addressed` answers "unavailable". */
   reviewFeedback?: Pick<ReviewFeedbackService, "markAddressed">;
+  /** On-demand Postgres (#4232); absent ⇒ `postgres_request` answers "unavailable" and the
+   *  capability is off. */
+  postgres?: Pick<PostgresService, "request" | "settings">;
 }
 
 /** `self_status.preview`: the HUD's `PreviewReach` plus the dev port the slot proxies to. */
@@ -491,6 +495,31 @@ async function applyBrowserRequestLogin(
   };
 }
 
+// ── postgres request (#4232) ─────────────────────────────────────────────────
+
+const POSTGRES_READY_NEXT =
+  "Use this dsn for your app and tests (e.g. DATABASE_URL); never commit it. If a connection is refused later, call postgres_request again.";
+const POSTGRES_STARTING_NEXT =
+  "The Postgres server is still starting (first use may pull the image). Call postgres_request again.";
+
+/** Ensure this session's clone DB and hand back its credentials, or `starting`. */
+async function applyPostgresRequest(
+  deps: AgentControlDeps,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<ApplyResult<unknown>> {
+  if (!deps.postgres) return { ok: false, status: 503, error: "postgres unavailable" };
+  try {
+    const outcome = await deps.postgres.request(sessionId, signal);
+    return outcome.status === "ready"
+      ? { ok: true, data: { status: "ready", ...outcome.connection, next: POSTGRES_READY_NEXT } }
+      : { ok: true, data: { status: "starting", next: POSTGRES_STARTING_NEXT } };
+  } catch (e) {
+    const status = e instanceof PostgresError && e.code === "no-session" ? 404 : 503;
+    return { ok: false, status, error: (e as Error).message };
+  }
+}
+
 // ── gh permission request (#4119) ────────────────────────────────────────────
 
 /** One call's wait window — under Claude Code's hard 60s HTTP MCP cap, like the login request. */
@@ -846,6 +875,19 @@ const GH_REQUEST_PERMISSION: McpTool = {
   },
 };
 
+const POSTGRES_REQUEST: McpTool = {
+  name: "postgres_request",
+  description:
+    "Get this session's own Postgres database on Shepherd's shared local Postgres server. Use it " +
+    "instead of adding a Docker Compose file or starting your own Postgres. The database is a " +
+    "fresh clone of this repo's template, owned by your own role; it is dropped when the session " +
+    "is archived. Idempotent: every call returns the same credentials. `ready` carries `dsn` " +
+    "(also host/port/database/user/password) — pass it to your app via env (e.g. DATABASE_URL), " +
+    "never commit it. `starting` means the server is still coming up: call again. If a " +
+    "connection is later refused, the server was stopped while idle: call this again.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+};
+
 const SCHEDULE_NOOP: McpTool = {
   name: "schedule_noop",
   description:
@@ -953,6 +995,8 @@ export interface AgentCapabilities {
   /** `review_feedback_addressed` (#4139) — a non-plain session in a forge repo that opted into
    *  resolving addressed review threads. */
   reviewFeedbackResolve?: boolean;
+  /** `postgres_request` (#4232) — see {@link postgresRequestAllowed}. */
+  postgresRequest?: boolean;
 }
 
 /** An unknown session's capabilities: none. */
@@ -1009,6 +1053,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.ciDownload) tools.push(CI_DOWNLOAD);
   if (caps.ghPermissionRequest) tools.push(GH_REQUEST_PERMISSION);
   if (caps.reviewFeedbackResolve) tools.push(REVIEW_FEEDBACK_ADDRESSED);
+  if (caps.postgresRequest) tools.push(POSTGRES_REQUEST);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   if (caps.operatorCodex) tools.push(ASSISTANT_SHELL_TOOL, ASSISTANT_VIEW_TOOL);
   if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
@@ -1077,6 +1122,26 @@ export function reviewFeedbackResolveAllowed(o: {
   return !o.plain && reviewFeedbackResolveOn(o.repoConfig);
 }
 
+/** The `postgresRequest` rule (#4232), shared by the spawn path (resolved profile) and the row
+ *  path (`sandboxApplied`): Postgres is on globally and the repo opted in. The DSN points at the
+ *  host loopback, which trusted and standard sessions share; autonomous sessions sit in their own
+ *  netns (a follow-up), and Codex sessions get no MCP control plane. */
+export function postgresRequestAllowed(o: {
+  plain: boolean | undefined;
+  profile: string | null;
+  agentProvider?: string | null;
+  postgresMode: string | undefined;
+  globalEnabled: boolean;
+}): boolean {
+  return (
+    o.globalEnabled &&
+    o.postgresMode === "on-request" &&
+    !o.plain &&
+    o.profile !== "autonomous" &&
+    o.agentProvider !== "codex"
+  );
+}
+
 /** A stored session's capabilities; an unknown session has none. Reads the session's PERSISTED
  *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
@@ -1115,6 +1180,13 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
       appModeConfigured: (deps.ghAppModeConfigured ?? agentGhAppConfigured)(),
     }),
     reviewFeedbackResolve: reviewFeedbackResolveAllowed({ plain: session.plain, repoConfig }),
+    postgresRequest: postgresRequestAllowed({
+      plain: session.plain,
+      profile: session.sandboxApplied,
+      agentProvider: session.agentProvider,
+      postgresMode: repoConfig.postgresMode,
+      globalEnabled: deps.postgres?.settings().enabled ?? false,
+    }),
   };
 }
 
@@ -1225,6 +1297,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   gh_request_permission: (deps, id, args, signal) =>
     applyGhRequestPermission(deps, id, args, signal),
   review_feedback_addressed: (deps, id, args) => applyReviewFeedbackAddressed(deps, id, args),
+  postgres_request: (deps, id, _args, signal) => applyPostgresRequest(deps, id, signal),
   herd_status: (deps, id, args) => applyHerdStatus(deps, args, assistantScope(deps, id)),
   repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),

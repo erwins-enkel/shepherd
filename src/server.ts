@@ -1,3 +1,12 @@
+import {
+  POSTGRES_MODES,
+  POSTGRES_SETTING,
+  isPostgresMode,
+  parsePostgresPatch,
+  storedPostgresSettings,
+  type PostgresMode,
+} from "./postgres-core";
+import type { PostgresService } from "./postgres";
 import { handoffPage, providerHandoffStatus, ProviderHandoffError } from "./provider-handoff";
 import { RepoLeitrechnerService } from "./repo-leitrechner";
 import {
@@ -872,6 +881,9 @@ export interface AppDeps {
    *  routes. Absent in tests that don't wire it → `/api/plugins/manage/*` falls through. */
   pluginsDir?: string;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
+  /** On-demand Postgres (#4232): `postgres_request` over the agent ingress, and re-applied after
+   *  a `postgres` settings change (turning it off stops the server). Absent ⇒ off. */
+  postgres?: Pick<PostgresService, "applySettings" | "request" | "settings">;
   /** Host-wide heavy-check slot (#3181); absent → `/api/heavy-slot` reports it switched off. */
   heavySlot?: HeavySlotSource &
     Partial<
@@ -3663,6 +3675,7 @@ type RepoCfgBody = {
   reviewFeedbackMode?: unknown;
   reviewFeedbackBots?: unknown;
   reviewFeedbackResolve?: unknown;
+  postgresMode?: unknown;
   automationConfirmed?: unknown;
   leitrechner?: unknown;
 };
@@ -3698,6 +3711,7 @@ type RepoCfgScalars = {
   previewOpenMode?: "ask" | "inline" | "tab";
   reviewFeedbackMode?: ReviewFeedbackMode;
   reviewFeedbackBots?: string[];
+  postgresMode?: PostgresMode;
 };
 
 /** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
@@ -3764,6 +3778,13 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["previewOpenMode", parsePreviewOpenMode],
   ["reviewFeedbackMode", parseReviewFeedbackMode],
   ["reviewFeedbackBots", parseReviewFeedbackBots],
+  [
+    "postgresMode",
+    (v) =>
+      isPostgresMode(v)
+        ? v
+        : { error: `postgresMode must be one of: ${POSTGRES_MODES.join(", ")}` },
+  ],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -3827,6 +3848,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       reviewFeedbackMode?: ReviewFeedbackMode;
       reviewFeedbackBots?: string[];
       reviewFeedbackResolve?: boolean;
+      postgresMode?: PostgresMode;
       automationConfirmed?: boolean;
     }
   | Response
@@ -3868,6 +3890,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     previewOpenMode,
     reviewFeedbackMode,
     reviewFeedbackBots,
+    postgresMode,
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
@@ -3878,7 +3901,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, automationConfirmed, leitrechner",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, automationConfirmed, leitrechner",
       },
       400,
     );
@@ -3929,6 +3952,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     reviewFeedbackMode,
     reviewFeedbackBots,
     reviewFeedbackResolve: body.reviewFeedbackResolve as boolean | undefined,
+    postgresMode,
     automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }
@@ -11987,6 +12011,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       ),
       // Settings → Resources (#3552): the slot controls plus the defaults and peaks they explain.
       heavySlot: heavySlotSettingsView(deps.store),
+      // Settings → Resources → Postgres (#4232): the shared on-demand server.
+      postgres: storedPostgresSettings(deps.store.getSetting(POSTGRES_SETTING)),
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
@@ -12096,6 +12122,7 @@ const SETTING_PATCHES: [
   ["upnextSkipCliPicker", putUpnextSkipCliPicker],
   ["upnextQuickStarts", putUpnextQuickStarts],
   ["heavySlot", putHeavySlot],
+  ["postgres", putPostgres],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["operatorLanguage", putOperatorLanguage],
@@ -12557,6 +12584,17 @@ function putUpnextQuickStarts(value: unknown, deps: Ctx["deps"]): Response {
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   deps.store.setSetting(UPNEXT_QUICK_STARTS_SETTING, JSON.stringify(parsed.value));
   return json({ upnextQuickStarts: parsed.value });
+}
+
+/** Settings → Resources → Postgres (#4232). Live: the next request uses the new values (a changed
+ *  port or image recreates the container then, keeping its data volume); turning it off stops it. */
+async function putPostgres(value: unknown, deps: Ctx["deps"]): Promise<Response> {
+  const current = storedPostgresSettings(deps.store.getSetting(POSTGRES_SETTING));
+  const parsed = parsePostgresPatch(value, current);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  deps.store.setSetting(POSTGRES_SETTING, JSON.stringify(parsed.value));
+  await deps.postgres?.applySettings();
+  return json({ postgres: parsed.value });
 }
 
 /** Settings → Resources (#3552). Takes effect at once for the next slot decision; running checks

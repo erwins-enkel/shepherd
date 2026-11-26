@@ -440,8 +440,21 @@ export interface HeavyResourceSettings {
   peaks: Record<string, number>;
 }
 
+/** #4232: per-repo on-demand Postgres. */
+export type PostgresMode = "off" | "on-request";
+
+/** Settings → Resources → Postgres (#4232): the shared on-demand server. */
+export interface PostgresSettings {
+  enabled: boolean;
+  port: number;
+  idleMinutes: number;
+  image: string;
+}
+
 export interface Settings {
   heavySlot?: HeavyResourceSettings;
+  /** Absent from older servers. */
+  postgres?: PostgresSettings;
   repoRoot: string;
   repoRootDisplay: string;
   /** True on a genuine server-detected first run: the onboarding surface must block until the
@@ -1534,6 +1547,9 @@ export interface RepoConfig {
   /** Reply on and resolve an inline review thread once the agent declares it addressed after a
    *  push (#4139); absent from older servers, which read as off. */
   reviewFeedbackResolve?: boolean;
+  /** On-demand Postgres for this repo's sessions (#4232), machine-local; absent from older
+   *  servers, which read as off. */
+  postgresMode?: PostgresMode;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */

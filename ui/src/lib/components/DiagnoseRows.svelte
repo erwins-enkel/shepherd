@@ -145,11 +145,11 @@
             {#if check.state === "ok"}✓{:else if check.state === "optional"}–{:else if check.state === "warning"}⚠{:else}✗{/if}
           </span>
           <span class="micro label">{label(check.id)}</span>
-          <span class="state-word micro" style="color:{wordColor(check.state)}"
-            >{stateWord(check.state)}</span
-          >
+          <span class="state-word micro" style="color:{wordColor(check.state)}">
+            {stateWord(check.state)}
+          </span>
         </div>
-        {#if check.state !== "ok" || check.id === "docker_compose"}
+        {#if check.state !== "ok" || ["docker_compose", "postgres"].includes(check.id)}
           <p class="hint"><GlossaryText text={hint(check)} /></p>
         {/if}
         {#if ["diagnostics_hint_herdr_unsupported", "diagnostics_hint_herdr_restart", "diagnostics_hint_herdr_unknown"].includes(check.hintKey) && onherdrupdate}
@@ -193,8 +193,9 @@
               type="button"
               class="fix micro"
               onclick={() => onask?.(label(check.id), stateWord(check.state))}
-              >{m.operator_assistant_ask()}</button
             >
+              {m.operator_assistant_ask()}
+            </button>
           </div>
         {/if}
       </div>

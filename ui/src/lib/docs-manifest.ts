@@ -48,6 +48,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network connect another machine deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support transient api errors agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails agent sessions run in their own slice add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit heavy checks take turns auto-merge without pr ci review feedback from people and bots resolve addressed threads warm and cold repos session chat steering report operator assistant open it repo assistants what it reads permissions (settings → assistant) when herdr is down new conversation",
   },
   {
+    title: "On-demand Postgres",
+    path: "/postgres/",
+    keywords:
+      "let agents ask shepherd for their own postgres database on a shared local server that only runs while it is needed. requirements turn it on how agents use it lifecycle security diagnose",
+  },
+  {
     title: "CI Watch",
     path: "/reference/ci-watch/",
     keywords:
@@ -163,7 +169,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Security",
     path: "/reference/security/",
     keywords:
-      "sandbox membrane, egress firewall, and accepted security residuals. per-spawn overrides from access tokens (audit run-2 r2-f07) r3 — in-membrane token readability (accepted) repo agent secrets (#4122) reviewer roles (audit n10) agent-ingress key (#3337) operator assistant approvals shared claude state and agent-written files attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser host-side git state directory permissions (#3404) doc-agent finalize (audit run-2 r2-f04) see also",
+      "sandbox membrane, egress firewall, and accepted security residuals. per-spawn overrides from access tokens (audit run-2 r2-f07) r3 — in-membrane token readability (accepted) repo agent secrets (#4122) on-demand postgres (#4232) reviewer roles (audit n10) agent-ingress key (#3337) operator assistant approvals shared claude state and agent-written files attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser host-side git state directory permissions (#3404) doc-agent finalize (audit run-2 r2-f04) see also",
   },
   {
     title: "Sentry",

@@ -131,6 +131,7 @@ export default defineConfig({
             { label: "Hands-off epics", slug: "hands-off-epics" },
             { label: "Capture extension", slug: "capture-extension" },
             { label: "Shared browser", slug: "shared-browser" },
+            { label: "On-demand Postgres", slug: "postgres" },
             { label: "Scheduled prompts", slug: "scheduled-prompts" },
           ],
         },

@@ -12,6 +12,7 @@ import type {
   SpawnNotice,
   SpawnNoticeKind,
   ReviewFeedbackMode,
+  PostgresMode,
 } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
@@ -438,6 +439,7 @@ const OVERLAY_MAPS = {
   reviewFeedbackMode: "reviewFeedbackMode",
   reviewFeedbackBots: "reviewFeedbackBots",
   reviewFeedbackResolve: "reviewFeedbackResolve",
+  postgresMode: "postgresMode",
   usageCeilingPct: "usageCeiling",
   automationConfirmed: "confirmed",
 } as const satisfies Partial<Record<keyof RepoConfigPatch, keyof RepoConfigStore>>;
@@ -491,6 +493,7 @@ export class RepoConfigStore {
   priorityLabels = $state<Record<string, string[]>>({}); // labels drained first, besides shepherd:priority (#3446)
   reviewFeedbackMode = $state<Record<string, ReviewFeedbackMode>>({}); // PR review feedback → agent (default "autopilot", #4126)
   reviewFeedbackBots = $state<Record<string, string[]>>({}); // review bots whose feedback counts (default preset, #4126)
+  postgresMode = $state<Record<string, PostgresMode>>({}); // on-demand Postgres per repo (default off, #4232)
   reviewFeedbackResolve = $state<Record<string, boolean>>({}); // reply + resolve addressed inline threads (default off, #4139)
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
   confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
@@ -594,13 +597,20 @@ export class RepoConfigStore {
       ...this.reviewFeedbackResolve,
       [repoPath]: c.reviewFeedbackResolve ?? false,
     };
+    this.ingestPostgres(repoPath, c);
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     this.ingestOptional(repoPath, c);
     this.markSettled(repoPath);
     if (!this.loaded[repoPath]) this.loaded = { ...this.loaded, [repoPath]: true };
   }
 
+  /** #4232: an older server's absent `postgresMode` reads as off. */
+  private ingestPostgres(repoPath: string, c: RepoConfigResponse) {
+    this.postgresMode = { ...this.postgresMode, [repoPath]: c.postgresMode ?? "off" };
+  }
+
   /** The response fields a write may omit: absent leaves the stored value as-is. */
+
   private ingestOptional(repoPath: string, c: RepoConfigResponse) {
     if (c.egressStandardDefault !== undefined)
       this.egressStandard = {
@@ -907,6 +917,10 @@ export class RepoConfigStore {
     });
   }
 
+  async togglePostgres(repoPath: string) {
+    await this.write(repoPath, { postgresMode: this.postgresOn(repoPath) ? "off" : "on-request" });
+  }
+
   async toggleSharedBrowser(repoPath: string) {
     await this.write(repoPath, { sharedBrowserEnabled: !this.sharedBrowserOn(repoPath) });
   }
@@ -1053,6 +1067,10 @@ export class RepoConfigStore {
 
   labelDrainAlongsideEpicsOn(repoPath: string): boolean {
     return this.labelDrainAlongsideEpics[repoPath] ?? false;
+  }
+
+  postgresOn(repoPath: string): boolean {
+    return (this.postgresMode[repoPath] ?? "off") === "on-request";
   }
 
   sharedBrowserOn(repoPath: string): boolean {

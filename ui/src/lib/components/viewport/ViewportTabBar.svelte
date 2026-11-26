@@ -15,6 +15,7 @@
 
   let {
     tab = $bindable(),
+    onterminal,
     session,
     previewPort,
     todoExists,
@@ -27,6 +28,8 @@
     foldRegionId,
   }: {
     tab: Tab;
+    /** Terminal tab click: switches to it and focuses its input (#4221). */
+    onterminal: () => void;
     session: Session;
     previewPort: number | null;
     todoExists: boolean;
@@ -102,8 +105,10 @@
         aria-selected={tab === "chat"}
         aria-controls={vpBodyId}
         use:coachTarget={"chat-tab"}
-        onclick={() => (tab = "chat")}>{m.viewport_chat_tab()}</button
+        onclick={() => (tab = "chat")}
       >
+        {m.viewport_chat_tab()}
+      </button>
     {/if}
     <button
       class="tab-btn"
@@ -112,8 +117,10 @@
       id={tabId("term")}
       aria-selected={tab === "term"}
       aria-controls={vpBodyId}
-      onclick={() => (tab = "term")}>{m.viewport_terminal_tab()}</button
+      onclick={onterminal}
     >
+      {m.viewport_terminal_tab()}
+    </button>
     {#if todoExists}
       <!-- only when the repo has a TODO.md (server-resolved); skips the empty
            "add your first item" tab so the strip stays meaningful. -->
@@ -124,8 +131,10 @@
         id={tabId("todo")}
         aria-selected={tab === "todo"}
         aria-controls={vpBodyId}
-        onclick={() => (tab = "todo")}>{m.viewport_todo_tab()}</button
+        onclick={() => (tab = "todo")}
       >
+        {m.viewport_todo_tab()}
+      </button>
     {/if}
     <!-- always shown: the Diff subtab inside Files is available for every session. Scratchpad /
          Worktree subtabs appear there only when computeHasFiles holds (#1258, #1717). -->
@@ -137,8 +146,10 @@
       aria-selected={tab === "files"}
       aria-controls={vpBodyId}
       use:coachTarget={"files-tab"}
-      onclick={() => (tab = "files")}>{m.viewport_files_tab()}</button
+      onclick={() => (tab = "files")}
     >
+      {m.viewport_files_tab()}
+    </button>
     {#if hasAutomation}
       <!-- the repo's automation settings + this task's autopilot override -->
       <button
@@ -156,13 +167,16 @@
         use:coachTarget={"critic"}
         use:coachTarget={"auto-address"}
         onclick={() => (tab = "automation")}
-        >{m.viewport_automation_tab()}
-        <span class="auto-count" class:on={autoCount > 0} class:reviewing={autoReviewing}
-          >{autoCount}/{AUTOMATION_TOTAL}</span
-        >{#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
-            class="sr-only">{m.newdot_aria()}</span
-          >{/if}</button
       >
+        {m.viewport_automation_tab()}
+        <span class="auto-count" class:on={autoCount > 0} class:reviewing={autoReviewing}>
+          {autoCount}/{AUTOMATION_TOTAL}
+        </span>{#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
+            class="sr-only"
+          >
+            {m.newdot_aria()}
+          </span>{/if}
+      </button>
     {/if}
     {#if hasBrowser}
       <!-- the repo's Shared Browser, live (Browser View) — sits last, next to Preview -->
@@ -173,8 +187,10 @@
         id={tabId("browser")}
         aria-selected={tab === "browser"}
         aria-controls={vpBodyId}
-        onclick={() => (tab = "browser")}>{m.viewport_browser_tab()}</button
+        onclick={() => (tab = "browser")}
       >
+        {m.viewport_browser_tab()}
+      </button>
     {/if}
   </div>
   {#if hasPreview}
@@ -187,8 +203,10 @@
       id={tabId("preview")}
       aria-selected={tab === "preview"}
       aria-controls={vpBodyId}
-      onclick={() => (tab = "preview")}>{m.viewport_preview_tab()}</button
+      onclick={() => (tab = "preview")}
     >
+      {m.viewport_preview_tab()}
+    </button>
   {:else if compact && !session.archivedAt}
     <!-- no preview yet: operator-triggered start. Compact keeps it pinned at the
          tab row's right edge; on desktop it lives in the actions cluster

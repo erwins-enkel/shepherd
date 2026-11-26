@@ -158,6 +158,7 @@
     nextBelow,
     nthId,
     altComboKey,
+    isTypingTarget,
   } from "#lib/components/herd-keynav.js";
   import { createJumpHandlers } from "#lib/components/herd-jump.js";
   import { needsCentering, scrollParentOf } from "#lib/components/herd-reveal.js";
@@ -2187,16 +2188,6 @@
     jumpToSession(id);
   }
 
-  // true when focus sits in something that consumes typing — a form field or the
-  // PTY terminal (xterm holds focus in a hidden <textarea>, so the TEXTAREA check
-  // covers it). Single-key shortcuts must stay silent there so they never eat a
-  // keystroke the user meant for the terminal or an input.
-  function isTyping(el: EventTarget | null): boolean {
-    if (!(el instanceof HTMLElement)) return false;
-    const tag = el.tagName;
-    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
-  }
-
   // The rail's all/ready list filter, bound into <Herd> so keynav sees exactly
   // what the rail shows — with "ready" active, j/k/1-9 only walk visible rows.
   let herdFilter = $state<HerdFilter>("all");
@@ -2555,7 +2546,7 @@
 
   // The plain-key tier of onShortcut.
   function handlePlainKey(e: KeyboardEvent) {
-    if (isTyping(e.target)) return;
+    if (isTypingTarget(e.target)) return;
     if (routePageTabKey(e, emptyBacklog, railIds)) return;
     const key = e.key.toLowerCase();
     switch (key) {

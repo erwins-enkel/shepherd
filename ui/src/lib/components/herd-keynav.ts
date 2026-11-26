@@ -297,3 +297,13 @@ export function assistantChordHint(mac: boolean): string {
 export function isPtySuppressedChord(e: KeyboardEvent): boolean {
   return isCommandBarChord(e) || isSettingsChord(e) || isAssistantChord(e);
 }
+
+/** True when focus sits in something that consumes typing — a form field or the
+ *  PTY terminal (xterm holds focus in a hidden <textarea>, so the TEXTAREA check
+ *  covers it). The page's single-key shortcuts must stay silent there so they never
+ *  eat a keystroke the user meant for the terminal or an input. */
+export function isTypingTarget(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 
 // Capture everything the terminal would write to the PTY. Registered BEFORE the
@@ -18,6 +19,8 @@ vi.mock("#lib/pty.js", () => ({
 // Component must be imported AFTER the mock is registered.
 const { default: Viewport } = await import("./Viewport.svelte");
 import type { Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { isTypingTarget } from "./herd-keynav";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -133,5 +136,37 @@ describe("Viewport Alt+arrow input", () => {
     );
 
     expect(ptySend.mock.calls).toEqual([[sequence]]);
+  });
+});
+
+// #4221: clicking the Terminal tab left focus on the tab button, so a plain ↑/↓ fell through
+// the page's typing guard into herd keynav and switched sessions instead of reaching the agent.
+describe("Terminal tab focus (#4221)", () => {
+  async function switchToTerminal() {
+    await page.getByRole("tab", { name: m.viewport_files_tab() }).click();
+    await page.getByRole("tab", { name: m.viewport_terminal_tab() }).click();
+  }
+
+  it("clicking the Terminal tab focuses the terminal; ↑ reaches the PTY, not keynav", async () => {
+    await render(Viewport, { session: session({ id: "tab-focus" }) });
+    await terminalTextarea();
+    await switchToTerminal();
+    await vi.waitFor(() =>
+      expect(document.activeElement?.classList.contains("xterm-helper-textarea")).toBe(true),
+    );
+    // the page's plain-key tier stands down for this target
+    expect(isTypingTarget(document.activeElement)).toBe(true);
+
+    ptySend.mockClear();
+    await userEvent.keyboard("{ArrowUp}");
+    await vi.waitFor(() => expect(ptySend.mock.calls).toContainEqual(["\x1b[A"]));
+  });
+
+  it("leaves focus alone on touch (no soft keyboard pop)", async () => {
+    await render(Viewport, { session: session({ id: "tab-focus-touch" }), touch: true });
+    await terminalTextarea();
+    await switchToTerminal();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.activeElement?.classList.contains("xterm-helper-textarea")).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { pinFor, resolveBaseRef } from "./diff";
+import { displayRef, pinFor, resolveBaseRef } from "./diff";
 import { timedAsync } from "./instrument";
 import { execGit, type GitPin } from "./safe-git";
 import type { UnpushedCommit, WorktreeStatus } from "./types";
@@ -98,7 +98,7 @@ export async function computeWorktreeStatus(
   const [behind = "0", ahead = "0"] = counts.split(/\s+/);
   return {
     base,
-    baseRef: ref,
+    baseRef: displayRef(ref),
     fetchFailed,
     head: branch,
     headSha,

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseUnifiedDiff } from "../src/diff";
+import { displayRef, parseUnifiedDiff, toSessionDiff } from "../src/diff";
 
 const MODIFIED = `diff --git a/src/server.ts b/src/server.ts
 index 1111111..2222222 100644
@@ -143,7 +143,136 @@ test("MAX_TOTAL_LINES: small diff unaffected", () => {
   expect(files.every((f) => !f.truncated)).toBe(true);
 });
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+test("hunk body lines that look like file headers stay body lines", () => {
+  const text = `diff --git a/scripts/setup.sh b/scripts/setup.sh
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/scripts/setup.sh
+@@ -0,0 +1,4 @@
++#!/bin/sh
++++ b/README.md
++-- a/x
++echo done
+diff --git a/src/server.ts b/src/server.ts
+index 1111111..2222222 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -1,2 +1,2 @@
+ keep
+-old
++new
+`;
+  const files = parseUnifiedDiff(text);
+  expect(files).toHaveLength(2);
+  const f = files[0]!;
+  expect(f.path).toBe("scripts/setup.sh");
+  expect(f.status).toBe("added");
+  expect(f.additions).toBe(4);
+  expect(f.hunks[0]!.lines.map((l) => l.content)).toEqual([
+    "#!/bin/sh",
+    "++ b/README.md",
+    "-- a/x",
+    "echo done",
+  ]);
+  expect(files[1]!.path).toBe("src/server.ts");
+  expect(files[1]!.additions).toBe(1);
+  expect(files[1]!.deletions).toBe(1);
+});
+
+test("a deleted line that looks like an old-file header keeps path and oldPath", () => {
+  const text = `diff --git a/notes.md b/notes.md
+index 1111111..2222222 100644
+--- a/notes.md
++++ b/notes.md
+@@ -1,2 +1,1 @@
+--- a/README.md
+ tail
+`;
+  const f = parseUnifiedDiff(text)[0]!;
+  expect(f.path).toBe("notes.md");
+  expect(f.oldPath).toBe("notes.md");
+  expect(f.deletions).toBe(1);
+  expect(f.hunks[0]!.lines[0]).toMatchObject({ kind: "del", content: "-- a/README.md" });
+});
+
+test("hunk header with omitted counts still ends the hunk after one line per side", () => {
+  const text = `diff --git a/a.txt b/a.txt
+index 1111111..2222222 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1 @@
+-one
++two
+diff --git a/b.txt b/b.txt
+index 1111111..2222222 100644
+--- a/b.txt
++++ b/b.txt
+@@ -1 +1 @@
+-three
++four
+`;
+  const files = parseUnifiedDiff(text);
+  expect(files.map((f) => f.path)).toEqual(["a.txt", "b.txt"]);
+  expect(files.map((f) => [f.additions, f.deletions])).toEqual([
+    [1, 1],
+    [1, 1],
+  ]);
+});
+
+test("past MAX_TOTAL_LINES a later file with header-like body lines keeps its own path", () => {
+  const big = Array.from({ length: 1000 }, (_, i) => `+line ${i}`).join("\n");
+  const makeFile = (name: string) =>
+    `diff --git a/${name} b/${name}\nnew file mode 100644\n--- /dev/null\n+++ b/${name}\n@@ -0,0 +1,1000 @@\n${big}\n`;
+  const tail = `diff --git a/tail.sh b/tail.sh
+new file mode 100644
+--- /dev/null
++++ b/tail.sh
+@@ -0,0 +1,2 @@
++++ b/README.md
++echo
+`;
+  const text = Array.from({ length: 101 }, (_, i) => makeFile(`f${i}.ts`)).join("") + tail;
+  const files = parseUnifiedDiff(text);
+  expect(files).toHaveLength(102);
+  const last = files[101]!;
+  expect(last.path).toBe("tail.sh");
+  expect(last.truncated).toBe(true);
+  expect(files.some((f) => f.path === "README.md")).toBe(false);
+});
+
+test("binary file whose name contains ' b/' keeps its full path from the header", () => {
+  const text = `diff --git a/x b/README.md b/x b/README.md
+new file mode 100644
+index 0000000..1111111
+Binary files /dev/null and b/x b/README.md differ
+`;
+  const f = parseUnifiedDiff(text)[0]!;
+  expect(f.path).toBe("x b/README.md");
+  expect(f.binary).toBe(true);
+  expect(f.status).toBe("added");
+});
+
+test("displayRef: strips one leading refs/remotes/ or refs/heads/", () => {
+  expect(displayRef("refs/remotes/origin/main")).toBe("origin/main");
+  expect(displayRef("refs/heads/main")).toBe("main");
+  expect(displayRef("refs/heads/origin/x")).toBe("origin/x");
+  expect(displayRef("v1.0")).toBe("v1.0");
+});
+
+test("toSessionDiff: baseRef is the short form", () => {
+  const wire = toSessionDiff({
+    base: "main",
+    baseRef: "refs/remotes/origin/main",
+    head: "f",
+    fetchFailed: false,
+    truncated: false,
+    files: [],
+  });
+  expect(wire.baseRef).toBe("origin/main");
+});
+
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -177,7 +306,7 @@ test("computeDiff: branch vs base shows committed changes, local fallback when n
     const r = await computeDiff(repo, "main", "feature");
     expect(r.head).toBe("feature");
     expect(r.fetchFailed).toBe(true);
-    expect(r.baseRef).toBe("main");
+    expect(r.baseRef).toBe("refs/heads/main");
     expect(r.files).toHaveLength(1);
     expect(r.files[0]!.path).toBe("a.txt");
     expect(r.files[0]!.additions).toBe(1);
@@ -204,7 +333,7 @@ test("computeDiff: diffs against origin/<base> when a remote exists", async () =
 
     const r = await computeDiff(repo, "main", "feature");
     expect(r.fetchFailed).toBe(false);
-    expect(r.baseRef).toBe("origin/main");
+    expect(r.baseRef).toBe("refs/remotes/origin/main");
     expect(r.files).toHaveLength(1);
     expect(r.files[0]!.additions).toBe(1);
   } finally {
@@ -318,6 +447,71 @@ test("hasCommittedChanges: prefers origin/<base> when present, falls back to loc
   } finally {
     rmSync(remote, { recursive: true, force: true });
     rmSync(repo2, { recursive: true, force: true });
+  }
+});
+
+test("base refs: a tag or gitdir file named like the base is not used", async () => {
+  const remote = mkdtempSync(join(tmpdir(), "shepherd-remote-"));
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-shadow-"));
+  try {
+    git(remote, "init", "-q", "--bare", "-b", "main");
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "one\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "remote", "add", "origin", remote);
+    git(repo, "push", "-q", "origin", "main");
+    git(repo, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo, "a.txt"), "one\ntwo\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "feature change");
+    const sha = git(repo, "rev-parse", "HEAD").trim();
+    git(repo, "tag", "origin/main", sha);
+    mkdirSync(join(repo, ".git", "origin"));
+    writeFileSync(join(repo, ".git", "origin", "main"), `${sha}\n`);
+
+    const r = await computeDiff(repo, "main", "feature");
+    expect(r.baseRef).toBe("refs/remotes/origin/main");
+    expect(r.files).toHaveLength(1);
+    expect(await hasCommittedChanges(repo, "main", "feature")).toBe(true);
+  } finally {
+    rmSync(remote, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("base refs: a tag named like the full remote ref is not used when there is no remote", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-fulltag-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "one\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo, "a.txt"), "one\ntwo\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "feature change");
+    git(repo, "tag", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD").trim());
+
+    expect(await hasCommittedChanges(repo, "main", "feature")).toBe(true);
+    const r = await computeDiff(repo, "main", "feature");
+    expect(r.baseRef).toBe("refs/heads/main");
+    expect(r.files).toHaveLength(1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("base refs: computeDiff rejects when the base branch exists nowhere", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-nobase-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    writeFileSync(join(repo, "a.txt"), "one\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    await expect(computeDiff(repo, "nope", "main")).rejects.toThrow();
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });
 

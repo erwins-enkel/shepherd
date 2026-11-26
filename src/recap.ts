@@ -42,7 +42,7 @@ import type { OperatorLanguage } from "./operator-language";
 import type { ActivityEntry } from "./activity";
 import type { SessionUsage } from "./usage";
 import { readReviewerSpawnUsage } from "./reviewer-usage";
-import { computeDiff } from "./diff";
+import { computeDiff, displayRef } from "./diff";
 import { execGit } from "./safe-git";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
@@ -575,7 +575,7 @@ export class RecapService {
         kind: "failed",
         skip: {
           code: "ancestry-check-failed",
-          params: { ...evidenceParams(evidence), baseRef: diff.baseRef },
+          params: { ...evidenceParams(evidence), baseRef: displayRef(diff.baseRef) },
         },
       };
     }
@@ -583,7 +583,7 @@ export class RecapService {
       kind: "failed",
       skip: {
         code: "empty-diff-contradicted",
-        params: { ...evidenceParams(evidence), baseRef: diff.baseRef },
+        params: { ...evidenceParams(evidence), baseRef: displayRef(diff.baseRef) },
       },
     };
   }

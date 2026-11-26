@@ -214,7 +214,7 @@ test("toSessionDiff: strips hunks from every file, keeps patch, leaves the rest 
   const files = parseUnifiedDiff(MODIFIED_DIFF + ADDED_DIFF + BINARY_DIFF);
   const result: DiffResult = {
     base: "main",
-    baseRef: "origin/main",
+    baseRef: "refs/remotes/origin/main",
     head: "feature",
     fetchFailed: false,
     truncated: false,

@@ -258,7 +258,7 @@ function prBlock(git: GitState | undefined, fence: Fence) {
     url: git.url ?? null,
     title: fence("pr title", git.title ?? ""),
     checks: git.checks,
-    runningChecks: git.runningChecks ?? [],
+    runningChecks: fence("running checks", (git.runningChecks ?? []).join(", ")),
     headSha: git.headSha ?? null,
   };
 }
@@ -275,7 +275,7 @@ async function sessionSummary(deps: AgentControlDeps, s: Session, selfId: string
     status: s.status,
     planPhase: s.planPhase,
     phase,
-    branch: s.branch,
+    branch: s.branch ? fence("branch", s.branch) : null,
     issueNumber: s.issueNumber,
     pr: prBlock(git, fence),
   };

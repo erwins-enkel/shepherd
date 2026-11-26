@@ -576,7 +576,7 @@ function readHarness() {
   const h = harness();
   const other = addSession(h.store, {
     name: INJECTION,
-    branch: "shepherd/other",
+    branch: INJECTION,
     repoPath: "/elsewhere/other-repo",
   });
   const archived = addSession(h.store, { name: "gone" });
@@ -590,6 +590,7 @@ function readHarness() {
       url: "https://example.test/pr/12",
       title: INJECTION,
       checks: "failure",
+      runningChecks: [INJECTION],
       headSha: "abc123",
       deployConfigured: false,
     },
@@ -613,11 +614,12 @@ test("sessions_list: live agent sessions across repos, no archived or terminal r
   expect(payload.map((r: any) => r.self)).toEqual([true, false]);
   const row = payload[1];
   expect(row.repo).toBe("other-repo");
-  expect(row.branch).toBe("shepherd/other");
+  expectFenced(row.branch);
   expect(row.pr).toMatchObject({ state: "open", number: 12, checks: "failure" });
   expect(payload[0].pr).toBeNull(); // nothing cached for self
   expectFenced(row.name);
   expectFenced(row.pr.title);
+  expectFenced(row.pr.runningChecks);
 });
 
 test("sessions_list and sessions_show report the derived phase; null without the dep", async () => {
@@ -665,6 +667,8 @@ test("sessions_show: resolves by desig or bare number; archived, terminal and un
   expect(byDesig.isError).toBe(false);
   expect(byDesig.payload.desig).toBe(other.desig);
   expect(byDesig.payload.self).toBe(false);
+  expectFenced(byDesig.payload.branch);
+  expectFenced(byDesig.payload.pr.runningChecks);
   const bare = String(Number(other.desig.replace(/\D/g, "")));
   expect(
     toolPayload(await call(deps, sessionId, "sessions_show", { desig: bare })).payload.desig,
@@ -731,9 +735,10 @@ test("self_status: PR/CI, review verdict and plan gate, with critic text fenced"
     state: "open",
     number: 7,
     checks: "pending",
-    runningChecks: ["verify / test"],
     headSha: "def456",
   });
+  expect(payload.pr.runningChecks.startsWith("⟦UNTRUSTED:")).toBe(true);
+  expect(payload.pr.runningChecks).toContain("verify / test");
   expect(payload.review).toMatchObject({
     decision: "changes_requested",
     headSha: "def456",

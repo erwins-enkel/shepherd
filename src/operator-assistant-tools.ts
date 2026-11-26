@@ -189,15 +189,17 @@ function openQuestionCount(gate: PlanGate): number {
   return open;
 }
 
-/** The hold, its one free-text param (the agent's verbatim question) fenced. */
+/** The hold, its free-text params (the agent's verbatim question, the login host) fenced. */
 function holdBlock(hold: HoldReason | undefined, fence: Fence) {
   if (!hold) return null;
   const params = hold.params ?? null;
   return {
     code: hold.code,
-    params: params?.question
-      ? { ...params, question: fence("agent question", params.question) }
-      : params,
+    params: params && {
+      ...params,
+      ...(params.question ? { question: fence("agent question", params.question) } : {}),
+      ...(params.host ? { host: fence("login host", params.host) } : {}),
+    },
   };
 }
 
@@ -226,6 +228,7 @@ function herdRow(deps: DiagDeps, s: Session, holds: Record<string, HoldReason>, 
     repoPath: s.repoPath,
     status: s.status,
     auto: s.auto,
+    haltReason: s.haltReason,
     planPhase: s.planPhase,
     planGate: gate && {
       decision: gate.decision,
@@ -328,7 +331,7 @@ function herdDetail(deps: DiagDeps, s: Session, holds: Record<string, HoldReason
     archivedAt: s.archivedAt == null ? null : iso(s.archivedAt),
     archiveReason: s.archiveReason ?? null,
     recap: recapState(deps.store.getRecap(s.id), fence),
-    branch: s.branch,
+    branch: s.branch ? fence("branch", s.branch) : null,
     issueNumber: s.issueNumber,
     planGate: gate && {
       ...row.planGate,
@@ -893,7 +896,7 @@ const NO_ARGS = { type: "object", properties: {}, additionalProperties: false } 
 const HERD_STATUS: McpTool = {
   name: "herd_status",
   description:
-    "First stop for a stuck or stalled herd. Every live session: status, auto, plan phase, " +
+    "First stop for a stuck or stalled herd. Every live session: status, auto, halt reason, plan phase, " +
     "plan-gate decision/round/open questions, hold reason, PR critic state (review: decision, " +
     "summaryCode, head, errorRound/cap, autoRetryAt — a technical critic error retries itself on " +
     "the same head until autoRetryAt is null; pr_review re-runs it) and minutes since its last " +

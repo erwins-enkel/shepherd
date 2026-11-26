@@ -161,6 +161,13 @@ const lit = (name: string) => `'${ident(name)}'`;
 
 // ── SQL scripts (psql, fed on stdin, ON_ERROR_STOP) ──────────────────────────
 
+/** Session roles hold CREATEROLE, so a session could create one of Shepherd's role names first (a
+ *  squat) and keep ADMIN on it. Revoke every non-superuser admin holder, CASCADE taking the grants
+ *  made through that admin; legit memberships are superuser-granted without ADMIN and stay. */
+function revokeAdminHolders(role: string): string {
+  return `SELECT format('REVOKE %I FROM %I CASCADE', r.rolname, m.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = ${lit(role)} AND a.admin_option AND NOT m.rolsuper\\gexec`;
+}
+
 /** Repo role + template. The template is owned by the superuser: the repo role owns NO database,
  *  so `REASSIGN OWNED` in a clone only moves objects inside that clone. */
 export function baseScript(repoPath: string): string {
@@ -170,11 +177,9 @@ export function baseScript(repoPath: string): string {
     `SELECT 'CREATE ROLE ${role} NOLOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(role)})\\gexec`,
     `SELECT 'CREATE DATABASE ${base}' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = ${lit(base)})\\gexec`,
     `REVOKE CONNECT, TEMPORARY ON DATABASE ${base} FROM PUBLIC;`,
-    // Session roles hold CREATEROLE, so one could have created this role first (a squat). Strip
-    // any attributes it gave the role and every admin holder (plus grants made through them);
-    // legit session memberships are superuser-granted without ADMIN and stay.
+    // A squatted repo role: drop its admin holders and any attributes they gave it.
+    revokeAdminHolders(role),
     `ALTER ROLE ${role} NOLOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD NULL;`,
-    `SELECT format('REVOKE %I FROM %I CASCADE', r.rolname, m.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = ${lit(role)} AND a.admin_option AND NOT m.rolsuper\\gexec`,
     "",
   ].join("\n");
 }
@@ -191,7 +196,12 @@ export function roleScript(sessionId: string, password: string, repoPath: string
   const db = sessionDb(sessionId);
   return [
     `SELECT 'CREATE ROLE ${db} LOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
-    `ALTER ROLE ${db} WITH LOGIN NOCREATEROLE PASSWORD ${literalPassword(password)};`,
+    // A squatted session role (session ids are in agent env): drop its admin holders, then reset
+    // everything a holder could have set, before the password and before the clone exists.
+    revokeAdminHolders(db),
+    `ALTER ROLE ${db} WITH LOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS INHERIT CONNECTION LIMIT -1 VALID UNTIL 'infinity' PASSWORD ${literalPassword(password)};`,
+    `ALTER ROLE ${db} RESET ALL;`,
+    `SELECT format('ALTER ROLE %I IN DATABASE %I RESET ALL', ${lit(db)}, d.datname) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase WHERE s.setrole = (SELECT oid FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
     // Before PG16, CREATEROLE is close to superuser (any role's password, any grant) and the
     // INHERIT/SET grant syntax doesn't exist: an older configured image gets neither.
     `SELECT 'ALTER ROLE ${db} CREATEROLE' WHERE ${PG16}\\gexec`,
@@ -235,10 +245,25 @@ export function adoptScript(leases: readonly { db: string; role: string }[]): st
   return lines.length ? `${lines.join("\n")}\n` : "";
 }
 
+/** Client auth for the cluster: Shepherd's own `docker exec psql -U postgres` over the local socket,
+ *  and over TCP only a login whose database is named like the user (`sameuser`). A session's clone
+ *  and login role share the name `s_<id>`, so no role, whatever privileges it was granted or
+ *  inherits (app roles are shared, #4232 follow-up), can open another session's database. */
+const POSTGRES_HBA_LINES = [
+  "local all postgres trust",
+  "host sameuser all all scram-sha-256",
+] as const;
+
 /** Session roles may connect only to their own clone: PUBLIC loses CONNECT/TEMPORARY on the
- *  cluster's built-in databases too (template0 already refuses connections). Run at every ready. */
-export const HARDEN_SQL =
-  "REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;\nREVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;\n";
+ *  cluster's built-in databases too (template0 already refuses connections), and the cluster's
+ *  hba file is rewritten to `POSTGRES_HBA_LINES` + reloaded. Run at every ready. */
+export const HARDEN_SQL = [
+  "REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;",
+  "REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;",
+  `DO $$ BEGIN EXECUTE format('COPY (VALUES (%L), (%L)) TO %L', '${POSTGRES_HBA_LINES[0]}', '${POSTGRES_HBA_LINES[1]}', current_setting('hba_file')); END $$;`,
+  "SELECT pg_reload_conf();",
+  "",
+].join("\n");
 
 /** Drop the clone and its role. `DROP OWNED` first clears anything the role still holds in the
  *  admin database (grants, default ACLs) so `DROP ROLE` cannot fail on a dependency. */

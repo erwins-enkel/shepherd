@@ -99,7 +99,8 @@ working unchanged.
   row-level security) belong to the repo. Every session of that repo can use
   and grant them, including sessions started later. Shepherd never drops them.
   Roles are server-wide: if another repo already has a role with the same name,
-  the migration's `GRANT` is refused. A session that was already running when a
+  a migration that grants it to itself is refused. Give app roles a name
+  specific to the project (for example `<project>_app`). A session that was already running when a
   sibling first created a role can be refused for up to a minute; re-running the
   migrations then works.
 
@@ -110,7 +111,9 @@ the boundary is the credentials. Each session's role can connect only to its own
 database, and the superuser password never leaves Shepherd. A session's role
 may create roles (`CREATEROLE`), so migrations can set up app roles. Postgres
 still refuses it superuser, `BYPASSRLS` and `CREATEDB` roles, built-in `pg_*`
-roles, and changes to other sessions' roles. Details:
+roles, and changes to other sessions' roles. Logins are pinned to the
+database named like the user, so no role, however it was granted, opens another
+session's database. Details:
 [sandbox security notes](https://github.com/erwins-enkel/shepherd/blob/main/docs/sandbox-security.md#on-demand-postgres-4232).
 
 ## Diagnose

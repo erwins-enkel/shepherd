@@ -304,22 +304,39 @@ only to its own database. A second Shepherd instance with another state dir gets
 its own container and volume, so neither reconciles the other's clones.
 The template (`r_<repo>_base`) is owned by the superuser; nobody connects to it.
 
+**Logins are pinned to their own database.** At every start Shepherd rewrites
+the cluster's `pg_hba.conf` to two lines: `local all postgres trust` (its own
+`docker exec psql`) and `host sameuser all all scram-sha-256`. Over TCP a login
+only works when the database is named like the user, and a session's clone and
+login role share the name `s_<id>`. So no role can open another session's
+database, whatever privileges it was granted or inherits.
+
 **App roles (`CREATEROLE`).** Session roles hold `CREATEROLE` so migrations can
 create roles (e.g. a non-owner RLS role). Postgres 16+ limits that to roles the
 session administers: no `SUPERUSER`/`BYPASSRLS`/`CREATEDB`/`REPLICATION` roles,
 no granting `pg_*` or any role it lacks ADMIN on, no altering other session
-roles. Older servers (a configured pre-16 image) never grant it:
-there `CREATEROLE` is close to superuser. Each session role is a member of its repo role `r_<repo>` (`INHERIT TRUE,
-SET FALSE`). Shepherd grants every role a session created to `r_<repo>` `WITH
-ADMIN OPTION` (`adoptScript`: on request, every idle tick, reconcile and before a
-drop), so sibling sessions inherit ADMIN on the repo's app roles and the roles
-keep an admin holder once their creator is dropped. Roles a session creates with
-LOGIN can connect nowhere (CONNECT is revoked from PUBLIC everywhere). Because a
-session could create `r_<repo>` for a repo that has no template yet (a squat),
-every `baseScript` strips its attributes (`NOLOGIN NOCREATEROLE … PASSWORD NULL`)
-and revokes, with CASCADE, every member holding ADMIN on it. **Accepted:**
-sessions of the same repo can alter, revoke or drop that repo's app roles and so
-disturb each other. App roles are never dropped automatically.
+roles. Older servers (a configured pre-16 image) never grant it: there
+`CREATEROLE` is close to superuser. Each session role is a member of its repo
+role `r_<repo>` (`INHERIT TRUE, SET FALSE`). Shepherd grants every role a
+session created to `r_<repo>` `WITH ADMIN OPTION` (`adoptScript`: on request,
+every idle tick, reconcile and before a drop), so sibling sessions inherit ADMIN
+on the repo's app roles and the roles keep an admin holder once their creator is
+dropped. Roles are server-wide, so a session can create a name another repo's
+migration later reuses (its `CREATE ROLE … EXCEPTION WHEN duplicate_object`
+passes) and keep ADMIN on it. The hba rule above keeps that role, and any
+session holding it, out of the other repo's clones.
+
+**Squatted Shepherd role names.** A session could create `r_<repo>` for a repo
+with no template yet, or `s_<id>` for another session (ids are in the agent
+env). `baseScript` and `roleScript` revoke, with CASCADE, every non-superuser
+holding ADMIN on the role, then reset its attributes (and, for `s_<id>`, its
+settings and password) before the clone exists. The hourly reconcile also drops
+`s_<id>` roles no lease claims.
+
+**Accepted:** a session can disturb roles it administers but doesn't own the data
+behind. It can alter, revoke or drop its own repo's app roles (breaking
+siblings), or a colliding name another repo's migration reused. It can't read
+another session's data. App roles are never dropped automatically.
 
 **The superuser stays with Shepherd.** Its password lives in
 `postgres/superuser.env` beside the DB (0600) and is only used for the image's

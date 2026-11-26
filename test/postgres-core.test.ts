@@ -87,13 +87,25 @@ describe("scripts", () => {
     const db = sessionDb(SID);
     const sql = roleScript(SID, "abcDEF0123456789_-xy", repo);
     const pg16 = "WHERE current_setting('server_version_num')::int >= 160000\\gexec";
-    expect(sql).toContain(`ALTER ROLE ${db} WITH LOGIN NOCREATEROLE PASSWORD`);
+    expect(sql).toContain(`ALTER ROLE ${db} WITH LOGIN NOCREATEROLE NOCREATEDB`);
     expect(sql).toContain(`'ALTER ROLE ${db} CREATEROLE' ${pg16}`);
     expect(sql).toContain(
       `'GRANT ${repoRole(repo)} TO ${db} WITH INHERIT TRUE, SET FALSE' ${pg16}`,
     );
     // The caller reads the clone-exists count from the last line.
     expect(sql.trim().split("\n").pop()).toMatch(/^SELECT count\(\*\) FROM pg_database/);
+  });
+
+  it("role: a squatted session role loses its admin holders and settings before the password", () => {
+    const db = sessionDb(SID);
+    const sql = roleScript(SID, "abcDEF0123456789_-xy", repo);
+    const revoke = sql.indexOf(`r.rolname = '${db}' AND a.admin_option AND NOT m.rolsuper\\gexec`);
+    expect(revoke).toBeGreaterThan(-1);
+    expect(sql).toContain("REVOKE %I FROM %I CASCADE");
+    expect(revoke).toBeLessThan(sql.indexOf("PASSWORD 'abcDEF"));
+    expect(sql).toContain("NOBYPASSRLS INHERIT CONNECTION LIMIT -1 VALID UNTIL 'infinity'");
+    expect(sql).toContain(`ALTER ROLE ${db} RESET ALL;`);
+    expect(sql).toContain("ALTER ROLE %I IN DATABASE %I RESET ALL");
   });
 
   it("base: strips a squatted repo role's attributes and admin holders", () => {
@@ -133,6 +145,14 @@ describe("scripts", () => {
 it("hardening revokes PUBLIC access to the built-in databases", () => {
   expect(HARDEN_SQL).toContain("REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;");
   expect(HARDEN_SQL).toContain("REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;");
+});
+
+it("hardening limits TCP logins to the database named like the user, then reloads", () => {
+  expect(HARDEN_SQL).toContain("'host sameuser all all scram-sha-256'");
+  expect(HARDEN_SQL).toContain("'local all postgres trust'");
+  expect(HARDEN_SQL).toContain("current_setting('hba_file')");
+  expect(HARDEN_SQL).not.toMatch(/host all all/);
+  expect(HARDEN_SQL.indexOf("COPY")).toBeLessThan(HARDEN_SQL.indexOf("pg_reload_conf()"));
 });
 
 it("instance names: plain for the default state dir, suffixed for any other", () => {

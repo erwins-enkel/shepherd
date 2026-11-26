@@ -5,15 +5,18 @@
   import type { HerdRowCtx } from "./HerdGroup.svelte";
   import HerdRepoSection from "./HerdRepoSection.svelte";
   import { herdLayout } from "#lib/herd-layout.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The Repo layout's sections (#4228), alphabetical, each folding per the persisted
   // herdLayout.collapsed set it shares with the page's keyboard nav and jump reveal. The Stage
-  // layout's group-header bulk actions (Merge train, clear merged) follow in a trailing row.
+  // layout's group-header bulk actions (Merge train, clear merged) follow in a trailing row,
+  // labelled as covering every repo so it never reads as the last section's (#4235).
   type BulkAction = { class: string; title: string; label: string; onclick: () => void };
 
   let {
     sections,
     actions = [],
+    onrevealsession,
     statusFilter,
     onstatusfilter,
     tagFor,
@@ -26,10 +29,11 @@
       name: string;
       iconPath: string | null;
       rows: Session[];
-      above: number;
+      aboveIds: string[];
       counts: Record<HerdStatus, number>;
     }[];
     actions?: BulkAction[];
+    onrevealsession?: (id: string) => void;
     statusFilter: HerdStatus | null;
     onstatusfilter?: (status: HerdStatus | null) => void;
     tagFor: (session: Session) => StageTag | null;
@@ -44,7 +48,8 @@
     name={section.name}
     iconPath={section.iconPath}
     rows={section.rows}
-    above={section.above}
+    aboveIds={section.aboveIds}
+    {onrevealsession}
     counts={section.counts}
     collapsed={herdLayout.collapsed.has(section.key)}
     ontoggle={() => herdLayout.toggleRepo(section.key)}
@@ -58,6 +63,7 @@
 {/each}
 {#if actions.length > 0}
   <div class="repo-actions" class:touch={touchTarget}>
+    <span class="scope">{m.herd_repo_actions_scope()}</span>
     {#each actions as action (action.class)}
       <button type="button" class={action.class} title={action.title} onclick={action.onclick}>
         {action.label}
@@ -71,11 +77,19 @@
      green for the merge train (actionable-complete), blue for clearing landed PRs. */
   .repo-actions {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
     gap: 12px;
     padding: 8px 8px 4px;
-    margin-top: 6px;
+    margin-top: 12px;
     border-top: 1px solid var(--color-line);
+  }
+  /* quiet scope label on the left; the actions sit on the right */
+  .scope {
+    margin-right: auto;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-faint);
   }
   .repo-actions button {
     border: 0;

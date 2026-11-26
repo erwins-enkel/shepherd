@@ -96,6 +96,7 @@
     collapsedKeys = new Set(),
     oncollapsetoggle = undefined,
     onrenderedepicgroups = undefined,
+    onrevealsession = undefined,
     ondecommission,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
@@ -203,6 +204,8 @@
     // reports the exact epic-group order this component renders; the page owns
     // collapse-state normalization, but Herd owns the final filtered/grouped order.
     onrenderedepicgroups?: (keys: string[]) => void;
+    // Repo layout (#4235): a heading's "N in groups above" reveals + selects the first such row
+    onrevealsession?: (id: string) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
     // when provided, each row's CardMenu gains a Rename action
@@ -649,6 +652,19 @@
     const rowsByKey = new Map(
       groupByRepo(flattenByStage(partition), repoKeyOf).map((g) => [g.key, g.sessions]),
     );
+    // the rows the epic and experiment groups above render, in their render order (#4235)
+    const aboveByKey = new Map(
+      groupByRepo(
+        [
+          ...epicGroups.flatMap((g) => g.sessions),
+          ...experimentGrouped.groups.flatMap((g) => [
+            ...g.variants,
+            ...(g.comparison ? [g.comparison] : []),
+          ]),
+        ],
+        repoKeyOf,
+      ).map((g) => [g.key, g.sessions.map((s) => s.id)]),
+    );
     return listedRepos.map((g) => {
       const rows = rowsByKey.get(g.key) ?? [];
       return {
@@ -656,7 +672,7 @@
         name: g.name,
         iconPath: g.iconPath,
         rows,
-        above: g.sessions.length - rows.length,
+        aboveIds: aboveByKey.get(g.key) ?? [],
         counts: countHerdStatuses(g.sessions, statusCtx),
       };
     });
@@ -1191,6 +1207,7 @@
       <HerdRepoSections
         sections={repoSections}
         actions={repoActions}
+        {onrevealsession}
         {statusFilter}
         {onstatusfilter}
         {tagFor}

@@ -103,6 +103,7 @@ export async function revealAndSelect(
  *  | navigateFromViewport  | —                          | select(id)                      |
  *  | retargetForRepoFilter | — (follows a just-set repo | select(id, false, false)        |
  *  |                       | filter; no reset)          |                                 |
+ *  | revealFromRepoHeading | — (target already listed)  | select(id, false, false)        |
  *  | selectNextNeedsYou    | — (target via nextNeedsYou)| keyNavSelect(id, focusTerm, no  |
  *  |                       |                            | scroll — the reveal owns it)    |
  */
@@ -125,6 +126,11 @@ export function createJumpHandlers(deps: JumpDeps, effects: JumpEffects) {
     },
     retargetForRepoFilter: async (id: string): Promise<void> => {
       // toDetail=false: filtering the list must not fling a phone user into a terminal.
+      await revealAndSelect(id, deps, (i) => deps.select(i, false, false));
+    },
+    revealFromRepoHeading: async (id: string): Promise<void> => {
+      // A Repo-layout heading's "N in groups above" (#4235): the row is listed but sits in a
+      // (often collapsed) epic group at the top. No filter reset; a phone stays on the list.
       await revealAndSelect(id, deps, (i) => deps.select(i, false, false));
     },
     selectNextNeedsYou: async (focusTerm = true): Promise<void> => {

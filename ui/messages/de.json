@@ -9502,5 +9502,10 @@
   "codex_speed_standard_refused": "Shepherd kann Standard für diesen Start nicht garantieren. Aktualisiere Codex oder wähle „Codex-Einstellung übernehmen“, um das von Codex gewählte Tempo zuzulassen.",
   "codex_speed_save_failed": "Das Codex-Tempo konnte nicht gespeichert werden.",
   "feat_codex_fast_mode_title": "Codex Fast-Modus in Shepherd",
-  "feat_codex_fast_mode_body": "Lege in den Coding-CLI-Einstellungen eine Vorgabe fest oder wähle das Tempo für eine einzelne Codex-Sitzung. Änderungen gelten beim nächsten Start des Codex-Prozesses."
+  "feat_codex_fast_mode_body": "Lege in den Coding-CLI-Einstellungen eine Vorgabe fest oder wähle das Tempo für eine einzelne Codex-Sitzung. Änderungen gelten beim nächsten Start des Codex-Prozesses.",
+  "herd_repo_above_tip_title": "{count} aus {repo} in Gruppen oben",
+  "herd_repo_above_tip_summary": "Epic- und Experiment-Sessions stehen in ihrer Gruppe oben in der Herde, nicht unter der Repo-Überschrift. Eine eingeklappte Gruppe verbirgt sie.",
+  "herd_repo_above_tip_click": "Öffnet die Gruppe und wählt die erste aus.",
+  "herd_repo_above_aria": "{count} Sessions aus {repo} in Gruppen oben; erste anzeigen",
+  "herd_repo_actions_scope": "Alle Repos"
 }

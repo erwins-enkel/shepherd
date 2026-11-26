@@ -197,6 +197,7 @@ test.each([
   ["jumpFromHerdrUpdate", ["closeUpdateModal"], "select:true:true"],
   ["navigateFromViewport", [], "select:true:true"],
   ["retargetForRepoFilter", [], "select:false:false"],
+  ["revealFromRepoHeading", [], "select:false:false"],
 ] as const)("%s expands the collapsed stage, selects, then reveals", async (name, fx, sel) => {
   const h = harness(new Map([["x", stage("merged")]]));
   h.collapsedStages.add("merged");
@@ -208,6 +209,21 @@ test.each([
     "expandStage:merged",
     "tick",
     `${sel} stages=[] epics=[] id=x`,
+    "tick",
+    "reveal:x",
+  ]);
+});
+
+test("revealFromRepoHeading: opens the collapsed epic holding the row, no filter reset", async () => {
+  const h = harness(new Map([["x", epic("/r#100")]]));
+  h.collapsedEpics.add("/r#100");
+  const handlers = createJumpHandlers(h.deps, h.effects);
+  await handlers.revealFromRepoHeading("x");
+  expect(h.log).toEqual([
+    "locate",
+    "expandEpic:/r#100",
+    "tick",
+    "select:false:false stages=[] epics=[] id=x",
     "tick",
     "reveal:x",
   ]);

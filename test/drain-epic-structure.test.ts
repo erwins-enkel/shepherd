@@ -133,7 +133,7 @@ afterEach(() => {
 });
 
 describe("epic structure reads (#2807)", () => {
-  test("a quiet 38-child epic makes one structure query and no blocked_by calls in 10 min", async () => {
+  test("a quiet 38-child epic makes one structure query per 5 min and no blocked_by calls", async () => {
     const closed = new Set<number>();
     const gh = ghRunner(closed);
     const { drain, run } = makeDrain(gh.run);
@@ -141,7 +141,8 @@ describe("epic structure reads (#2807)", () => {
     setIssuesFreshness(() => String(gen));
 
     await buildEvery10s(() => drain.buildEpic(REPO, run), START, 10);
-    expect(gh.structureQueries()).toBe(1);
+    // The first read, then the covered 5-min refreshes at 5 and 10 min (#4266).
+    expect(gh.structureQueries()).toBe(3);
     expect(gh.blockedByRest()).toBe(0);
 
     // A blocker closes on GitHub; the next fingerprint moves the issue generation.
@@ -149,7 +150,7 @@ describe("epic structure reads (#2807)", () => {
     gen++;
     setSystemTime(new Date(START + 11 * 60_000));
     const epic = await drain.buildEpic(REPO, run);
-    expect(gh.structureQueries()).toBe(2);
+    expect(gh.structureQueries()).toBe(4);
     expect(epic!.children.find((c) => c.number === 30)!.state).toBe("ready");
     expect(epic!.children.find((c) => c.number === 31)!.state).toBe("blocked");
   });

@@ -3,6 +3,28 @@ import { GithubForge } from "../../src/forge/github";
 import type { GhRunner } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
 import { setIssuesFreshness } from "../../src/forge/repo-freshness";
+import {
+  GithubReadCache,
+  type GithubCacheRow,
+  type GithubCacheStore,
+} from "../../src/github-read-cache";
+
+class MemoryStore implements GithubCacheStore {
+  rows: GithubCacheRow[] = [];
+  listGithubReadCache() {
+    return this.rows.map((r) => ({ ...r }));
+  }
+  putGithubReadCache(row: GithubCacheRow) {
+    this.deleteGithubReadCache(row.slug, row.kind, row.entryKey);
+    this.rows.push({ ...row });
+  }
+  deleteGithubReadCache(slug: string, kind: string, entryKey?: string) {
+    this.rows = this.rows.filter(
+      (r) =>
+        r.slug !== slug || r.kind !== kind || (entryKey !== undefined && r.entryKey !== entryKey),
+    );
+  }
+}
 
 function fakeRunner(responses: Record<string, string>) {
   const run = async (args: string[]): Promise<string> => {
@@ -562,7 +584,7 @@ describe("GithubForge.getEpicStructure", () => {
     expect(s).toEqual({ parent: null, subIssues: [], blockedBy: new Map() });
   });
 
-  test("a covered slug stays quiet until its issue generation moves", async () => {
+  test("a covered slug stays quiet until its issue generation moves, for up to five minutes", async () => {
     const { run, count } = epicRunner();
     const forge = new GithubForge("o/r", {} as never, run);
     let gen = 1;
@@ -570,10 +592,12 @@ describe("GithubForge.getEpicStructure", () => {
     try {
       setSystemTime(new Date("2026-10-05T12:00:00Z"));
       await forge.getEpicStructure(100);
-      for (let min = 1; min <= 10; min++) {
-        setSystemTime(new Date(Date.parse("2026-10-05T12:00:00Z") + min * 60_000));
+      for (let sec = 60; sec < 300; sec += 60) {
+        setSystemTime(new Date(Date.parse("2026-10-05T12:00:00Z") + sec * 1000));
         await forge.getEpicStructure(100);
       }
+      setSystemTime(new Date("2026-10-05T12:04:59Z"));
+      await forge.getEpicStructure(100);
       expect(count.graphql()).toBe(1);
       expect(count.blockedByRest()).toBe(0);
       gen = 2; // e.g. a blocker was closed on GitHub
@@ -583,6 +607,75 @@ describe("GithubForge.getEpicStructure", () => {
     } finally {
       setIssuesFreshness(null);
       setSystemTime();
+    }
+  });
+
+  // #4266: linking a native sub-issue moves no updatedAt and no count, so the key stays put.
+  test("a covered slug re-reads after five minutes even when its issue key is unchanged", async () => {
+    let linked = false;
+    const { run, count } = epicRunner(() => {
+      if (!linked) return EPIC_GQL;
+      const data = JSON.parse(EPIC_GQL);
+      data.data.repository.issue.subIssues.nodes.push({
+        number: 103,
+        title: "C",
+        url: "u103",
+        body: "",
+        state: "OPEN",
+        labels: { nodes: [] },
+        blockedBy: { nodes: [] },
+      });
+      return JSON.stringify(data);
+    });
+    const forge = new GithubForge("o/r", {} as never, run);
+    setIssuesFreshness((slug) => (slug === "o/r" ? "1" : null));
+    try {
+      setSystemTime(new Date("2026-10-05T12:00:00Z"));
+      await forge.getEpicStructure(100);
+      linked = true; // #103 added as a sub-issue on GitHub
+      setSystemTime(new Date("2026-10-05T12:05:00Z"));
+      const stale = await forge.getEpicStructure(100); // served while it refreshes
+      expect(stale.subIssues.map((c) => c?.number)).toEqual([101, 102]);
+      await Bun.sleep(0); // let the background read land
+      const fresh = await forge.getEpicStructure(100);
+      expect(fresh.subIssues.map((c) => c?.number)).toEqual([101, 102, 103]);
+      expect(count.graphql()).toBe(2);
+    } finally {
+      setIssuesFreshness(null);
+      setSystemTime();
+    }
+  });
+
+  test("an aged covered entry is served without a read while background refresh is held", async () => {
+    const { run, count } = epicRunner();
+    let now = Date.parse("2026-10-05T12:00:00Z");
+    let canRefresh = true;
+    const cache = new GithubReadCache(new MemoryStore(), {
+      now: () => now,
+      canRefresh: () => canRefresh,
+    });
+    cache.put("fingerprint", "o/r", null, {
+      openIssues: 2,
+      issuesUpdatedAt: "2026-10-05T11:00:00Z",
+      openPrs: 0,
+      prsUpdatedAt: "2026-10-05T11:00:00Z",
+      ciState: "SUCCESS",
+    });
+    setIssuesFreshness(() => "covered");
+    const forge = new GithubForge("o/r", {} as never, run, undefined, undefined, cache);
+    try {
+      await forge.getEpicStructure(100);
+      canRefresh = false; // e.g. the GitHub budget is in backoff
+      now += 60 * 60_000;
+      await forge.getEpicStructure(100);
+      await forge.getEpicStructure(100);
+      expect(count.graphql()).toBe(1);
+      canRefresh = true;
+      await forge.getEpicStructure(100);
+      await forge.getEpicStructure(100);
+      expect(count.graphql()).toBe(2);
+    } finally {
+      setIssuesFreshness(null);
     }
   });
 

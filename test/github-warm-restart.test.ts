@@ -101,6 +101,10 @@ const EPIC = {
   },
 };
 
+/** The epic structure's one GraphQL read. */
+const isEpicRead = (args: string[]) =>
+  args.some((a) => a.startsWith("query=") && a.includes("issue(number:"));
+
 function harness(store: GithubCacheStore = new MemoryStore()) {
   let now = 1_800_000_000_000;
   let blocked = false;
@@ -285,7 +289,9 @@ describe("GitHub warm restart", () => {
       h.advance(60_000);
     }
     expect(h.observations.at(-1)?.changed).toEqual([]);
-    expect(h.calls).toEqual([]);
+    // Only the aged epic structure re-reads (#4266): sub-issue links never move the issue key.
+    expect(h.calls.filter((c) => !isEpicRead(c))).toEqual([]);
+    expect(h.calls.filter(isEpicRead)).toHaveLength(1);
   });
 
   test("restart during backoff keeps coverage through reset without a second listing wave", async () => {
@@ -304,12 +310,14 @@ describe("GitHub warm restart", () => {
       expect(warm.svc.covered("o/r")).toBe(true);
     }
     expect(h.fingerprintCalls()).toBe(1);
+    expect(h.calls).toEqual([]); // no epic refresh while the budget is in backoff
     h.block(false);
     expect(warm.svc.covered("o/r")).toBe(true);
     await warm.svc.tick();
     expect(h.observations.at(-1)?.changed).toEqual([]);
     expect(await readIssues(warm.forge)).toEqual(expected);
-    expect(h.calls).toEqual([]);
+    expect(h.calls.filter((c) => !isEpicRead(c))).toEqual([]);
+    expect(h.calls.filter(isEpicRead)).toHaveLength(1);
   });
 
   test("normal TTL fallback resumes if fingerprint coverage lapses after a successful run", async () => {

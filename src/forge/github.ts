@@ -292,8 +292,13 @@ const ISSUES_CACHE_TTL_MS = 30_000;
 const ISSUES_FAILURE_BACKOFF_MS = 30_000;
 const ISSUES_FAILURE_BACKOFF_MAX_MS = 15 * 60_000;
 /** How long {@link GithubForge.getEpicStructure} answers from its cache while no fingerprint
- *  covers the repo (#2807). A covered repo keeps it until its issue generation moves. */
+ *  covers the repo (#2807). A covered repo keeps it until its issue generation moves, or
+ *  {@link EPIC_STRUCTURE_COVERED_TTL_MS} passes. */
 const EPIC_STRUCTURE_TTL_MS = 2 * 60_000;
+/** Age at which a covered repo's epic structure refreshes in the background although its issue
+ *  key is unchanged: linking a native sub-issue or blocked-by edge moves no `updatedAt` and no
+ *  count, so the key alone never notices (#4266). */
+const EPIC_STRUCTURE_COVERED_TTL_MS = 5 * 60_000;
 /** {@link GithubForge.allowedMergeMethods} cache. Repo settings rarely change, and a stale answer
  *  only offers a method the host then refuses (or hides one it would take). */
 const MERGE_METHODS_TTL_MS = 10 * 60_000;
@@ -4282,7 +4287,8 @@ export class GithubForge implements GitForge {
   /**
    * The epic's structure in ONE GraphQL query (#2807) instead of N + 2 calls. Cached per parent
    * like {@link listIssues}: while the repo fingerprint covers the slug, until its issue
-   * content key moves (closing a blocker moves it); otherwise for {@link EPIC_STRUCTURE_TTL_MS}.
+   * content key moves (closing a blocker moves it) — refreshed in the background once older than
+   * {@link EPIC_STRUCTURE_COVERED_TTL_MS} (#4266); otherwise for {@link EPIC_STRUCTURE_TTL_MS}.
    * This forge's own writes (claim labels, closes, merges, sub-issue and dependency links) clear
    * it, and concurrent callers share one read.
    *
@@ -4317,17 +4323,30 @@ export class GithubForge implements GitForge {
           ? hit.contentKey === fpKey
           : now - hit.at < EPIC_STRUCTURE_TTL_MS);
     if (fresh) {
-      if (
-        !restHeld &&
-        persisted &&
-        this.readCache?.expired(persisted) &&
-        this.readCache.canRefresh() &&
-        (hit.retryAt === undefined || now >= hit.retryAt)
-      )
+      if (!restHeld && this.epicRefreshDue(hit, persisted, fpKey, now))
         void this.loadEpicStructure(parentNumber, fpKey).catch(() => {}); // best-effort: background refresh; stale hit is served, next read retries
       return hit.structure;
     }
     return this.loadEpicStructure(parentNumber, fpKey);
+  }
+
+  /** A fresh hit is refreshed in the background once aged — the persisted row past its max age,
+   *  or a covered entry past {@link EPIC_STRUCTURE_COVERED_TTL_MS} (#4266) — unless background
+   *  refresh is held or a failed read's retry is pending. */
+  private epicRefreshDue(
+    hit: { at: number; retryAt?: number },
+    persisted: GithubCacheEntry<EpicStructure> | null | undefined,
+    fpKey: string | null,
+    now: number,
+  ): boolean {
+    const aged =
+      (persisted != null && !!this.readCache?.expired(persisted)) ||
+      (fpKey !== null && now - hit.at >= EPIC_STRUCTURE_COVERED_TTL_MS);
+    return (
+      aged &&
+      (this.readCache?.canRefresh() ?? true) &&
+      (hit.retryAt === undefined || now >= hit.retryAt)
+    );
   }
 
   /** A complete REST read of this backoff window is held for the rest of it — one REST pass per

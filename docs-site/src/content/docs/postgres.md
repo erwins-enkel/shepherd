@@ -95,12 +95,22 @@ working unchanged.
   at that moment, the drop happens the next time it starts.
 - **At startup and hourly** Shepherd drops leftover session databases that no
   live session owns.
+- **Roles your migrations create** (for example a non-owner app role for
+  row-level security) belong to the repo. Every session of that repo can use
+  and grant them, including sessions started later. Shepherd never drops them.
+  Roles are server-wide: if another repo already has a role with the same name,
+  the migration's `GRANT` is refused. A session that was already running when a
+  sibling first created a role can be refused for up to a minute; re-running the
+  migrations then works.
 
 ## Security
 
 The port is reachable from every Trusted and Standard sandbox on this machine;
 the boundary is the credentials. Each session's role can connect only to its own
-database, and the superuser password never leaves Shepherd. Details:
+database, and the superuser password never leaves Shepherd. A session's role
+may create roles (`CREATEROLE`), so migrations can set up app roles. Postgres
+still refuses it superuser, `BYPASSRLS` and `CREATEDB` roles, built-in `pg_*`
+roles, and changes to other sessions' roles. Details:
 [sandbox security notes](https://github.com/erwins-enkel/shepherd/blob/main/docs/sandbox-security.md#on-demand-postgres-4232).
 
 ## Diagnose

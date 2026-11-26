@@ -304,6 +304,23 @@ only to its own database. A second Shepherd instance with another state dir gets
 its own container and volume, so neither reconciles the other's clones.
 The template (`r_<repo>_base`) is owned by the superuser; nobody connects to it.
 
+**App roles (`CREATEROLE`).** Session roles hold `CREATEROLE` so migrations can
+create roles (e.g. a non-owner RLS role). Postgres 16+ limits that to roles the
+session administers: no `SUPERUSER`/`BYPASSRLS`/`CREATEDB`/`REPLICATION` roles,
+no granting `pg_*` or any role it lacks ADMIN on, no altering other session
+roles. Older servers (a configured pre-16 image) never grant it:
+there `CREATEROLE` is close to superuser. Each session role is a member of its repo role `r_<repo>` (`INHERIT TRUE,
+SET FALSE`). Shepherd grants every role a session created to `r_<repo>` `WITH
+ADMIN OPTION` (`adoptScript`: on request, every idle tick, reconcile and before a
+drop), so sibling sessions inherit ADMIN on the repo's app roles and the roles
+keep an admin holder once their creator is dropped. Roles a session creates with
+LOGIN can connect nowhere (CONNECT is revoked from PUBLIC everywhere). Because a
+session could create `r_<repo>` for a repo that has no template yet (a squat),
+every `baseScript` strips its attributes (`NOLOGIN NOCREATEROLE … PASSWORD NULL`)
+and revokes, with CASCADE, every member holding ADMIN on it. **Accepted:**
+sessions of the same repo can alter, revoke or drop that repo's app roles and so
+disturb each other. App roles are never dropped automatically.
+
 **The superuser stays with Shepherd.** Its password lives in
 `postgres/superuser.env` beside the DB (0600) and is only used for the image's
 first init; Shepherd administers the cluster through `docker exec … psql` over

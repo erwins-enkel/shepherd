@@ -3,6 +3,7 @@ import {
   DEFAULT_POSTGRES_SETTINGS,
   HARDEN_SQL,
   postgresInstanceNames,
+  adoptScript,
   baseScript,
   cloneScript,
   connectionFor,
@@ -76,8 +77,49 @@ describe("scripts", () => {
   });
 
   it("role: password only as a validated literal", () => {
-    expect(roleScript(SID, "abcDEF0123456789_-xy")).toContain("PASSWORD 'abcDEF0123456789_-xy'");
-    expect(() => roleScript(SID, "bad'pw")).toThrow();
+    expect(roleScript(SID, "abcDEF0123456789_-xy", repo)).toContain(
+      "PASSWORD 'abcDEF0123456789_-xy'",
+    );
+    expect(() => roleScript(SID, "bad'pw", repo)).toThrow();
+  });
+
+  it("role: CREATEROLE + inherit-only repo-role membership, PG16+ only", () => {
+    const db = sessionDb(SID);
+    const sql = roleScript(SID, "abcDEF0123456789_-xy", repo);
+    const pg16 = "WHERE current_setting('server_version_num')::int >= 160000\\gexec";
+    expect(sql).toContain(`ALTER ROLE ${db} WITH LOGIN NOCREATEROLE PASSWORD`);
+    expect(sql).toContain(`'ALTER ROLE ${db} CREATEROLE' ${pg16}`);
+    expect(sql).toContain(
+      `'GRANT ${repoRole(repo)} TO ${db} WITH INHERIT TRUE, SET FALSE' ${pg16}`,
+    );
+    // The caller reads the clone-exists count from the last line.
+    expect(sql.trim().split("\n").pop()).toMatch(/^SELECT count\(\*\) FROM pg_database/);
+  });
+
+  it("base: strips a squatted repo role's attributes and admin holders", () => {
+    const sql = baseScript(repo);
+    const role = repoRole(repo);
+    expect(sql).toContain(
+      `ALTER ROLE ${role} NOLOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD NULL;`,
+    );
+    expect(sql).toContain("REVOKE %I FROM %I CASCADE");
+    expect(sql).toContain(`r.rolname = '${role}' AND a.admin_option AND NOT m.rolsuper\\gexec`);
+  });
+
+  it("adopt: hands roles a session administers to its repo role, never managed names", () => {
+    const db = sessionDb(SID);
+    const role = repoRole(repo);
+    const sql = adoptScript([{ db, role }]);
+    expect(sql).toContain("GRANT %I TO %I WITH ADMIN OPTION, INHERIT FALSE, SET FALSE");
+    expect(sql).toContain(`h.rolname = '${role}'`);
+    expect(sql).toContain(`m.rolname = '${db}' AND a.admin_option AND NOT r.rolsuper`);
+    expect(sql).toContain("r.rolname !~ '^pg_'");
+    expect(sql).toContain("r.rolname !~ '^s_[0-9a-f]{32}$'");
+    expect(sql).toContain("r.rolname !~ '^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$'");
+    expect(sql.trim().endsWith("\\gexec")).toBe(true);
+    expect(adoptScript([])).toBe("");
+    expect(() => adoptScript([{ db: "postgres", role }])).toThrow();
+    expect(() => adoptScript([{ db, role: "x'; DROP" }])).toThrow();
   });
 
   it("drop clears the role's leftovers before DROP ROLE and refuses non-session names", () => {

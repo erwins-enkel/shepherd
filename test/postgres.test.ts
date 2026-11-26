@@ -19,6 +19,7 @@ class FakeDocker {
   imagePresent = true;
   dockerDown = false;
   failRun = false;
+  failAdopt = false;
   ready = true;
   clients = 0;
   dbs = new Set<string>();
@@ -76,6 +77,7 @@ class FakeDocker {
   private sql(input: string): string {
     if (!this.running) throw new Error("not running");
     if (input.includes("pg_stat_activity")) return `${this.clients}\n`;
+    if (input.includes("WITH ADMIN OPTION") && this.failAdopt) throw new Error("adopt failed");
     if (input.includes("UNION SELECT rolname"))
       return [...new Set([...this.dbs, ...this.roles])].join("\n");
     for (const m of input.matchAll(/DROP DATABASE IF EXISTS (\w+)/g)) this.dbs.delete(m[1]!);
@@ -279,6 +281,56 @@ describe("request", () => {
     store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
     await expect(svc().request(id)).rejects.toMatchObject({ code: "disabled" });
     expect(docker.calls.length).toBe(0);
+  });
+});
+
+describe("app roles", () => {
+  const ADOPT = /WITH ADMIN OPTION, INHERIT FALSE/;
+  const inputs = () => docker.calls.map((c) => c.input ?? "");
+
+  it("provision adopts siblings' roles before applying the session role", async () => {
+    const s = svc();
+    const a = mkSession();
+    const b = mkSession();
+    await s.request(a);
+    const from = docker.calls.length;
+    await s.request(b);
+    const after = inputs().slice(from);
+    const adopt = after.findIndex((i) => ADOPT.test(i));
+    const role = after.findIndex((i) => i.includes(`ALTER ROLE ${sessionDb(b)} WITH LOGIN`));
+    expect(adopt).toBeGreaterThanOrEqual(0);
+    expect(adopt).toBeLessThan(role);
+    expect(after[adopt]).toContain(`m.rolname = '${sessionDb(a)}'`);
+  });
+
+  it("release adopts the session's roles before dropping it", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    const from = docker.calls.length;
+    await s.releaseSession(id);
+    const after = inputs().slice(from);
+    const adopt = after.findIndex((i) => ADOPT.test(i) && i.includes(`'${sessionDb(id)}'`));
+    expect(adopt).toBeGreaterThanOrEqual(0);
+    expect(adopt).toBeLessThan(after.findIndex((i) => i.includes("DROP DATABASE IF EXISTS")));
+  });
+
+  it("idle tick adopts while sessions hold leases", async () => {
+    const s = svc();
+    await s.request(mkSession());
+    const before = docker.sqlCalls(ADOPT);
+    await s.idleTick();
+    expect(docker.sqlCalls(ADOPT)).toBe(before + 1);
+  });
+
+  it("a failed adoption never fails the request or the drop", async () => {
+    const s = svc();
+    const a = mkSession();
+    await s.request(a);
+    docker.failAdopt = true;
+    expect((await s.request(mkSession())).status).toBe("ready");
+    await s.releaseSession(a);
+    expect(docker.dbs.has(sessionDb(a))).toBe(false);
   });
 });
 

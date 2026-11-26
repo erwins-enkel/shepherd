@@ -170,17 +170,32 @@ export function baseScript(repoPath: string): string {
     `SELECT 'CREATE ROLE ${role} NOLOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(role)})\\gexec`,
     `SELECT 'CREATE DATABASE ${base}' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = ${lit(base)})\\gexec`,
     `REVOKE CONNECT, TEMPORARY ON DATABASE ${base} FROM PUBLIC;`,
+    // Session roles hold CREATEROLE, so one could have created this role first (a squat). Strip
+    // any attributes it gave the role and every admin holder (plus grants made through them);
+    // legit session memberships are superuser-granted without ADMIN and stay.
+    `ALTER ROLE ${role} NOLOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD NULL;`,
+    `SELECT format('REVOKE %I FROM %I CASCADE', r.rolname, m.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = ${lit(role)} AND a.admin_option AND NOT m.rolsuper\\gexec`,
     "",
   ].join("\n");
 }
 
+const PG16 = "current_setting('server_version_num')::int >= 160000";
+
 /** Login role (password always (re)set) + clone of the template when the clone is missing. The
- *  clone path ends in the clone DB (`\connect`), so it is a separate script. */
-export function roleScript(sessionId: string, password: string): string {
+ *  clone path ends in the clone DB (`\connect`), so it is a separate script. CREATEROLE lets the
+ *  repo's migrations create app roles (PG16+ limits it to roles it administers, no SUPERUSER /
+ *  BYPASSRLS / CREATEDB); membership in the repo role inherits ADMIN on the roles sibling sessions
+ *  created (`adoptScript`). Re-applied on every request, so older session roles get it too.
+ *  PG16+ only (`PG16`); on older servers the role stays NOCREATEROLE. */
+export function roleScript(sessionId: string, password: string, repoPath: string): string {
   const db = sessionDb(sessionId);
   return [
     `SELECT 'CREATE ROLE ${db} LOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
-    `ALTER ROLE ${db} WITH LOGIN PASSWORD ${literalPassword(password)};`,
+    `ALTER ROLE ${db} WITH LOGIN NOCREATEROLE PASSWORD ${literalPassword(password)};`,
+    // Before PG16, CREATEROLE is close to superuser (any role's password, any grant) and the
+    // INHERIT/SET grant syntax doesn't exist: an older configured image gets neither.
+    `SELECT 'ALTER ROLE ${db} CREATEROLE' WHERE ${PG16}\\gexec`,
+    `SELECT 'GRANT ${repoRole(repoPath)} TO ${db} WITH INHERIT TRUE, SET FALSE' WHERE ${PG16}\\gexec`,
     `SELECT count(*) FROM pg_database WHERE datname = ${lit(db)};`,
     "",
   ].join("\n");
@@ -196,6 +211,28 @@ export function cloneScript(repoPath: string, sessionId: string): string {
     `REASSIGN OWNED BY ${repoRole(repoPath)} TO ${db};`,
     "",
   ].join("\n");
+}
+
+const SESSION_ROLE_PATTERN = "^s_[0-9a-f]{32}$";
+const REPO_ROLE_PATTERN = "^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$";
+
+/** Hand the roles a session created (it holds ADMIN on them directly) to its repo role WITH ADMIN,
+ *  so every session of that repo inherits ADMIN and the roles keep an admin holder after the
+ *  session is dropped. Never `pg_*`, superusers or Shepherd's own session/repo role names; a
+ *  missing session or repo role is a no-op. Empty input → "" (nothing to run). */
+export function adoptScript(leases: readonly { db: string; role: string }[]): string {
+  const lines = leases.map(({ db, role }) => {
+    if (!isSessionDbName(db)) throw new Error(`invalid session role: ${db}`);
+    return (
+      `SELECT format('GRANT %I TO %I WITH ADMIN OPTION, INHERIT FALSE, SET FALSE', r.rolname, h.rolname) ` +
+      `FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member ` +
+      `JOIN pg_roles h ON h.rolname = ${lit(role)} ` +
+      `WHERE m.rolname = ${lit(db)} AND a.admin_option AND NOT r.rolsuper AND r.rolname !~ '^pg_' ` +
+      `AND r.rolname !~ '${SESSION_ROLE_PATTERN}' AND r.rolname !~ '${REPO_ROLE_PATTERN}' ` +
+      `AND NOT EXISTS (SELECT 1 FROM pg_auth_members x WHERE x.roleid = a.roleid AND x.member = h.oid AND x.admin_option)\\gexec`
+    );
+  });
+  return lines.length ? `${lines.join("\n")}\n` : "";
 }
 
 /** Session roles may connect only to their own clone: PUBLIC loses CONNECT/TEMPORARY on the

@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
 import {
+  backendSelfTestFailed,
   buildMembraneFlags,
   detectBackend as realDetectBackend,
   membraneForArgv,
@@ -242,6 +243,9 @@ export interface AgentLaunchFact {
 export interface MembraneLaunchFacts {
   backend: SandboxBackend;
   agents: AgentLaunchFact[];
+  /** `backend === null` although bwrap is installed: its self-test failed, so Default-profile repos
+   *  run degraded rather than trusted (see effectiveDefaultProfile). */
+  selfTestFailed?: boolean;
 }
 
 export interface MembraneLaunchFactsDeps extends MembraneLaunchDeps {
@@ -250,6 +254,8 @@ export interface MembraneLaunchFactsDeps extends MembraneLaunchDeps {
   detectBackend?: (probe: BackendProbeDeps) => SandboxBackend;
   /** PATH lookup; default Bun.which. */
   which?: (cmd: string) => string | null;
+  /** Whether the backend probe's null is a failed self-test; default the real cached verdict. */
+  selfTestFailed?: () => boolean;
 }
 
 /**
@@ -281,7 +287,13 @@ export async function readMembraneLaunchFacts(
     claudeDir: env.claudeDir,
     nodeBinReal: env.nodeBinReal,
   });
-  if (backend === null) return { backend, agents: [] };
+  if (backend === null) {
+    return {
+      backend,
+      agents: [],
+      selfTestFailed: (deps.selfTestFailed ?? backendSelfTestFailed)(),
+    };
+  }
 
   resetMembraneLaunchCache();
 

@@ -8572,6 +8572,42 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   expect(calls.removed).toEqual([]);
 });
 
+describe("replaceAgent: sandbox profile", () => {
+  const withRepoProfile = (store: SessionStore, sandboxProfile: "trusted" | "standard") =>
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile });
+  const ranUnder = (store: SessionStore, id: string, applied: "trusted" | "standard") =>
+    store.setSandboxState(id, {
+      applied,
+      degraded: false,
+      egressApplied: false,
+      egressDegraded: false,
+    });
+
+  test("keeps the profile the session ran under, not a weaker repo default", async () => {
+    const store = new SessionStore(":memory:");
+    const { service } = relaunchHarness(store, "unknown", { detectBackend: () => null });
+    withRepoProfile(store, "trusted");
+    const orig = originalSession(store, { agentProvider: "claude" });
+    ranUnder(store, orig.id, "standard");
+
+    await service.replaceAgent(orig.id, { agentProvider: "claude", model: "opus" });
+
+    expect(store.get(orig.id)!.sandboxApplied).toBe("standard");
+  });
+
+  test("a Codex source's forced trusted is not carried to a Claude replacement", async () => {
+    const store = new SessionStore(":memory:");
+    const { service } = relaunchHarness(store, "unknown", { detectBackend: () => null });
+    withRepoProfile(store, "standard");
+    const orig = originalSession(store, { agentProvider: "codex", claudeSessionId: "" });
+    ranUnder(store, orig.id, "trusted");
+
+    await service.replaceAgent(orig.id, { agentProvider: "claude", model: "opus" });
+
+    expect(store.get(orig.id)!.sandboxApplied).toBe("standard");
+  });
+});
+
 describe("replaceAgent: held /goal (#2596)", () => {
   const heldOrig = (store: SessionStore) => {
     const orig = originalSession(store, {

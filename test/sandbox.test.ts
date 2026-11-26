@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   SANDBOX_PROFILES,
   isSandboxProfile,
@@ -17,6 +17,8 @@ import {
   wrapArgv,
   detectBackend,
   resetBackendCache,
+  backendSelfTestFailed,
+  BACKEND_RETRY_MS,
   collectPassthroughEnv,
   resolveCodexMembrane,
   resolveClaudeMembrane,
@@ -24,6 +26,7 @@ import {
   membraneInnerArgv,
   MEMBRANE_MISE_CONFIG,
   MEMBRANE_TOOL_BIN,
+  CLAUDE_DIR_ENTRIES,
   type MembraneInputs,
   type CodexMembraneInputs,
   type ClaudeMembraneInputs,
@@ -33,6 +36,9 @@ import { secretEnvLauncher, secretLauncherSkip } from "../src/agent-secrets";
 import { AGENT_SHELL_MARKERS } from "../src/agent-shell-env";
 import { CODEX_ROLE_SCHEMA_DIR } from "../src/codex-role-output-schema";
 import type { EgressBackend } from "../src/egress";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // A deterministic MembraneInputs for flag-construction tests. exists is
 // injected so the host never influences the output.
@@ -480,13 +486,33 @@ describe("buildMembraneFlags", () => {
     );
   });
 
-  test("RO claudeDir base + RO projects bind", () => {
-    const f = buildMembraneFlags(fakeMembrane(), detDeps);
-    expect(hasTriple(f, "--ro-bind", "/home/me/.claude", "/home/me/.claude")).toBe(true);
-    expect(
-      hasTriple(f, "--ro-bind-try", "/home/me/.claude/projects", "/home/me/.claude/projects"),
-    ).toBe(true);
-  });
+  for (const [shape, extra] of [
+    ["subscription", {}],
+    ["api-key", { maskCredentials: true }],
+  ] as const) {
+    test(`${shape}: claudeDir is a per-membrane dir holding only the allowlisted entries RO`, () => {
+      const cd = "/home/me/.claude";
+      const f = buildMembraneFlags(fakeMembrane(extra), {
+        ...detDeps,
+        readdir: () => ["history.jsonl", "file-history", "ide", "projects", "settings.json"],
+      });
+      expect(hasPair(f, "--dir", cd)).toBe(true);
+      expect(hasTriple(f, "--ro-bind", cd, cd)).toBe(false);
+      for (const e of CLAUDE_DIR_ENTRIES)
+        expect(hasTriple(f, "--ro-bind-try", `${cd}/${e}`, `${cd}/${e}`)).toBe(true);
+      // Every source under claudeDir is an allowlisted entry, the OAuth token or own state.
+      const allowed = new Set([
+        ...CLAUDE_DIR_ENTRIES.map((e) => `${cd}/${e}`),
+        `${cd}/.credentials.json`,
+      ]);
+      const BINDS = new Set(["--ro-bind", "--ro-bind-try", "--bind", "--bind-try"]);
+      const sources = f.flatMap((x, i) => (BINDS.has(x) ? [f[i + 1]] : []));
+      for (const src of sources.filter((x) => x?.startsWith(`${cd}/`)))
+        expect(allowed.has(src!)).toBe(true);
+      for (const hidden of ["history.jsonl", "file-history", "ide", "projects", "backups"])
+        expect(f.includes(`${cd}/${hidden}`)).toBe(false);
+    });
+  }
 
   test("system dirs use plain ro-bind, host-variable paths use *-bind-try", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
@@ -918,16 +944,15 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--ro-bind-try", "/h/x.sh", "/h/x.sh")).toBe(true);
   });
 
-  test("projectsBindSource overrides the projects bind SOURCE; dest stays <claudeDir>/projects (#1213)", () => {
-    // source = active projects dir, dest = pool projects → transcript lands where readback looks.
+  test("the projects dir is never bound whole, from either source (#1213)", () => {
     const f = buildMembraneFlags(
       fakeMembrane({ claudeDir: "/pool/x", projectsBindSource: "/active/projects" }),
-      detDeps,
+      { gitStore: noGitStore, exists: () => true },
     );
-    expect(hasTriple(f, "--ro-bind-try", "/active/projects", "/pool/x/projects")).toBe(true);
-    // absent → source == dest.
+    expect(f.includes("/active/projects")).toBe(false);
+    expect(f.includes("/pool/x/projects")).toBe(false);
     const g = buildMembraneFlags(fakeMembrane({ claudeDir: "/pool/x" }), detDeps);
-    expect(hasTriple(g, "--ro-bind-try", "/pool/x/projects", "/pool/x/projects")).toBe(true);
+    expect(g.includes("/pool/x/projects")).toBe(false);
   });
 
   test("non-default CLAUDE_CONFIG_DIR: the copy lands at <claudeDir>/.claude.json, $HOME one unbound (#1213)", () => {
@@ -970,8 +995,8 @@ describe("buildMembraneFlags", () => {
     expect(f.includes("/pool/x/.credentials.json")).toBe(false);
     // api-key helper bound RO.
     expect(hasTriple(f, "--ro-bind-try", "/helper.sh", "/helper.sh")).toBe(true);
-    // projects bind SOURCE = active projects dir (readback preserved).
-    expect(hasTriple(f, "--ro-bind-try", "/active/projects", "/pool/x/projects")).toBe(true);
+    // No whole projects bind (the own transcript dir alone follows the active dir).
+    expect(f.includes("/active/projects")).toBe(false);
     // config-dir .claude.json: host file RO without a per-spawn copy.
     expect(hasTriple(f, "--ro-bind-try", "/pool/x/.claude.json", "/pool/x/.claude.json")).toBe(
       true,
@@ -992,17 +1017,10 @@ describe("buildMembraneFlags", () => {
     expect(found).toBe(true);
   });
 
-  test("session-env tmpfs appears AFTER the claudeDir RO base bind (overrides it)", () => {
+  test("session-env tmpfs appears AFTER the claudeDir --dir", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     const claudeDir = "/home/me/.claude";
-    // find index of the whole-dir RO base bind (subscription mode)
-    let baseBindIdx = -1;
-    for (let i = 0; i + 2 < f.length; i++) {
-      if (f[i] === "--ro-bind" && f[i + 1] === claudeDir && f[i + 2] === claudeDir) {
-        baseBindIdx = i;
-        break;
-      }
-    }
+    const baseBindIdx = f.findIndex((x, i) => x === "--dir" && f[i + 1] === claudeDir);
     expect(baseBindIdx).toBeGreaterThanOrEqual(0);
     // find index of the session-env tmpfs
     let sessionEnvIdx = -1;
@@ -1015,7 +1033,7 @@ describe("buildMembraneFlags", () => {
     expect(sessionEnvIdx).toBeGreaterThan(baseBindIdx);
   });
 
-  test("maskCredentials: session-env tmpfs still present and after per-child RO bind-try of session-env", () => {
+  test("maskCredentials: session-env tmpfs present after the claudeDir --dir; never host-bound", () => {
     const f = buildMembraneFlags(fakeMembrane({ maskCredentials: true }), {
       ...detDeps,
       readdir: () => [
@@ -1036,22 +1054,10 @@ describe("buildMembraneFlags", () => {
         break;
       }
     }
-    expect(tmpfsIdx).toBeGreaterThanOrEqual(0);
-    // per-child RO bind-try for session-env emitted by maskedClaudeDirBinds
-    let perChildIdx = -1;
-    for (let i = 0; i + 2 < f.length; i++) {
-      if (
-        f[i] === "--ro-bind-try" &&
-        f[i + 1] === `${claudeDir}/session-env` &&
-        f[i + 2] === `${claudeDir}/session-env`
-      ) {
-        perChildIdx = i;
-        break;
-      }
-    }
-    expect(perChildIdx).toBeGreaterThanOrEqual(0);
-    // tmpfs must come AFTER the per-child bind so it overrides the RO bind
-    expect(tmpfsIdx).toBeGreaterThan(perChildIdx);
+    expect(tmpfsIdx).toBeGreaterThan(f.indexOf("--dir"));
+    expect(
+      hasTriple(f, "--ro-bind-try", `${claudeDir}/session-env`, `${claudeDir}/session-env`),
+    ).toBe(false);
   });
 
   test("apiKeyHelperPath empty/whitespace-guard: empty string => no helper bind", () => {
@@ -1155,6 +1161,7 @@ describe("collectPassthroughEnv", () => {
 
 describe("detectBackend (injected run)", () => {
   beforeEach(() => resetBackendCache());
+  afterEach(() => resetBackendCache());
 
   function depsAll(status: number) {
     return {
@@ -1275,6 +1282,89 @@ describe("detectBackend (injected run)", () => {
     expect(shCmd).toContain("mkdir");
   });
 
+  test("self-test binds a fresh private dir as its worktree — never /tmp itself — removed after", () => {
+    let probeArgs: string[] = [];
+    let existedDuring = false;
+    const prefix = join(tmpdir(), "shepherd-backend-probe-");
+    const deps = {
+      ...depsAll(0),
+      run: (cmd: string, args: string[]) => {
+        if (args[0] !== "--version") {
+          probeArgs = args;
+          const dir = args.find((a) => a.startsWith(prefix));
+          existedDuring = dir !== undefined && existsSync(dir);
+        }
+        return { status: 0 };
+      },
+    };
+    expect(detectBackend(deps)).toBe("bwrap");
+    const i = probeArgs.findIndex((a, k) => a === "--bind" && probeArgs[k + 1]?.startsWith(prefix));
+    expect(i).toBeGreaterThan(-1);
+    const dir = probeArgs[i + 1]!;
+    expect(probeArgs[i + 2]).toBe(dir);
+    expect(hasTriple(probeArgs, "--bind", "/tmp", "/tmp")).toBe(false);
+    expect(existedDuring).toBe(true);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("a failed self-test is probed again after the retry window, not before", () => {
+    let clock = 1_000;
+    let probes = 0;
+    let status = 1;
+    const deps = {
+      ...depsAll(0),
+      now: () => clock,
+      run: (cmd: string, args: string[]) => {
+        if (args[0] === "--version") return { status: 0 };
+        probes++;
+        return { status };
+      },
+    };
+    expect(detectBackend(deps)).toBeNull();
+    clock += BACKEND_RETRY_MS - 1;
+    expect(detectBackend(deps)).toBeNull();
+    expect(probes).toBe(1);
+    status = 0;
+    clock += 1;
+    expect(detectBackend(deps)).toBe("bwrap");
+    expect(probes).toBe(2);
+    clock += BACKEND_RETRY_MS * 10;
+    expect(detectBackend(deps)).toBe("bwrap");
+    expect(probes).toBe(2); // a working backend stays cached
+  });
+
+  test("no bwrap installed: the verdict is kept for the process", () => {
+    let clock = 0;
+    let calls = 0;
+    const deps = {
+      ...depsAll(0),
+      now: () => clock,
+      run: () => {
+        calls++;
+        return { status: 127 };
+      },
+    };
+    expect(detectBackend(deps)).toBeNull();
+    clock += BACKEND_RETRY_MS * 10;
+    expect(detectBackend(deps)).toBeNull();
+    expect(calls).toBe(1);
+  });
+
+  test("backendSelfTestFailed: only an installed bwrap whose self-test failed", () => {
+    expect(backendSelfTestFailed()).toBe(false); // nothing probed yet
+    detectBackend(depsAll(0));
+    expect(backendSelfTestFailed()).toBe(false);
+    resetBackendCache();
+    detectBackend({ ...depsAll(0), run: () => ({ status: 127 }) });
+    expect(backendSelfTestFailed()).toBe(false);
+    resetBackendCache();
+    detectBackend({
+      ...depsAll(0),
+      run: (_: string, args: string[]) => ({ status: args[0] === "--version" ? 0 : 1 }),
+    });
+    expect(backendSelfTestFailed()).toBe(true);
+  });
+
   // Regression (#294): with no nodeBinReal dep the default resolves a REAL node
   // path; the old `?? "node"` made dirname("node") === "." so the self-test bound
   // the cwd instead of the toolchain root, diverging from real spawns -> null.
@@ -1328,13 +1418,27 @@ describe("parseSandboxProfile (config helper)", () => {
 });
 
 describe("effectiveDefaultProfile (#2100)", () => {
+  beforeEach(() => resetBackendCache());
+  afterEach(() => resetBackendCache());
   const bwrap = () => "bwrap" as const;
   const none = () => null;
   test("unset + working backend → standard", () => {
     expect(effectiveDefaultProfile(null, bwrap)).toBe("standard");
   });
-  test("unset + no backend → trusted (no degraded banner on hosts that can't sandbox)", () => {
-    expect(effectiveDefaultProfile(null, none)).toBe("trusted");
+  test("unset + no bwrap installed → trusted (no degraded banner on hosts that can't sandbox)", () => {
+    expect(effectiveDefaultProfile(null, none, () => false)).toBe("trusted");
+    expect(effectiveDefaultProfile(null, none)).toBe("trusted"); // nothing probed: not a failure
+  });
+  test("unset + installed bwrap whose self-test fails → standard (runs degraded, never trusted)", () => {
+    expect(effectiveDefaultProfile(null, none, () => true)).toBe("standard");
+    const failing = {
+      run: (_: string, args: string[]) => ({ status: args[0] === "--version" ? 0 : 1 }),
+      exists: () => false,
+      home: "/home/me",
+      claudeDir: "/home/me/.claude",
+      nodeBinReal: "/usr/bin/node",
+    };
+    expect(effectiveDefaultProfile(null, () => detectBackend(failing))).toBe("standard");
   });
   test("an explicit choice wins and never probes", () => {
     const boom = () => {
@@ -1644,14 +1748,12 @@ describe("buildMembraneFlags shared Claude state (F04/F06)", () => {
       }
     });
 
-    test(`${shape}: shell-snapshots/todos/statsig tmpfs only when the host dir exists`, () => {
-      const f = buildMembraneFlags(fakeMembrane(extra), allExist);
-      for (const d of ["shell-snapshots", "todos", "statsig"])
-        expect(hasPair(f, "--tmpfs", `${cd}/${d}`)).toBe(true);
-      // Absent host dir → no mountpoint under the RO bind (bwrap could not mkdir it).
-      const g = buildMembraneFlags(fakeMembrane(extra), { ...allExist, exists: () => false });
-      for (const d of ["shell-snapshots", "todos", "statsig"])
-        expect(hasPair(g, "--tmpfs", `${cd}/${d}`)).toBe(false);
+    test(`${shape}: shell-snapshots/todos/statsig/session-env tmpfs whether or not the host has them`, () => {
+      for (const exists of [() => true, () => false]) {
+        const f = buildMembraneFlags(fakeMembrane(extra), { ...allExist, exists });
+        for (const d of ["shell-snapshots", "todos", "statsig", "session-env"])
+          expect(hasPair(f, "--tmpfs", `${cd}/${d}`)).toBe(true);
+      }
     });
   }
 
@@ -1659,8 +1761,8 @@ describe("buildMembraneFlags shared Claude state (F04/F06)", () => {
     const f = buildMembraneFlags(fakeMembrane(), allExist);
     expect(hasTriple(f, "--bind", own, own)).toBe(true);
     expect(hasTriple(f, "--ro-bind", `${own}/memory`, `${own}/memory`)).toBe(true);
-    // RO projects bind precedes the own-dir RW bind (bwrap applies in order).
-    expect(f.indexOf(`${cd}/projects`)).toBeLessThan(f.indexOf(own));
+    // The own dir is the only project dir in the membrane.
+    expect(f.includes(`${cd}/projects`)).toBe(false);
 
     const g = buildMembraneFlags(fakeMembrane(), { exists: (p: string) => p === own });
     expect(hasTriple(g, "--bind", own, own)).toBe(true);

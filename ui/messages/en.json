@@ -7082,7 +7082,7 @@
   "sandbox_profile_inherit": "Default ({profile})",
   "sandbox_profile_inherit_unresolved": "Default",
   "automation_autodrain_sandbox_held": "Held: this repo runs Standard, which is interactive-only. Unattended spawns need Autonomous (confined) or Trusted (unconfined) — change Sandbox under Agent environment.",
-  "diagnostics_hint_sandbox_membrane_unavailable": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing or blocked). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded.",
+  "diagnostics_hint_sandbox_membrane_unavailable": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded.",
   "gloss_egress_firewall_term": "egress firewall",
   "gloss_egress_firewall_def": "The network wall Shepherd puts around an agent on the Autonomous sandbox profile. The agent runs in its own network namespace (slirp4netns), names resolve only for allowed hosts (dnsmasq), and every other outbound connection is rejected (nftables) — so a prompt from an issue or pull request cannot send your code or tokens anywhere else.",
   "diagnostics_label_sandbox_egress": "Network firewall (Autonomous)",
@@ -9444,5 +9444,6 @@
   "feat_label_drain_alongside_epics_title": "Labeled issues alongside epics",
   "feat_label_drain_alongside_epics_body": "A running epic no longer has to block your other labeled issues. Turn on \"Labeled issues alongside epics\" under Start & flow: standalone labeled issues then use free agent slots while the epic runs or is paused. Epic children still come first, the slot limit is shared, and a queued issue shows \"waiting for a free slot\" in the backlog. Auto-Drain also stays editable during an epic.",
   "feat_telemetry_removed_title": "Usage telemetry removed",
-  "feat_telemetry_removed_body": "Shepherd no longer sends any anonymous usage data. The opt-in prompt, the Settings toggle and the Aptabase integration are gone."
+  "feat_telemetry_removed_body": "Shepherd no longer sends any anonymous usage data. The opt-in prompt, the Settings toggle and the Aptabase integration are gone.",
+  "diagnostics_hint_sandbox_membrane_selftest_failed": "bubblewrap is installed but cannot build a [[sandbox-membrane|sandbox membrane]] on this host. Repos on the default sandbox run Standard without confinement: every such session is flagged degraded and auto-drain holds. Fix the host (for example, allow unprivileged user namespaces), or set SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted to run unconfined on purpose."
 }

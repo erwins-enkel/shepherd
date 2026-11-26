@@ -5,8 +5,9 @@ not app chrome.
 
 Shepherd wraps each spawned `claude` agent in a bubblewrap (`bwrap`)
 filesystem/process **membrane** with three profiles: `trusted` (no sandbox),
-`standard` (membrane, interactive-only — the default since #2100 wherever the bwrap
-self-test passes; hosts without a backend fall back to `trusted`) and `autonomous`
+`standard` (membrane, interactive-only — the default since #2100 wherever bwrap is
+installed; only hosts without bwrap fall back to `trusted`, while an installed bwrap
+whose self-test fails keeps `standard` and runs degraded) and `autonomous`
 (membrane + per-spawn network-egress firewall; the confined choice for `auto=true`
 drain/autopilot). A repo set to **Default** (`inherit`) follows
 `SHEPHERD_SANDBOX_DEFAULT_PROFILE` when set, else that built-in default; repos with
@@ -19,6 +20,11 @@ only (#3923, `parseEgressEntry`): `*.host` covers its subdomains (not `host`
 itself), `host:port` opens that port instead; subdomains of a plain entry no
 longer resolve. Egress is keyed to the **autonomous profile**, not to
 attendedness (`src/sandbox.ts` `egressApplies`).
+The only resolver inside an egress-confined membrane is the session's dnsmasq:
+`egressMembraneOverrideFlags` replaces `/etc/resolv.conf` and `nsswitch.conf` and
+puts an empty tmpfs over `/run/systemd/resolve`, so systemd-resolved's own
+sockets are not in the membrane.
+No `/run/dbus` path is bound in any membrane.
 When a host is blocked, the agent is told (#3921, `src/egress-watch.ts`
 `egressBlockedNote`): Claude sessions get the note as `additionalContext` on
 their next PostToolUse/PostToolUseFailure hook reply; sessions whose hooks
@@ -92,6 +98,9 @@ profile), not `sandboxApplied`, so the repo default is re-resolved. The
 `sandboxProfile` relaunch override replaces it: the card menu's **Relaunch as
 trusted** sends `"trusted"` and the replacement runs unconfined. Relaunch is a
 `full`-scope route, so no token below `full` reaches it.
+**Continue with…** (`replaceAgent`) reuses the session row, so like resume it spawns
+under the profile the session ran under (`sandboxApplied`); a Codex source's forced
+`trusted` falls back to the submitted choice (`replacementSandboxProfile`).
 
 ## R3 — in-membrane token readability (accepted)
 
@@ -99,11 +108,11 @@ The membrane keeps two token surfaces readable to any in-membrane tool call
 (`buildMembraneFlags`, `src/sandbox.ts`):
 
 - `~/.claude/.credentials.json` — bound **RW** so OAuth refresh writes back
-  (`--bind-try`); the whole `~/.claude` dir is `--ro-bind`ed. **In api-key mode**
-  (`maskCredentials`) this is different: the config dir is mounted with a `--dir`
-  mount point plus per-child RO binds that omit `.credentials.json`
-  (`maskedClaudeDirBinds`), and there is no credential bind of any kind — the
-  OAuth token is **genuinely absent** inside the membrane, not an empty overlay.
+  (`--bind-try`), on top of the config dir's allowlisted RO entries
+  (`CLAUDE_DIR_ENTRIES`, see [Shared Claude state](#shared-claude-state-and-agent-written-files)).
+  **In api-key mode** (`maskCredentials`) there is no credential bind of any kind —
+  the token is not on the allowlist, so it is **genuinely absent** inside the
+  membrane, not an empty overlay.
   The api-key helper script is instead bound RO at its own path so the
   `apiKeyHelper` settings entry resolves inside the sandbox.
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
@@ -371,7 +380,14 @@ profile, the operator's own `claude`) execute or read as instructions writable
   preview) see the host file **RO**. One copy per session plus one per aux role
   kind (under the parent session, or a shared `aux/` dir for parentless roles),
   overwritten on each spawn; removed at the session's archive and swept at boot.
-- **`shell-snapshots/`, `todos/`, `statsig/`** — per-membrane tmpfs.
+- **The config dir itself** — an empty per-membrane dir (`--dir`) holding only an
+  allowlist bound **RO** (`CLAUDE_DIR_ENTRIES`: settings, `CLAUDE.md`, `rules/`,
+  `commands/`, `skills/`, `agents/`, `output-styles/`, `plugins/`, `hooks/`,
+  keybindings, themes, the status-line script), plus the OAuth token (RW,
+  subscription mode only). Prompt history, `file-history/`, `ide/`, backups,
+  plans, caches and other projects' transcripts are not in the membrane; Claude's
+  writes to anything outside the binds stay in the throwaway dir.
+- **`shell-snapshots/`, `todos/`, `statsig/`, `session-env/`** — per-membrane tmpfs.
 - **Symlinked skills/commands** — a `skills/` or `commands/` entry that links out
   of the config dir (e.g. into `~/.agents/skills`, hidden by `--tmpfs $HOME`) gets
   its realpath bound **RO** at the link's in-sandbox target, per entry
@@ -380,8 +396,8 @@ profile, the operator's own `claude`) execute or read as instructions writable
   Only skill/command-shaped targets are bound: a dir with `SKILL.md`, a `.md`
   file, or (under `commands/`) a namespace dir holding `.md` files.
   Codex spawns also get `~/.agents/skills` (Codex's personal-skill root) **RO**.
-- **`projects/`** — RO; only the spawn's own transcript dir
-  (`projects/<dashified cwd>`) is RW, with its `memory/` RO.
+- **`projects/`** — only the spawn's own transcript dir
+  (`projects/<dashified cwd>`) is bound, RW, with its `memory/` RO.
 - **Preview** — `<git-common-dir>/shepherd/preview-start.sh` is authored by a
   session agent on request. Only an unconfined session can write it, because
   `shepherd/` is read-only inside the membrane. A confined session without a
@@ -417,6 +433,12 @@ running `node --version && git --version` through the real derived membrane. It
 never launches `claude`/`codex`, and must not: `null` means **run unconfined**, so
 folding a launcher fault into that verdict would strip the membrane from around
 untrusted plan text on the very hosts that can sandbox.
+The probe's stand-in worktree is a fresh owner-only `mkdtemp` dir, never a shared
+path. A failed self-test of an installed bwrap is re-probed after
+`BACKEND_RETRY_MS` (60 s) rather than pinned for the process, and it never turns the
+built-in default into `trusted`: Default-profile repos stay `standard` and run
+degraded, and the `sandbox_membrane` row turns **error**
+(`diagnostics_hint_sandbox_membrane_selftest_failed`).
 
 `src/membrane-launch.ts` is the second, orthogonal signal — "does the agent binary
 actually start inside the membrane". Its failure is **loud** (a `sandbox_membrane`

@@ -7082,7 +7082,7 @@
   "sandbox_profile_inherit": "Standardwert ({profile})",
   "sandbox_profile_inherit_unresolved": "Standardwert",
   "automation_autodrain_sandbox_held": "Angehalten: Dieses Repo läuft mit Standard, das nur interaktiv ist. Unbeaufsichtigte Starts brauchen Autonom (abgeschottet) oder Vertraut (ohne Sandbox) — Sandbox unter Agent-Umgebung ändern.",
-  "diagnostics_hint_sandbox_membrane_unavailable": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt oder ist blockiert). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert.",
+  "diagnostics_hint_sandbox_membrane_unavailable": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert.",
   "gloss_egress_firewall_term": "Egress-Firewall",
   "gloss_egress_firewall_def": "Die Netzwerk-Abschottung, die Shepherd um einen Agenten mit dem Sandbox-Profil Autonom legt. Der Agent läuft in einem eigenen Netzwerk-Namespace (slirp4netns), Namen werden nur für erlaubte Hosts aufgelöst (dnsmasq), und jede andere ausgehende Verbindung wird abgewiesen (nftables) — damit ein Prompt aus einem Issue oder Pull Request deinen Code oder deine Tokens nirgendwohin sonst schicken kann.",
   "diagnostics_label_sandbox_egress": "Netzwerk-Firewall (Autonom)",
@@ -9444,5 +9444,6 @@
   "feat_label_drain_alongside_epics_title": "Gelabelte Issues neben Epics",
   "feat_label_drain_alongside_epics_body": "Ein laufendes Epic muss deine anderen gelabelten Issues nicht mehr blockieren. Schalte „Gelabelte Issues neben Epics“ unter Start & Ablauf ein: Einzelne gelabelte Issues nutzen dann freie Agenten-Plätze, während das Epic läuft oder pausiert. Epic-Kinder kommen weiterhin zuerst, das Platz-Limit gilt gemeinsam, und ein wartendes Issue zeigt im Backlog „wartet auf freien Platz“. Die Backlog-Abarbeitung bleibt während eines Epics einstellbar.",
   "feat_telemetry_removed_title": "Nutzungstelemetrie entfernt",
-  "feat_telemetry_removed_body": "Shepherd sendet keine anonymen Nutzungsdaten mehr. Die Opt-in-Abfrage, der Schalter in den Einstellungen und die Aptabase-Anbindung sind entfernt."
+  "feat_telemetry_removed_body": "Shepherd sendet keine anonymen Nutzungsdaten mehr. Die Opt-in-Abfrage, der Schalter in den Einstellungen und die Aptabase-Anbindung sind entfernt.",
+  "diagnostics_hint_sandbox_membrane_selftest_failed": "bubblewrap ist installiert, kann auf diesem Host aber keine [[sandbox-membrane|Sandbox-Membran]] aufbauen. Repos mit Standardwert laufen als Standard ohne Abschottung: Jede solche Sitzung wird als eingeschränkt markiert, und Auto-Drain hält an. Behebe das auf dem Host (etwa unprivilegierte User-Namespaces erlauben) oder setze SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted, um bewusst ohne Abschottung zu arbeiten."
 }

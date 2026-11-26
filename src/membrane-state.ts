@@ -7,9 +7,8 @@
  * its cwd, bound RW in place of the original — Claude's onboarding/trust writes land there and are
  * dropped with it. Nothing is merged back.
  *
- * The dirs buildMembraneFlags mounts over (own transcript dir + its memory/, and the
- * shell-snapshots/todos/statsig tmpfs targets) are created here: bwrap cannot mkdir a mountpoint
- * under the read-only claudeDir/projects binds.
+ * The spawn's own transcript dir (+ its memory/) is created here: buildMembraneFlags binds it
+ * from the host only when it exists, so the transcript persists for resume.
  */
 
 import { randomUUID } from "node:crypto";
@@ -19,7 +18,7 @@ import { OwnerOnlyFileError, readOwnerOnlyFile } from "./owner-only-file";
 import { basename, join } from "node:path";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
-import { EPHEMERAL_CLAUDE_DIRS, scanPath } from "./sandbox";
+import { scanPath } from "./sandbox";
 import { execFileAsync } from "./instrument";
 import {
   agentGhAppTokenFromEnv,
@@ -50,12 +49,11 @@ export interface MembraneStateInputs {
 }
 
 /**
- * Create the mountpoints and write this spawn's `.claude.json` copy. Returns the copy's path, or
- * null when the host file is missing (nothing to bind — Claude starts fresh, as before).
+ * Create the own transcript dir and write this spawn's `.claude.json` copy. Returns the copy's
+ * path, or null when the host file is missing (nothing to bind — Claude starts fresh, as before).
  */
 export async function prepareMembraneClaudeState(i: MembraneStateInputs): Promise<string | null> {
   await mkdir(join(i.projectsSource, dashify(i.cwd), "memory"), { recursive: true });
-  for (const d of EPHEMERAL_CLAUDE_DIRS) await mkdir(join(i.claudeDir, d), { recursive: true });
 
   let raw: string;
   try {

@@ -33,7 +33,7 @@ vi.mock("#lib/visibility.js", () => ({
 
 const { default: AssistantChat } = await import("./AssistantChat.svelte");
 const { forgetChatDrafts } = await import("./chat/ChatView.svelte");
-const { getSessionMessages, answerAsk, resolveActionRequest, uploadFile } =
+const { getSessionMessages, answerAsk, resolveActionRequest, uploadFile, ApiError } =
   await import("#lib/api.js");
 const mockUpload = vi.mocked(uploadFile);
 const mockResolveAction = vi.mocked(resolveActionRequest);
@@ -97,9 +97,12 @@ describe("AssistantChat", () => {
     await page.getByRole("radio", { name: "Yes Close both issues" }).click();
     await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
     await vi.waitFor(() =>
-      expect(mockAnswer).toHaveBeenCalledExactlyOnceWith("a1", "ask-1", [
-        { blockId: "ask-1", questionId: "0", optionIndices: [0] },
-      ]),
+      expect(mockAnswer).toHaveBeenCalledExactlyOnceWith(
+        "a1",
+        "ask-1",
+        [{ blockId: "ask-1", questionId: "0", optionIndices: [0] }],
+        expect.any(String),
+      ),
     );
     expect(p.onsend).not.toHaveBeenCalled();
     await expect.element(page.getByText(m.ask_result_verified())).toBeVisible();
@@ -138,10 +141,12 @@ describe("AssistantChat", () => {
     expect(mockAnswer).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["verified", "unverified", "mismatch", "failed"] as const)(
+  it.each(["verified", "unverified", "mismatch", "stale", "unknown"] as const)(
     "reports %s without automatically resending",
     async (result) => {
-      if (result === "failed") mockAnswer.mockRejectedValueOnce(new Error("409"));
+      if (result === "stale")
+        mockAnswer.mockRejectedValueOnce(new ApiError(409, "ask_not_open", "ask_not_open", true));
+      else if (result === "unknown") mockAnswer.mockRejectedValueOnce(new TypeError("Load failed"));
       else mockAnswer.mockResolvedValueOnce(result);
       const p = props({ ask });
       render(AssistantChat, p);
@@ -151,7 +156,8 @@ describe("AssistantChat", () => {
         verified: m.ask_result_verified,
         unverified: m.ask_result_unverified,
         mismatch: m.ask_result_mismatch,
-        failed: m.ask_result_failed,
+        stale: m.ask_result_stale,
+        unknown: m.ask_result_unknown,
       }[result]();
       await expect.element(page.getByText(message)).toBeVisible();
       if (result !== "verified") {
@@ -204,10 +210,15 @@ describe("AssistantChat", () => {
     await expect.element(submit).toBeDisabled();
     await page.getByRole("textbox", { name: "Which tasks?: " + m.qform_other() }).fill("Third");
     await submit.click();
-    expect(mockAnswer).toHaveBeenCalledExactlyOnceWith("a1", "ask-1", [
-      { blockId: "ask-1", questionId: "0", optionIndices: [0] },
-      { blockId: "ask-1", questionId: "1", optionIndices: [0, 1], text: "Third" },
-    ]);
+    expect(mockAnswer).toHaveBeenCalledExactlyOnceWith(
+      "a1",
+      "ask-1",
+      [
+        { blockId: "ask-1", questionId: "0", optionIndices: [0] },
+        { blockId: "ask-1", questionId: "1", optionIndices: [0, 1], text: "Third" },
+      ],
+      expect.any(String),
+    );
   });
 
   it.each(["question", "session"])("ignores a late result after a new %s", async (change) => {
@@ -239,6 +250,7 @@ describe("AssistantChat", () => {
       change === "session" ? "a2" : "a1",
       change === "question" ? "ask-2" : "ask-1",
       [{ blockId: change === "question" ? "ask-2" : "ask-1", questionId: "0", optionIndices: [1] }],
+      expect.any(String),
     );
   });
 

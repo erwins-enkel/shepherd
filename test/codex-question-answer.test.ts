@@ -11,7 +11,7 @@ import type { Session } from "../src/types";
 const fixture = (name: string) =>
   readFileSync(new URL(`./fixtures/codex-questions/${name}`, import.meta.url), "utf8");
 
-async function rig() {
+async function rig(opts: { dismissAfter?: string } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "codex-answer-"));
   const path = join(dir, "rollout.jsonl");
   const rows = fixture("async-roundtrip.jsonl").trim().split("\n");
@@ -48,6 +48,7 @@ async function rig() {
             await appendFile(path, rows[4] + "\n");
             screen = "› Ask Codex to do anything";
           }
+          if (key === opts.dismissAfter) screen = "› Ask Codex to do anything";
           return true;
         },
       }),
@@ -88,8 +89,22 @@ test("Codex answer never types into an unrelated or already dismissed pane", asy
       { blockId: "probe-async", questionId: "0", optionIndices: [0] },
       { blockId: "probe-async", questionId: "1", text: "hello" },
     ]);
-    expect(out).toMatchObject({ ok: false, status: 409 });
+    expect(out).toMatchObject({ ok: false, status: 409, error: "ask_not_open" });
     expect(r.writes).toEqual([]);
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("#4219: Codex answer cut short after a key reached the pane reports ask_interrupted", async () => {
+  const r = await rig({ dismissAfter: "2" });
+  try {
+    const out = await r.svc.answer("s", "probe-async", [
+      { blockId: "probe-async", questionId: "0", optionIndices: [1] },
+      { blockId: "probe-async", questionId: "1", text: "hello" },
+    ]);
+    expect(out).toEqual({ ok: false, status: 409, error: "ask_interrupted" });
+    expect(r.writes.length).toBeGreaterThan(0);
   } finally {
     await r.cleanup();
   }

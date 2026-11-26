@@ -55,14 +55,24 @@ test("200 with the verification result, answers forwarded", async () => {
   const res = await post(h.app, h.session.id, BODY);
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ result: "verified" });
-  expect(h.calls[0]).toEqual([h.session.id, "toolu_1", BODY.answers]);
+  expect(h.calls[0]).toEqual([h.session.id, "toolu_1", BODY.answers, "-"]);
+});
+
+test("#4219: a well-formed requestId is forwarded; a malformed one is ignored, not refused", async () => {
+  const h = harness({ ok: true, result: "verified" });
+  expect((await post(h.app, h.session.id, { ...BODY, requestId: "ab12cd34" })).status).toBe(200);
+  expect(h.calls[0]?.[3]).toBe("ab12cd34");
+  for (const bad of ["a\nb", "x".repeat(65), 7]) {
+    expect((await post(h.app, h.session.id, { ...BODY, requestId: bad })).status).toBe(200);
+    expect(h.calls.at(-1)?.[3]).toBe("-");
+  }
 });
 
 test("service refusals map to their status", async () => {
   const h = harness({ ok: false, status: 409, error: "ask_in_flight" });
   const res = await post(h.app, h.session.id, BODY);
   expect(res.status).toBe(409);
-  expect(await res.json()).toEqual({ error: "ask_in_flight" });
+  expect(await res.json()).toEqual({ error: "ask_in_flight", code: "ask_in_flight" });
 });
 
 test("400 on a malformed body, 404 unknown session, Codex supported", async () => {
@@ -79,5 +89,5 @@ test("400 on a malformed body, 404 unknown session, Codex supported", async () =
   expect((await post(h.app, "nope", BODY)).status).toBe(404);
   const codex = harness({ ok: true, result: "verified" }, "codex");
   expect((await post(codex.app, codex.session.id, BODY)).status).toBe(200);
-  expect(codex.calls).toEqual([[codex.session.id, "toolu_1", BODY.answers]]);
+  expect(codex.calls).toEqual([[codex.session.id, "toolu_1", BODY.answers, "-"]]);
 });

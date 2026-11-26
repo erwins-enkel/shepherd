@@ -18,7 +18,6 @@
   import { onMount, untrack, type Snippet } from "svelte";
   import { desigIndex } from "#lib/desigLinks.js";
   import type {
-    AnswerAskResult,
     BlockReason,
     Session,
     PendingAsk,
@@ -30,6 +29,12 @@
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerAsk, getCommands, getSessionMessages, uploadFile } from "#lib/api.js";
+  import {
+    askOutcomeText,
+    classifyAskFailure,
+    newAskRequestId,
+    type AskOutcome,
+  } from "#lib/ask-answer-outcome.js";
   import {
     applyCommandPick,
     applyMentionPick,
@@ -192,7 +197,8 @@
   let answer = $state<{
     sessionId: string;
     toolUseId: string;
-    result: "sending" | AnswerAskResult | "failed";
+    result: "sending" | AskOutcome;
+    ref: string;
   } | null>(null);
   // Clearing a question is normal while its request verifies. Keep that result, but discard it
   // when another question or session takes over; late requests must not overwrite the new one.
@@ -222,27 +228,23 @@
     });
   });
   const answerText = $derived(
-    answer
-      ? {
-          sending: m.ask_result_sending,
-          verified: m.ask_result_verified,
-          mismatch: m.ask_result_mismatch,
-          unverified: m.ask_result_unverified,
-          failed: m.ask_result_failed,
-        }[answer.result]()
-      : null,
+    !answer
+      ? null
+      : answer.result === "sending"
+        ? m.ask_result_sending()
+        : askOutcomeText(answer.result, answer.ref),
   );
   const answerWarning = $derived(!!answer && !["sending", "verified"].includes(answer.result));
 
   async function submitAnswer(answers: RawAnswer[]) {
     if (!ask || (answer?.sessionId === sessionId && answer.toolUseId === ask.toolUseId)) return;
-    answer = { sessionId, toolUseId: ask.toolUseId, result: "sending" };
+    answer = { sessionId, toolUseId: ask.toolUseId, result: "sending", ref: newAskRequestId() };
     const request = answer;
     try {
-      const result = await answerAsk(request.sessionId, request.toolUseId, answers);
+      const result = await answerAsk(request.sessionId, request.toolUseId, answers, request.ref);
       if (answer === request) request.result = result;
-    } catch {
-      if (answer === request) request.result = "failed";
+    } catch (e) {
+      if (answer === request) request.result = classifyAskFailure(e);
     }
   }
 
@@ -667,8 +669,10 @@
     stroke-width="2.5"
     stroke-linecap="round"
     stroke-linejoin="round"
-    aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg
+    aria-hidden="true"
   >
+    <path d="m9 18 6-6-6-6" />
+  </svg>
 {/snippet}
 
 {#snippet sent(p: PendingSend, turn: boolean)}
@@ -795,18 +799,18 @@
         <div class="ac-notice" role={answerWarning ? "alert" : "status"}>
           <p>{answerText}</p>
           {#if answerWarning}
-            <button type="button" class="gbtn primary" onclick={onterminal}
-              >{m.assistant_chat_open_terminal()}</button
-            >
+            <button type="button" class="gbtn primary" onclick={onterminal}>
+              {m.assistant_chat_open_terminal()}
+            </button>
           {/if}
         </div>
       {/if}
       {#if blocked && !ask && !card && !answerWarning && answer?.result !== "sending"}
         <div class="ac-notice" role="status">
           <p>{copy.blocked()}</p>
-          <button type="button" class="gbtn primary" onclick={onterminal}
-            >{m.assistant_chat_open_terminal()}</button
-          >
+          <button type="button" class="gbtn primary" onclick={onterminal}>
+            {m.assistant_chat_open_terminal()}
+          </button>
         </div>
       {/if}
     </div>
@@ -846,9 +850,9 @@
       {#if working}
         <button type="button" class="gbtn" onclick={oninterrupt}>{m.assistant_chat_stop()}</button>
       {/if}
-      <button type="submit" class="gbtn primary" disabled={!canSend}
-        >{m.assistant_chat_send()}</button
-      >
+      <button type="submit" class="gbtn primary" disabled={!canSend}>
+        {m.assistant_chat_send()}
+      </button>
     </div>
     <ChatCommandMenu
       open={slashShown}

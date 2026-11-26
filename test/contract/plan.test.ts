@@ -152,6 +152,7 @@ describe("answer ask (#3165)", () => {
       const ok = await postJson(`/api/sessions/${id}/answer-ask`, {
         toolUseId: "toolu_1",
         answers,
+        requestId: "ab12cd34",
       });
       expect(ok.status).toBe(200);
       expect(await validateResponse("POST", path, ok)).toEqual({ result: "verified" });

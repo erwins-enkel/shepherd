@@ -382,6 +382,9 @@ export class StatusPoller {
    *  the same tool_use_id, the clear of the block that carried it, a Stop/SessionEnd or the next ask
    *  ends it. Hook-only: the transcript holds no tool_use while the dialog is open. */
   private pendingAsk = new Map<string, PendingAsk>();
+  /** #4219: asks whose answer the server is typing right now (session → toolUseId). A block clear
+   *  while held keeps the ask: the pane redrawing under our own keys is not the dialog ending. */
+  private askHolds = new Map<string, string>();
   private codexQuestionsMissingSince = new Map<string, number>();
   codexQuestions?: Pick<CodexQuestionTracker, "refresh" | "observe" | "pending" | "prune">;
   /** #2779: the ExitPlanMode approval dialog each session's agent is waiting on, from the
@@ -2030,7 +2033,13 @@ export class StatusPoller {
     // Esc-cancelled, rejected, interrupted). Drop it so it can never ride a LATER unrelated menu (a
     // permission prompt) — a cancel or a plan rejection sends no PostToolUse and an interrupt no
     // Stop. One not yet announced survives an older block's clear: its dialog is still on its way.
-    if (!block && this.lastBlockReason.get(id)?.ask) this.pendingAsk.delete(id);
+    if (!block && this.lastBlockReason.get(id)?.ask) {
+      if (ask && this.askHolds.get(id) === ask.toolUseId) {
+        console.warn(
+          `[ask] block cleared mid-answer session=${id} tool_use=${ask.toolUseId} (kept)`,
+        );
+      } else this.pendingAsk.delete(id);
+    }
     if (!block && this.lastBlockReason.get(id)?.plan) this.pendingPlan.delete(id);
     if (block) this.lastBlockReason.set(id, block);
     else this.lastBlockReason.delete(id);
@@ -2059,6 +2068,22 @@ export class StatusPoller {
    */
   resolveAsk(id: string, toolUseId?: string): void {
     this.resolveHooked(this.pendingAsk, "ask", id, toolUseId);
+  }
+
+  /**
+   * #4219: hold the ask while its answer is typed, so a momentary block clear mid-sequence doesn't
+   * end it (PostToolUse / Stop / a newer ask still do). The returned release drops the hold, and
+   * drops the ask too when no announced block carries it any more — the dialog really left (e.g.
+   * an Esc cancel during typing), exactly what the clear would have done without the hold.
+   */
+  holdAsk(id: string, toolUseId: string): () => void {
+    this.askHolds.set(id, toolUseId);
+    return () => {
+      if (this.askHolds.get(id) !== toolUseId) return;
+      this.askHolds.delete(id);
+      if (this.pendingAsk.get(id)?.toolUseId === toolUseId && !this.lastBlockReason.get(id)?.ask)
+        this.pendingAsk.delete(id);
+    };
   }
 
   /**
@@ -2127,7 +2152,8 @@ export class StatusPoller {
   }
 
   /** #3165: is this dialog still open per the hooks (no PostToolUse / Stop / newer ask yet)? The
-   *  guard WHILE typing — unlike `currentAsk` it survives a momentary block clear mid-sequence. */
+   *  guard WHILE typing — unlike `currentAsk` it survives a momentary block clear mid-sequence,
+   *  but only while the answer holds the ask ({@link holdAsk}); an unheld clear drops it. */
   askStillOpen(id: string, toolUseId: string): boolean {
     return this.pendingAsk.get(id)?.toolUseId === toolUseId;
   }

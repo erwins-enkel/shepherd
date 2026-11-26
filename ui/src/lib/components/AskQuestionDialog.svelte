@@ -10,6 +10,7 @@
   import { providerLabel } from "#lib/reviewer-env.js";
   import { sessionEnvironment } from "#lib/session-env.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { askOutcomeText, classifyAskFailure, newAskRequestId } from "#lib/ask-answer-outcome.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { SvelteSet } from "svelte/reactivity";
   import { m } from "#lib/paraglide/messages.js";
@@ -96,20 +97,20 @@
     const id = entry.session.id;
     const toolUseId = entry.ask.toolUseId;
     const key = `ask:${askEntryKey(entry)}`;
+    // One ref per submit (#4219): it names the server's `[ask] answer req=…` log line.
+    const ref = newAskRequestId();
     toasts.info(m.ask_result_sending(), { key, sticky: true });
     try {
-      const result = await answerAsk(id, toolUseId, answers);
+      const result = await answerAsk(id, toolUseId, answers, ref);
       if (result === "verified") {
         answered.add(askEntryKey(entry));
-        toasts.info(m.ask_result_verified(), { key });
+        toasts.info(askOutcomeText(result, ref), { key });
         return true;
-      } else
-        toasts.info(result === "mismatch" ? m.ask_result_mismatch() : m.ask_result_unverified(), {
-          key,
-          alert: true,
-        });
-    } catch {
-      toasts.info(m.ask_result_failed(), { key, alert: true });
+      }
+      toasts.info(askOutcomeText(result, ref), { key, alert: true });
+    } catch (e) {
+      // Never resent automatically: the form stays editable with the operator's answer in it.
+      toasts.info(askOutcomeText(classifyAskFailure(e), ref), { key, alert: true });
     }
     return false;
   }
@@ -179,8 +180,10 @@
                   onclick={() => {
                     close();
                     onnavigate(s.id);
-                  }}>{m.ask_center_open_session()}</button
+                  }}
                 >
+                  {m.ask_center_open_session()}
+                </button>
               {/if}
             </div>
             <p class="meta">
@@ -207,12 +210,12 @@
             />
           {/key}
           <div class="foot">
-            <span class="pos"
-              >{m.ask_center_position({ index: index + 1, count: ordered.length })}</span
-            >
-            <button type="button" class="gbtn" disabled={!multi} onclick={skip}
-              >{m.ask_center_skip()}</button
-            >
+            <span class="pos">
+              {m.ask_center_position({ index: index + 1, count: ordered.length })}
+            </span>
+            <button type="button" class="gbtn" disabled={!multi} onclick={skip}>
+              {m.ask_center_skip()}
+            </button>
           </div>
         </div>
       {/if}

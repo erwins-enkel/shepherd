@@ -1497,6 +1497,11 @@ components:
       properties:
         toolUseId: { type: string }
         answers: { type: array, items: { $ref: "#/components/schemas/RawAnswer" } }
+        requestId:
+          type: string
+          description: >-
+            Optional client correlation ref (1-64 of A-Z a-z 0-9 _ -), written to the server's
+            `[ask] answer req=…` log line; a malformed value is ignored. Never affects the answer.
     AnswerAskResult:
       type: object
       additionalProperties: true
@@ -12715,7 +12720,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
-          description: '"ask_not_open" — no open dialog with that toolUseId (answered in the terminal first, or not a supported provider); "ask_in_flight" — an answer is already being typed.'
+          description: '"ask_not_open" — no open dialog with that toolUseId (answered in the terminal first, or not a supported provider), nothing was typed; "ask_in_flight" — an answer is already being typed; "ask_interrupted" — typing stopped after some keys reached the terminal, so what landed is unknown. `code` repeats `error`.'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

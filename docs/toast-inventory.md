@@ -117,6 +117,13 @@ above as one of the 4 sticky / 2 promoted sites.
 | 542  | "Couldn't start the plan review. Try again."                                   | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 548  | "Couldn't start the plan review. Try again."                                   | duration:null, alert, key | persist(null) | 12s or sticky* |
 
+### ui/src/lib/components/merge-confirm-flow.svelte.ts
+
+| Line | Message                                                        | Signals     | Today  | Target |
+| ---- | -------------------------------------------------------------- | ----------- | ------ | ------ |
+| 66   | "Merging PR #{number}…" / "Merging {repo} #{number}…"          | sticky, key | sticky | sticky |
+| 92   | Refusal text, when the merge's entry point unmounted meanwhile | alert       | 12s    | 12s    |
+
 ### ui/src/lib/components/NewTask.svelte
 
 | Line | Message                       | Signals | Today    | Target  |

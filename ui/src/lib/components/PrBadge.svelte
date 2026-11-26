@@ -147,7 +147,7 @@
         await mergePr(id, { deleteBranch: true, confirm });
         toasts.info(m.prbadge_merged_toast({ number: ctx.number }), { key: `pr-merge:${id}` });
       } catch (err) {
-        if (err instanceof MergeRefusedError) throw err; // the dialog re-states and stays open
+        if (err instanceof MergeRefusedError) throw err; // the flow reopens the re-stated dialog
         toasts.info(
           m.prbadge_merge_failed({
             reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
@@ -195,9 +195,9 @@
     {/if}
     {#if showDraft}
       <span class="draft-marker" aria-label={m.prbadge_draft()}>{m.prbadge_draft()}</span>
-    {/if}{#if staleMarker}<span class="stale-marker" title={staleTitle} aria-label={staleTitle}
-        >{staleText}</span
-      >{/if}{label}
+    {/if}{#if staleMarker}<span class="stale-marker" title={staleTitle} aria-label={staleTitle}>
+        {staleText}
+      </span>{/if}{label}
   {/snippet}
 
   {#if actionable}

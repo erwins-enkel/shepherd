@@ -61,7 +61,7 @@ export class SessionPrMerge {
           key: `pr-merge:${t.sessionId}`,
         });
       } catch (e) {
-        if (e instanceof MergeRefusedError) throw e; // the dialog re-states and stays open
+        if (e instanceof MergeRefusedError) throw e; // the flow reopens the re-stated dialog
         this.error = mergeFailureText(e, t.git);
       } finally {
         this.busy = false;
@@ -70,7 +70,7 @@ export class SessionPrMerge {
   }
 
   /** Session switch: drop the stale error and close an unanswered confirmation (a merge
-   *  already in flight keeps its dialog until it settles). */
+   *  already in flight runs on behind its progress toast). */
   reset(): void {
     this.flow.close();
     this.error = null;

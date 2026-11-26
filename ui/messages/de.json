@@ -4243,7 +4243,6 @@
   "mergeconfirm_review_block": "@{who} hat Änderungen angefordert, die noch offen sind.",
   "mergeconfirm_confirm": "PR mergen",
   "mergeconfirm_confirm_takeover": "Trotzdem selbst mergen",
-  "mergeconfirm_busy": "Wird gemergt …",
   "mergeconfirm_stale": "Pull Request oder Zuständigkeit haben sich geändert. Angaben prüfen und erneut bestätigen.",
   "mergeconfirm_required": "Für diesen Merge ist jemand anderes zuständig. Zum Fortfahren die Übernahme bestätigen.",
   "mergeconfirm_failed": "Merge fehlgeschlagen: {reason}",
@@ -9455,5 +9454,7 @@
   "feat_telemetry_removed_body": "Shepherd sendet keine anonymen Nutzungsdaten mehr. Die Opt-in-Abfrage, der Schalter in den Einstellungen und die Aptabase-Anbindung sind entfernt.",
   "diagnostics_hint_sandbox_membrane_selftest_failed": "bubblewrap ist installiert, kann auf diesem Host aber keine [[sandbox-membrane|Sandbox-Membran]] aufbauen. Repos mit Standardwert laufen als Standard ohne Abschottung: Jede solche Sitzung wird als eingeschränkt markiert, und Auto-Drain hält an. Behebe das auf dem Host (etwa unprivilegierte User-Namespaces erlauben) oder setze SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted, um bewusst ohne Abschottung zu arbeiten.",
   "feat_shape_epic_title": "Schärfen im Epic-Modus",
-  "feat_shape_epic_body": "Der Schärfen-Button in „Neue Aufgabe“ erscheint jetzt auch im Epic-Modus. Er liest deinen groben Epic-Prompt und das Repository, stellt die wenigen Fragen, die nur du beantworten kannst, und macht aus deinen Antworten ein Briefing, bevor die Epic-Session startet. Mit eingeschaltetem Entscheidungsmodell erscheint dort auch der Hinweis auf einen Prompt, der zuerst eine Lösung nennt. Im Recherche-Modus gibt es weiterhin keinen Schärfen-Button."
+  "feat_shape_epic_body": "Der Schärfen-Button in „Neue Aufgabe“ erscheint jetzt auch im Epic-Modus. Er liest deinen groben Epic-Prompt und das Repository, stellt die wenigen Fragen, die nur du beantworten kannst, und macht aus deinen Antworten ein Briefing, bevor die Epic-Session startet. Mit eingeschaltetem Entscheidungsmodell erscheint dort auch der Hinweis auf einen Prompt, der zuerst eine Lösung nennt. Im Recherche-Modus gibt es weiterhin keinen Schärfen-Button.",
+  "mergeconfirm_progress": "PR #{number} wird gemergt …",
+  "mergeconfirm_progress_repo": "{repo} #{number} wird gemergt …"
 }

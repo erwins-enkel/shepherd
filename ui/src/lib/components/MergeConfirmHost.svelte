@@ -7,12 +7,14 @@
   // open" branch lives here once instead of in five host templates — several of which are large
   // enough to be under a complexity cap.
   let { flow }: { flow: MergeConfirmFlow } = $props();
+
+  // Tells the flow a dialog can still render, so a refusal after confirm can reopen it here.
+  $effect(() => flow.attach());
 </script>
 
 {#if flow.ctx}
   <MergeConfirmDialog
     ctx={flow.ctx}
-    busy={flow.busy}
     error={flow.error}
     onclose={() => flow.close()}
     onconfirm={() => flow.confirm()}

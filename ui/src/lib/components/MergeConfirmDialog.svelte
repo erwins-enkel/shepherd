@@ -16,14 +16,11 @@
   // by the same gesture that opened it.
   let {
     ctx,
-    busy = false,
     error,
     onclose,
     onconfirm,
   }: {
     ctx: MergeConfirmContext;
-    /** The merge is in flight — the confirm button locks so a repeat cannot start a second one. */
-    busy?: boolean;
     /** Server-authored refusal text; on a stale refusal the caller also refreshes `ctx`. */
     error?: string | null;
     onclose: () => void;
@@ -55,7 +52,7 @@
   function confirm() {
     // Belt-and-braces against a click that raced the disabled flag: the timestamp is the
     // authority, not the button's rendered state.
-    if (busy || Date.now() - armedAt < CONFIRM_ARM_MS) return;
+    if (Date.now() - armedAt < CONFIRM_ARM_MS) return;
     onconfirm();
   }
 </script>
@@ -64,7 +61,7 @@
   class="overlay"
   role="presentation"
   onclick={(e) => {
-    if (e.target === e.currentTarget && !busy) onclose();
+    if (e.target === e.currentTarget) onclose();
   }}
 >
   <div
@@ -74,7 +71,7 @@
     aria-label={takeover
       ? m.mergeconfirm_title_takeover({ number: ctx.number })
       : m.mergeconfirm_title({ number: ctx.number })}
-    use:dialog={{ onclose: () => !busy && onclose() }}
+    use:dialog={{ onclose }}
   >
     <span class="micro">{m.mergeconfirm_eyebrow()}</span>
     <h2 class="title">
@@ -95,9 +92,9 @@
       {#if ctx.mergeMethod}
         <dt>{m.mergeconfirm_field_method()}</dt>
         <dd class="mono" class:replaced>
-          {ctx.mergeMethod}{#if replaced}<span class="instead"
-              >{m.mergeconfirm_method_instead({ method: replaced })}</span
-            >{/if}
+          {ctx.mergeMethod}{#if replaced}<span class="instead">
+              {m.mergeconfirm_method_instead({ method: replaced })}
+            </span>{/if}
         </dd>
       {/if}
       <dt>{m.mergeconfirm_field_branch()}</dt>
@@ -115,17 +112,15 @@
     {/if}
 
     <div class="actions">
-      <button bind:this={cancelEl} type="button" class="ghost" disabled={busy} onclick={onclose}>
+      <button bind:this={cancelEl} type="button" class="ghost" onclick={onclose}>
         {m.common_cancel()}
       </button>
-      <button type="button" class="run" class:takeover disabled={busy || !armed} onclick={confirm}>
-        {busy
-          ? m.mergeconfirm_busy()
-          : takeover
-            ? m.mergeconfirm_confirm_takeover()
-            : replaced && ctx.mergeMethod
-              ? m.mergeconfirm_confirm_method({ method: ctx.mergeMethod })
-              : m.mergeconfirm_confirm()}
+      <button type="button" class="run" class:takeover disabled={!armed} onclick={confirm}>
+        {takeover
+          ? m.mergeconfirm_confirm_takeover()
+          : replaced && ctx.mergeMethod
+            ? m.mergeconfirm_confirm_method({ method: ctx.mergeMethod })
+            : m.mergeconfirm_confirm()}
       </button>
     </div>
   </div>

@@ -1072,7 +1072,7 @@
           key: `pr-merge:${id}`,
         });
       } catch (err) {
-        if (err instanceof MergeRefusedError) throw err; // the dialog re-states and stays open
+        if (err instanceof MergeRefusedError) throw err; // the flow reopens the re-stated dialog
         toasts.info(
           m.prbadge_merge_failed({
             reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
@@ -1233,8 +1233,10 @@
           onclick={(e) => {
             e.stopPropagation();
             onselect(session.id);
-          }}>{sublineView.line}</button
+          }}
         >
+          {sublineView.line}
+        </button>
       {:else}
         <span class="u-hold-text">{sublineView.line}</span>
       {/if}
@@ -1244,8 +1246,10 @@
           class="hold-cta {a.cls}"
           title={a.title}
           disabled={a.disabled}
-          onclick={a.run}>{a.label}</button
+          onclick={a.run}
         >
+          {a.label}
+        </button>
       {/each}
     </div>
   {/if}
@@ -1332,8 +1336,10 @@
                 e.stopPropagation();
                 toggleRepoFilter();
               }
-            }}>{repoIcon}</span
+            }}
           >
+            {repoIcon}
+          </span>
         {:else if repoIcon}
           <!-- no title here: the .unit-hit overlay covers this span, so its own
                tooltip could never surface — the overlay's repoPath title serves
@@ -1398,13 +1404,16 @@
       <span class="meta-text">
         <TaskIdButton {session} /><span
           class="meta-environment"
-          use:statusTip={{ text: environment.tooltip }}>{environmentSuffix}</span
+          use:statusTip={{ text: environment.tooltip }}
         >
+          {environmentSuffix}
+        </span>
       </span>
       {#if coldResume}
-        <span class="chip-cold-resume" use:statusTip={{ text: coldResumeTip, wide: true }}
-          ><span aria-hidden="true">⚠</span> {coldResumeChip}</span
-        >
+        <span class="chip-cold-resume" use:statusTip={{ text: coldResumeTip, wide: true }}>
+          <span aria-hidden="true">⚠</span>
+          {coldResumeChip}
+        </span>
       {/if}
       {#if integrated}
         <IntegratedChildNote note={integrated} />

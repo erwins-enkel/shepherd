@@ -313,7 +313,7 @@ import {
   MACHINE_READS,
   forwardMachineRead,
 } from "./remote-instances/forward";
-import { scopeAllows } from "./token-scopes";
+import { scopeAllows, scopeEventData } from "./token-scopes";
 import {
   resolvePlanAnswers,
   planAnswerSteerText,
@@ -16661,6 +16661,8 @@ export function serve(deps: AppDeps, port: number) {
     if (event === "terminal:owners") return sendTerminalOwners(ws);
     if (!socketAuthorized(ws)) return;
     const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
+    // Below `full`, status events only (src/token-scopes.ts).
+    if (token && (data = scopeEventData(token.scope, event, data)) === undefined) return;
     if (token && token.repoPaths !== null) {
       if (event === "held:changed")
         data = {

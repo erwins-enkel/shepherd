@@ -286,6 +286,8 @@ line, and only then streams:
 ```
 
 After that line, every frame is printed verbatim as it arrives, as `{"event": …, "data": …}`.
+With a `read` or `submit` token the server sends status events only; review verdicts, plan bodies
+and other `full`-only events never arrive.
 Frames that arrived while the snapshot was loading are printed right after it, so nothing falls
 between the snapshot and the stream.
 

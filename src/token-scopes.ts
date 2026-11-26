@@ -158,3 +158,64 @@ export function scopeAllows(
   if (scope === "read") return false;
   return SUBMIT_ROUTES.has(key) || SUBMIT_PATTERNS.some(([m, re]) => m === method && re.test(path));
 }
+
+/**
+ * `read`/`submit` on `GET /events`: the events forwarded unchanged. Same rule as `READ_ROUTES`, for
+ * the push side: an entry's payload must be something a `read`-scope route already serves (the
+ * session row of `GET /api/sessions`, `GET /api/holds`, `GET /api/git`, the `/inflight` probes)
+ * and carry no verdict, finding, plan, draft, amendment, recap, terminal text or update log. An
+ * event not named here never reaches a `read`/`submit` socket, so a new event is `full`-only until
+ * it is added deliberately. `terminal:owners` never reaches this table: `sendTerminalOwners`
+ * (src/server.ts) delivers it.
+ */
+const STATUS_EVENTS: ReadonlySet<string> = new Set([
+  "session:new",
+  "session:status",
+  "session:archived",
+  "session:renamed",
+  "session:ready",
+  "session:shelved",
+  "session:usage-pause",
+  "session:halt",
+  "session:hold",
+  "session:git",
+  "session:reviewing",
+  "session:plangate-reviewing",
+  "session:merging",
+  "session:autopilot",
+  "session:automerge",
+  "session:goal",
+  "session:manual-steps",
+  "session:claude-alive",
+  "session:working-blocked",
+  "session:background-busy",
+  "held:changed",
+  "remote:sessions",
+]);
+
+/** `session:plangate` below `full`: the phase flip and whether the gate is approved (what
+ *  `shepherd wait --plan-ready` reads), never the plan, the write-up or the findings. */
+function planGateStatus(data: unknown): unknown {
+  if (!data || typeof data !== "object") return undefined;
+  const { id, planPhase, gate } = data as Record<string, unknown>;
+  const out: Record<string, unknown> = { id };
+  if (planPhase !== undefined) out.planPhase = planPhase;
+  if (gate !== undefined)
+    out.gate =
+      gate && typeof gate === "object"
+        ? { approved: (gate as { approved?: unknown }).approved === true }
+        : null;
+  return out;
+}
+
+/**
+ * What a socket authenticated with `scope` receives for one `/events` frame: the payload to send,
+ * or `undefined` to send nothing. `full` gets every payload untouched; an unrecognized scope gets
+ * nothing, as in `scopeAllows`.
+ */
+export function scopeEventData(scope: string, event: string, data: unknown): unknown {
+  if (scope === "full") return data;
+  if (scope !== "read" && scope !== "submit") return undefined;
+  if (event === "session:plangate") return planGateStatus(data);
+  return STATUS_EVENTS.has(event) ? data : undefined;
+}

@@ -95,7 +95,11 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      Their **verdict parents** `GET /api/reviews` and `GET /api/plan-gates`,
      which return findings, summaries, plan questions and round counts, stay
      **Full**-only; matching is exact, so reaching the `/inflight` child grants
-     nothing at the parent. **Submit** adds
+     nothing at the parent. The same holds for `/events`: a **Read** or **Submit**
+     token receives status events only (session state, holds, git, in-flight
+     reviewers), and `session:plangate` carries just `gate.approved`. Review
+     verdicts, plan bodies, epic drafts, amendments, recaps, update logs and any
+     event not on that list (`src/token-scopes.ts`) need **Full**. **Submit** adds
      handing work in — `POST /api/sessions`, `GET /api/held`,
      `POST /api/held/:id/spawn`, `PATCH`/`DELETE /api/held/:id`,
      `GET`/`DELETE /api/dispatches/:id` (the outcome of a keyed submission, see

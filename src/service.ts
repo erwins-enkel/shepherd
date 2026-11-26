@@ -51,6 +51,11 @@ import { basename, dirname, join, resolve } from "node:path";
 import { misroutedTargetFor, routedIssueDirective } from "./target-repo";
 import { claudeTranscriptExists } from "./usage";
 import { bootstrapDirective, bootstrapP3Directive } from "./bootstrap-directive";
+import {
+  postgresSessionNotice,
+  type PostgresAvailability,
+  type PostgresNoticeMode,
+} from "./postgres-contract";
 import { bootstrapSessionPhase } from "./bootstrap";
 import {
   HOUSE_STACK_SETTING,
@@ -2442,6 +2447,13 @@ function primaryDirectiveBlock(
   return null;
 }
 
+/** The `<postgres-notice>` mode for a session (#4232 follow-up): none without the tool; a
+ *  non-isolated session runs in the shared repo checkout. */
+function postgresNoticeMode(tool: boolean, isolated: boolean): PostgresNoticeMode | undefined {
+  if (!tool) return undefined;
+  return isolated ? "worktree" : "shared-checkout";
+}
+
 /**
  * The blocks that ride AFTER the primary directive, each gated only on its own orthogonal option.
  * Extracted from composeSystemPromptBlocks for the same reason primaryDirectiveBlock was — to keep
@@ -2472,6 +2484,10 @@ function trailingBlocks(
   // Scheduled-run notice (#3469): only where `schedule_noop` exists — no Codex MCP, no plain tools.
   if (opts.scheduled && !opts.plain && opts.agentProvider !== "codex")
     blocks.push(taggedBlock("scheduled-run-notice", SCHEDULED_RUN_NOTICE));
+  // Postgres notice (#4232 follow-up): only where `postgres_request` exists. MCP tools may load
+  // deferred (name only, no description), so the how-to rides here too.
+  if (opts.postgres && !opts.plain && opts.agentProvider !== "codex")
+    blocks.push(taggedBlock("postgres-notice", postgresSessionNotice(opts.postgres)));
   // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
   // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
   // or null for "en" — omitted entirely then, so existing "en" callers stay byte-identical.
@@ -2583,6 +2599,9 @@ export interface ComposeSystemPromptOptions {
   agentSkills?: boolean;
   /** A schedule fired this session (#3469); absent/false → no `<scheduled-run-notice>`. */
   scheduled?: boolean;
+  /** Set when the session has the `postgres_request` tool (#4232 `postgresRequest` capability):
+   *  where it runs, which picks the notice's `.env` advice. Absent → no `<postgres-notice>`. */
+  postgres?: PostgresNoticeMode;
 }
 
 /**
@@ -2651,6 +2670,8 @@ export interface ComposeSystemPromptOptions {
  * to open PRs as drafts — independent of the plan-gate/autopilot/build-queue choice (harmless during
  * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
+ * `opts.postgres`, when set, appends the `<postgres-notice>` — callers set it from the session's
+ * `postgresRequest` capability, so the block rides exactly where the tool does (never plain/Codex).
  */
 export function composeSystemPromptBlocks(
   autopilotActive = false,
@@ -4684,6 +4705,7 @@ export class SessionService {
     autopilotActive: boolean;
     trimmed: boolean;
     agentProvider: AgentProvider;
+    postgresTool: boolean;
   }): string {
     const { input, sessionId } = args;
     const blocks = this.directiveBlocks(input, {
@@ -4694,6 +4716,7 @@ export class SessionService {
       autopilotActive: args.autopilotActive,
       trimmed: args.trimmed,
       agentProvider: args.agentProvider,
+      postgresTool: args.postgresTool,
       // #2002: warn about the background rename only where one can actually land — the same
       // conditions scheduleRefine checks before starting the namer, plus a branch to rename.
       handoffDelivery: false,
@@ -4738,10 +4761,14 @@ export class SessionService {
       trimmed: boolean;
       agentProvider: AgentProvider;
       branchRename: boolean;
+      /** The session's `postgresRequest` capability (#4232): drives `<postgres-notice>` and the
+       *  bootstrap directives' Postgres status, so both match the tool list. */
+      postgresTool: boolean;
     },
   ): PromptBlock[] {
     const { sessionId, baseUrl, planGateOn, autopilotActive } = ctx;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+    const postgres = this.postgresAvailability(repoConfig, ctx.postgresTool);
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled
       ? buildQueueDirective({
@@ -4775,10 +4802,11 @@ export class SessionService {
     const bootstrap = !input.bootstrap
       ? null
       : bootstrapPhase === 3
-        ? bootstrapP3Directive({ agentProvider: ctx.agentProvider })
+        ? bootstrapP3Directive({ agentProvider: ctx.agentProvider, postgres })
         : bootstrapDirective({
             stack: input.bootstrapStack ?? this.deps.store.getBootstrapStack(sessionId),
             agentProvider: ctx.agentProvider,
+            postgres,
           });
     return composeSystemPromptBlocks(autopilotActive, {
       providerHandoffBootstrap:
@@ -4803,11 +4831,24 @@ export class SessionService {
       epicIntent: !input.auto && detectEpicIntent(input.prompt),
       agentProvider: ctx.agentProvider,
       branchRename: ctx.branchRename,
+      postgres: postgresNoticeMode(ctx.postgresTool, ctx.isolated),
       // The ONE place the live config value enters — never defaulted at any module-level
       // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
       // literal "en" default).
       operatorLanguage: config.operatorLanguage,
     });
+  }
+
+  /** What a session sees of Shepherd's Postgres (#4232 follow-up), for the bootstrap directives. */
+  private postgresAvailability(
+    repoConfig: Pick<RepoConfig, "postgresMode">,
+    tool: boolean,
+  ): PostgresAvailability {
+    return {
+      tool,
+      globalEnabled: this.deps.postgres?.settings().enabled ?? false,
+      repoOn: repoConfig.postgresMode === "on-request",
+    };
   }
 
   /** Persist the per-block accounting for one spawn's assembled prompt (issue #1999). Never lets a
@@ -4923,6 +4964,7 @@ export class SessionService {
         ),
         trimmed: trim.trimmed,
         agentProvider: "claude",
+        postgresTool: caps.postgresRequest === true,
       }),
     );
     this.pushModelFlag(argv, input.model);
@@ -4990,6 +5032,8 @@ export class SessionService {
       autopilotActive,
       trimmed: false,
       agentProvider: "codex",
+      // Codex sessions get no MCP control plane, so no `postgres_request`.
+      postgresTool: false,
     });
     argv.push(
       `${codexLaunchMarker(launchId)}${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`,
@@ -5027,6 +5071,7 @@ export class SessionService {
     const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
     const connectors = this.deps.store.getRepoConfig(s.repoPath).claudeAiConnectorsEnabled;
     this.spawnConnectorStamp.set(s.id, connectors);
+    const caps = sessionCapabilities(this.deps, s.id);
     const argv = [
       "claude",
       // #2002: a resumed session keeps the skills its prompt no longer carries as text. First, for
@@ -5049,7 +5094,7 @@ export class SessionService {
           ciWatchAllowed: isMergeTrainDriver(s),
           builtinToolsNeeded: builtinToolsNeededBy(s.prompt),
         },
-        sessionCapabilities(this.deps, s.id),
+        caps,
       )),
     ];
     // A resume re-passes the FULL directive set, recomposed for the session as it stands NOW
@@ -5076,6 +5121,7 @@ export class SessionService {
           trimmed: trim.trimmed,
           agentProvider: "claude",
           branchRename: false,
+          postgresTool: caps.postgresRequest === true,
         }),
       ),
     );
@@ -7299,6 +7345,9 @@ export class SessionService {
         agentProvider,
         branchRename: false,
         handoffDelivery: true,
+        // Read after the replacement row is persisted (target provider + profile), so this matches
+        // the tool list the target agent is served.
+        postgresTool: sessionCapabilities(this.deps, id).postgresRequest === true,
       }),
     );
     const mode =

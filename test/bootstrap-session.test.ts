@@ -5,6 +5,7 @@ import { SessionStore } from "../src/store";
 import { SessionService, composeSystemPrompt } from "../src/service";
 import { bootstrapDirective, bootstrapP3Directive } from "../src/bootstrap-directive";
 import { HouseStackUnresolvedError, type HouseStackResolution } from "../src/house-stack";
+import { POSTGRES_APP_CONTRACT } from "../src/postgres-contract";
 
 const RESOLVED: HouseStackResolution = {
   ok: true,
@@ -367,4 +368,64 @@ test("bootstrapDirective: no Swift stack, no Swift checklist", () => {
   });
   expect(text).not.toContain("Swift:\n");
   expect(text).not.toContain(".swift-version");
+});
+
+// #4232 follow-up: the Postgres app contract + the repo's availability, so P1/P3 never ask.
+const STACK = RESOLVED as Extract<HouseStackResolution, { ok: true }>;
+const PG_ON = { tool: true, globalEnabled: true, repoOn: true };
+
+test("bootstrapDirective: Postgres access is decided and the contract goes into CLAUDE.md", () => {
+  const text = bootstrapDirective({ stack: STACK, agentProvider: "claude", postgres: PG_ON });
+  expect(text).toContain("Do not ask how the app reaches its database");
+  expect(text).toContain("## Database (only when the project needs Postgres)");
+  expect(text).toContain("VERBATIM into the project's CLAUDE.md under `## Database`");
+  expect(text).toContain(POSTGRES_APP_CONTRACT.replace(/^/gm, "    "));
+  expect(text).toContain("follow `<postgres-notice>`");
+  expect(text).toContain("Run the migrations against it once to prove the seam.");
+});
+
+test("bootstrapDirective: Postgres status names the switch that is off", () => {
+  const globalOff = bootstrapDirective({
+    stack: STACK,
+    agentProvider: "claude",
+    postgres: { tool: false, globalEnabled: false, repoOn: true },
+  });
+  expect(globalOff).toContain("Postgres is OFF for this repo");
+  expect(globalOff).toContain("Settings → Resources → Postgres → Run Postgres on demand");
+  expect(globalOff).not.toContain("Repo settings → Agent → Postgres on request");
+  expect(globalOff).not.toContain("<postgres-notice>");
+  expect(globalOff).not.toContain("prove the seam");
+
+  const repoOff = bootstrapDirective({
+    stack: STACK,
+    agentProvider: "claude",
+    postgres: { tool: false, globalEnabled: true, repoOn: false },
+  });
+  expect(repoOff).toContain("Repo settings → Agent → Postgres on request");
+  expect(repoOff).not.toContain("Run Postgres on demand");
+
+  // No availability passed ⇒ fail-safe OFF wording naming both switches.
+  const unknown = bootstrapDirective({ stack: STACK, agentProvider: "claude" });
+  expect(unknown).toContain(
+    "**Settings → Resources → Postgres → Run Postgres on demand** and " +
+      "**Repo settings → Agent → Postgres on request**",
+  );
+
+  const noTool = bootstrapDirective({
+    stack: STACK,
+    agentProvider: "codex",
+    postgres: { tool: false, globalEnabled: true, repoOn: true },
+  });
+  expect(noTool).toContain("this session has no `postgres_request` tool");
+  expect(noTool).not.toContain("is OFF");
+});
+
+test("bootstrapP3Directive: Postgres access is never asked; a missing ## Database is added", () => {
+  const text = bootstrapP3Directive({ agentProvider: "claude", postgres: PG_ON });
+  expect(text).toContain("never ask how the app reaches its database");
+  expect(text).toContain("If CLAUDE.md has no `## Database` section, add this one VERBATIM:");
+  expect(text).toContain(POSTGRES_APP_CONTRACT.replace(/^/gm, "    "));
+  expect(text).toContain("- CLAUDE.md `## Database`, when you added it above.");
+  expect(text).toContain("follow `<postgres-notice>`");
+  expect(bootstrapP3Directive({ agentProvider: "claude" })).toContain("Postgres is OFF");
 });

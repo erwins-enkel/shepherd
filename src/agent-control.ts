@@ -498,7 +498,7 @@ async function applyBrowserRequestLogin(
 // ── postgres request (#4232) ─────────────────────────────────────────────────
 
 const POSTGRES_READY_NEXT =
-  "Use this dsn for your app and tests (e.g. DATABASE_URL); never commit it. If a connection is refused later, call postgres_request again.";
+  "Use this dsn as DATABASE_URL for your app and tests; never commit it. If a connection is refused later, call postgres_request again.";
 const POSTGRES_STARTING_NEXT =
   "The Postgres server is still starting (first use may pull the image). Call postgres_request again.";
 
@@ -882,7 +882,7 @@ const POSTGRES_REQUEST: McpTool = {
     "instead of adding a Docker Compose file or starting your own Postgres. The database is a " +
     "fresh clone of this repo's template, owned by your own role; it is dropped when the session " +
     "is archived. Idempotent: every call returns the same credentials. `ready` carries `dsn` " +
-    "(also host/port/database/user/password) — pass it to your app via env (e.g. DATABASE_URL), " +
+    "(also host/port/database/user/password) — pass it to your app and tests as DATABASE_URL, " +
     "never commit it. `starting` means the server is still coming up: call again. If a " +
     "connection is later refused, the server was stopped while idle: call this again.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },

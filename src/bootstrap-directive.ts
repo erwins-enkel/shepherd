@@ -12,6 +12,11 @@
 import type { AgentProvider } from "./types";
 import { renderHouseStackRules, type ResolvedHouseStack } from "./house-stack";
 import {
+  POSTGRES_APP_CONTRACT,
+  postgresStatusLine,
+  type PostgresAvailability,
+} from "./postgres-contract";
+import {
   bootstrapGuardrailChecklist,
   GUARDRAIL_BLIND_SPOTS,
   type PackageManager,
@@ -84,6 +89,24 @@ function checklistSection(stack: ResolvedHouseStack): string {
   return parts.join("\n\n");
 }
 
+/** No availability passed ⇒ the OFF wording, which tells the agent to ask (fail-safe). */
+const POSTGRES_UNKNOWN: PostgresAvailability = { tool: false, globalEnabled: false, repoOn: false };
+
+/** The P1+P2 `## Database` section (#4232 follow-up): the contract goes into CLAUDE.md verbatim. */
+function databaseSection(postgres: PostgresAvailability): string {
+  return [
+    "## Database (only when the project needs Postgres)",
+    "How the app reaches Postgres is decided — never ask the operator. Write this section " +
+      "VERBATIM into the project's CLAUDE.md under `## Database`:",
+    indent(POSTGRES_APP_CONTRACT),
+    "The scaffold carries the migration command and a first migration, `.env.example` with " +
+      "`DATABASE_URL`, `.env` in `.gitignore`, `DATABASE_URL` in the env schema, and the CI `db` " +
+      "job exporting its service container's URL as `DATABASE_URL`.",
+    postgresStatusLine(postgres) +
+      (postgres.tool ? " Run the migrations against it once to prove the seam." : ""),
+  ].join("\n");
+}
+
 const NO_STACK =
   "Shepherd has NO resolved stack for this session, so you have no version you may use. Do NOT " +
   "pick versions yourself: tell the operator to relaunch the task so Shepherd re-resolves the " +
@@ -92,6 +115,7 @@ const NO_STACK =
 export function bootstrapDirective(args: {
   stack: ResolvedHouseStack | null;
   agentProvider: AgentProvider;
+  postgres?: PostgresAvailability;
 }): string {
   if (!args.stack) return `You are running as an attended BOOTSTRAP task.\n${NO_STACK}`;
   const ask =
@@ -120,8 +144,11 @@ export function bootstrapDirective(args: {
     "- Preview environments (per PR or none).",
     "- Worktree-safe tests: ports and temp paths must never collide between parallel worktrees " +
       "(ephemeral/env-derived ports, per-run temp dirs — no fixed port like 4173).",
+    "Do not ask how the app reaches its database: `## Database` below decides it.",
     "Record every answer in CLAUDE.md under `## Foundation decisions` and in " +
       "`docs/decisions/0001-foundation.md`.",
+    "",
+    databaseSection(args.postgres ?? POSTGRES_UNKNOWN),
     "",
     "## P2 — scaffold",
     "- The framework on the pinned versions; it must build and its checks must pass.",
@@ -187,7 +214,10 @@ const P3_CHECKLIST = [
  * landed. Ships ONE docs-only PR; every finding ends decided or as an M0/P4 candidate, so no
  * orphan issue appears mid-drain. Needs no pins — they are already in the project's CLAUDE.md.
  */
-export function bootstrapP3Directive(args: { agentProvider: AgentProvider }): string {
+export function bootstrapP3Directive(args: {
+  agentProvider: AgentProvider;
+  postgres?: PostgresAvailability;
+}): string {
   const ask =
     args.agentProvider === "codex"
       ? "ask the operator in chat and wait for the answer"
@@ -205,6 +235,8 @@ export function bootstrapP3Directive(args: { agentProvider: AgentProvider }): st
       'sweep the PRD alone and state "no design input" in the decision record and the PR body.',
     "- Already decided: CLAUDE.md `## Foundation decisions` and `docs/decisions/0001-foundation.md` " +
       "(P1). Read them first and never ask one of those again.",
+    "- Database access: decided by Shepherd's contract (`## Database` below) — never ask how the " +
+      "app reaches its database.",
     "- The scaffold that exists (routes, app shell, shared components) — the gaps are measured " +
       "against it, not against an imagined app.",
     "",
@@ -215,6 +247,11 @@ export function bootstrapP3Directive(args: { agentProvider: AgentProvider }): st
     "- Screens without a story, stories without a screen.",
     "- Missing states and components (date picker, empty, error, loading, confirmation dialogs).",
     "- Contradictions between PRD text and screens.",
+    "",
+    "## Database (only when the project uses Postgres)",
+    "If CLAUDE.md has no `## Database` section, add this one VERBATIM:",
+    indent(POSTGRES_APP_CONTRACT),
+    postgresStatusLine(args.postgres ?? POSTGRES_UNKNOWN),
     "",
     "## Grill — one numbered round",
     "Post ALL open decisions as ONE numbered list in chat. Each item: the question, your proposed " +
@@ -229,6 +266,7 @@ export function bootstrapP3Directive(args: { agentProvider: AgentProvider }): st
       "components, cross-cutting states) — intent only, never a version number.",
     "- The PRD supplemented in place with the decisions and the resolved gaps.",
     "- CLAUDE.md `## Product decisions`: the short rules every implementing agent must follow.",
+    "- CLAUDE.md `## Database`, when you added it above.",
     "- No orphans: every finding is either decided or listed as an M0/P4 candidate — none is left " +
       "only in chat.",
     "- PR body: the decision list and the M0 candidates.",

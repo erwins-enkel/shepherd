@@ -36,13 +36,48 @@ It is **off by default**: turn it on for this machine, then per repo.
 The agent calls the `postgres_request` tool. It answers either:
 
 - `ready` with `dsn` (plus `host`, `port`, `database`, `user`, `password`). The
-  agent passes the DSN to its app and tests, for example as `DATABASE_URL`.
+  agent passes the DSN to its app and tests as `DATABASE_URL`.
 - `starting` while the server is still coming up (the first use may pull the
   image). The agent calls again.
 
 The tool is idempotent: every call in a session returns the same credentials. If
 a connection is refused later, the server stopped while idle, and calling the
 tool again starts it.
+
+Sessions that have the tool also get a short note in their system prompt with
+these rules, so they don't add a Compose Postgres or ask you how to connect.
+
+## Build apps against it
+
+Any project that uses this Postgres follows one contract, so agents never need to
+ask how the app reaches its database:
+
+- The app reads its connection from **`DATABASE_URL`**. The standard libpq
+  variables (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`) work too.
+  Nothing hardcodes a host, port or password.
+- **No Compose file or container for Postgres.** `DATABASE_URL` comes from
+  `postgres_request` in an agent session, from the `db` job's service container
+  in CI, and from the deployment's environment in production.
+- **Schema and seed data come from migrations**, run by one command against
+  `DATABASE_URL`. It turns an empty database into the current schema and is safe
+  to run again. A session's database starts as a copy of the repo template, which
+  may be empty.
+- **Locally, `DATABASE_URL` lives in a gitignored `.env`.** Only `.env.example`,
+  with a placeholder, is committed. A variable already set in the process
+  environment wins over `.env`; that is the default for dotenv, Vite and Bun, so
+  leave it that way and don't turn on an override.
+- **Tests use the same `DATABASE_URL`.** Each session's database is its own and
+  is thrown away on archive.
+
+A **bootstrap** session writes this contract into the new project's `CLAUDE.md`
+under `## Database`, and its P3 session adds the section when it is missing. Both
+check whether Postgres is on for the repo and, when it is off, ask you to switch
+on the machine setting and the repo toggle above.
+
+A later Shepherd release may set `DATABASE_URL` and the `PG*` variables in the
+session environment itself, with the same values the tool returns. Because the
+process environment wins over `.env`, a project built to this contract keeps
+working unchanged.
 
 ## Lifecycle
 

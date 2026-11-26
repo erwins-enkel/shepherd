@@ -135,9 +135,10 @@ describe("answer ask (#3165)", () => {
       answers,
     });
     expect(closed.status).toBe(409);
-    expect(((await validateResponse("POST", path, closed)) as { error: string }).error).toBe(
-      "ask_not_open",
-    );
+    expect(await validateResponse("POST", path, closed)).toMatchObject({
+      error: "ask_not_open",
+      code: "ask_not_open",
+    });
 
     const anon = await postJson(
       `/api/sessions/${id}/answer-ask`,

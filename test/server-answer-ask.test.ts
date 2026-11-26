@@ -91,3 +91,29 @@ test("400 on a malformed body, 404 unknown session, Codex supported", async () =
   expect((await post(codex.app, codex.session.id, BODY)).status).toBe(200);
   expect(codex.calls).toEqual([[codex.session.id, "toolu_1", BODY.answers, "-"]]);
 });
+
+test("#4219: the no-service refusal carries code ask_not_open too", async () => {
+  const store = new SessionStore(":memory:");
+  const app = makeApp({
+    store,
+    service: {} as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+  });
+  const s = store.create({
+    name: "t",
+    prompt: "p",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: "shepherd/t",
+    worktreePath: "/wt",
+    isolated: false,
+    herdrSession: "s",
+    herdrAgentId: "a",
+    claudeSessionId: "c",
+    model: null,
+  });
+  const res = await post(app, s.id, BODY);
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "ask_not_open", code: "ask_not_open" });
+});

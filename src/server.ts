@@ -7257,7 +7257,7 @@ async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Respon
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
   if (!["claude", "codex"].includes(s.agentProvider ?? "claude") || !deps.askAnswers) {
-    return json({ error: "ask_not_open" }, 409);
+    return json({ error: "ask_not_open", code: "ask_not_open" }, 409);
   }
   const requestId =
     typeof body.requestId === "string" && ASK_REQUEST_ID.test(body.requestId)

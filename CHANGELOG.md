@@ -1,5 +1,105 @@
 # Changelog
 
+## [2.9.0](https://github.com/erwins-enkel/shepherd/compare/v2.8.0...v2.9.0) (2026-11-26)
+
+
+### Features
+
+* **autopilot,automerge:** defer conflict/CI-fix steers to Claude PR Steward ([#4146](https://github.com/erwins-enkel/shepherd/issues/4146)) ([#4181](https://github.com/erwins-enkel/shepherd/issues/4181)) ([354a5e6](https://github.com/erwins-enkel/shepherd/commit/354a5e6e4089935a68439fbfdabe5273ebbbd16b))
+* **codex:** add GPT-6.2 Sol and Astra model choices ([#4041](https://github.com/erwins-enkel/shepherd/issues/4041)) ([d2e1c03](https://github.com/erwins-enkel/shepherd/commit/d2e1c03ea3908236677e3ff08954b8de77d80b34))
+* **drain:** let standalone labeled issues use free slots beside an epic ([#4103](https://github.com/erwins-enkel/shepherd/issues/4103)) ([#4208](https://github.com/erwins-enkel/shepherd/issues/4208)) ([9cd22e7](https://github.com/erwins-enkel/shepherd/commit/9cd22e761114ba10ede294a0dac40af0a6c48d2e))
+* **drain:** surface + release orphaned epic child claims, journal pending claims ([#4026](https://github.com/erwins-enkel/shepherd/issues/4026)) ([0543440](https://github.com/erwins-enkel/shepherd/commit/0543440adf0fccb2ab7d6d676e2ca6a80b1a78c5)), closes [#4025](https://github.com/erwins-enkel/shepherd/issues/4025)
+* **forge,ui:** detect Claude Ship; keep its checks out of CI ([#4145](https://github.com/erwins-enkel/shepherd/issues/4145)) ([#4150](https://github.com/erwins-enkel/shepherd/issues/4150)) ([102a809](https://github.com/erwins-enkel/shepherd/commit/102a8098d061e8b196504ead3ab6a56fb623b409))
+* **ios:** add per-repo autonomy settings ([#3994](https://github.com/erwins-enkel/shepherd/issues/3994)) ([a329698](https://github.com/erwins-enkel/shepherd/commit/a329698475da69aceac808d347ef651c44d2a859))
+* **lint:** ban silent rejection swallowing in src ([#4084](https://github.com/erwins-enkel/shepherd/issues/4084)) ([166fdaa](https://github.com/erwins-enkel/shepherd/commit/166fdaa40495f1490bc4295a9a9e28b06bf75661))
+* **newtask:** inline prompt coaching — judge hint + Shape verdict ([#4177](https://github.com/erwins-enkel/shepherd/issues/4177)) ([#4192](https://github.com/erwins-enkel/shepherd/issues/4192)) ([#4197](https://github.com/erwins-enkel/shepherd/issues/4197)) ([87f6dd2](https://github.com/erwins-enkel/shepherd/commit/87f6dd2959d73effe7de35e94b610a455aad2718))
+* **readiness:** lint_strictness guardrail ([#4153](https://github.com/erwins-enkel/shepherd/issues/4153)) ([#4158](https://github.com/erwins-enkel/shepherd/issues/4158)) ([61e299f](https://github.com/erwins-enkel/shepherd/commit/61e299ff59dd48a24bdc9e719372510b758bc76d))
+* **readiness:** score tsconfig strictness (ts_strict) ([#4089](https://github.com/erwins-enkel/shepherd/issues/4089)) ([8b1b3a8](https://github.com/erwins-enkel/shepherd/commit/8b1b3a8758bab5e7d6b80fbf720101e60369d507)), closes [#4080](https://github.com/erwins-enkel/shepherd/issues/4080)
+* **readiness:** swallowed_errors guardrail for silent-catch lint rules ([#4087](https://github.com/erwins-enkel/shepherd/issues/4087)) ([b4e30b9](https://github.com/erwins-enkel/shepherd/commit/b4e30b9224f9565dc05db2f3978cf6a96d1b10ee))
+* **repo-config:** share review feedback settings as repo rules ([#4184](https://github.com/erwins-enkel/shepherd/issues/4184)) ([#4191](https://github.com/erwins-enkel/shepherd/issues/4191)) ([48f1f21](https://github.com/erwins-enkel/shepherd/commit/48f1f2195d39be82f19e99cd73990db779b83048))
+* repo-Einstellungen über mehrere Rechner – Regeln im Repo, ein Leitrechner,… (epic [#3016](https://github.com/erwins-enkel/shepherd/issues/3016)) ([#4045](https://github.com/erwins-enkel/shepherd/issues/4045)) ([309cdd4](https://github.com/erwins-enkel/shepherd/commit/309cdd4463ec37dfc9fa6437a5dc76f01adc68b3))
+* resolve addressed review threads + connected-machine review feedback ([#4139](https://github.com/erwins-enkel/shepherd/issues/4139)) ([#4156](https://github.com/erwins-enkel/shepherd/issues/4156)) ([745321c](https://github.com/erwins-enkel/shepherd/commit/745321c7acee969a394863a5a4a2be699ba6fcfb))
+* **review,merge:** let claude code review replace the critic ([#4147](https://github.com/erwins-enkel/shepherd/issues/4147)) ([#4180](https://github.com/erwins-enkel/shepherd/issues/4180)) ([d34b194](https://github.com/erwins-enkel/shepherd/commit/d34b194cedfa01e26c48c0caa0aa4b1192c65fec))
+* **sandbox:** ci_download tool fetches CI logs/artifacts outside egress sandbox ([#4107](https://github.com/erwins-enkel/shepherd/issues/4107)) ([204e313](https://github.com/erwins-enkel/shepherd/commit/204e313207d24b1d01e00a867057b08d55301d77))
+* **sandbox:** operator-granted workflows permission for App-mode sessions ([#4120](https://github.com/erwins-enkel/shepherd/issues/4120)) ([7c7d534](https://github.com/erwins-enkel/shepherd/commit/7c7d53432a245fda049093f9db933bfee24a8b35))
+* **sandbox:** scoped GitHub tokens for task agents ([#4110](https://github.com/erwins-enkel/shepherd/issues/4110)) ([2f7d80f](https://github.com/erwins-enkel/shepherd/commit/2f7d80f98a47d412c1feb9db208916ef46cf74fb))
+* **secrets:** per-repo agent secrets for task agents ([#4123](https://github.com/erwins-enkel/shepherd/issues/4123)) ([10a6d93](https://github.com/erwins-enkel/shepherd/commit/10a6d933227215bf459a3230b937c3b0674217da))
+* shared Result&lt;T, E&gt; type ([#4079](https://github.com/erwins-enkel/shepherd/issues/4079)) ([#4082](https://github.com/erwins-enkel/shepherd/issues/4082)) ([5129d3c](https://github.com/erwins-enkel/shepherd/commit/5129d3c9633263ac69028451f99917cd5e6d5efc))
+* **skills:** /prompt-retro reverse-prompting retro skill ([#4164](https://github.com/erwins-enkel/shepherd/issues/4164)) ([f523176](https://github.com/erwins-enkel/shepherd/commit/f523176edb5fbf411092b224575f794258841a8a))
+* steer human + review-bot PR comments to the task agent ([#4140](https://github.com/erwins-enkel/shepherd/issues/4140)) ([b4a6a27](https://github.com/erwins-enkel/shepherd/commit/b4a6a2754db8186c3fd0742b121bbe7627bc2e32))
+* **steering:** on-demand steering report + Usage → Steering lens ([#4182](https://github.com/erwins-enkel/shepherd/issues/4182)) ([0dfe2f9](https://github.com/erwins-enkel/shepherd/commit/0dfe2f93d23d042328ab7e339355c0dd0ae65b96))
+* **steering:** weekly digest, push notification + trend ([#4176](https://github.com/erwins-enkel/shepherd/issues/4176)) ([#4193](https://github.com/erwins-enkel/shepherd/issues/4193)) ([4adc560](https://github.com/erwins-enkel/shepherd/commit/4adc560ec86686484eeed239c718f55d10153878))
+
+
+### Bug Fixes
+
+* **agent-scope:** disable systemd-run ${VAR} arg expansion ([#4157](https://github.com/erwins-enkel/shepherd/issues/4157)) ([9aca47b](https://github.com/erwins-enkel/shepherd/commit/9aca47ba85cac02a98bdea5c0c4c7df2a384d6c6))
+* **doc-agent:** harden worktree file I/O, validate retarget headBranch ([#4200](https://github.com/erwins-enkel/shepherd/issues/4200)) ([7500dde](https://github.com/erwins-enkel/shepherd/commit/7500dde21b1a23833190422ff65fea1c0d19d03f))
+* **doc-agent:** verify PR identity before retarget push and roll-up ([#4204](https://github.com/erwins-enkel/shepherd/issues/4204)) ([facb716](https://github.com/erwins-enkel/shepherd/commit/facb71650f9ba27eae745a3d70aff88b72b869f8))
+* **events:** apply token scope to /events payloads ([#4201](https://github.com/erwins-enkel/shepherd/issues/4201)) ([6445b10](https://github.com/erwins-enkel/shepherd/commit/6445b10a2a7beb35ed918a74ce33a1dcd59cb763))
+* **handoff:** fingerprint opened files without a path-check race ([#3989](https://github.com/erwins-enkel/shepherd/issues/3989)) ([79d32d4](https://github.com/erwins-enkel/shepherd/commit/79d32d43f1c03a0350ed74a2d957999a01db50f8))
+* harden diff parsing, read-tool fencing and herd_retry gating ([#4206](https://github.com/erwins-enkel/shepherd/issues/4206)) ([7f5be4a](https://github.com/erwins-enkel/shepherd/commit/7f5be4ae611fb650713d274d7265f5be178e12e9))
+* **heavy-slot:** clear not-run message, named holders, compound note ([#3626](https://github.com/erwins-enkel/shepherd/issues/3626)) ([#4205](https://github.com/erwins-enkel/shepherd/issues/4205)) ([27f6ea9](https://github.com/erwins-enkel/shepherd/commit/27f6ea9dbe292857e52af60f934005de82a1dc71))
+* **heavy-slot:** linear last-results query; stop event-loop stalls ([#4179](https://github.com/erwins-enkel/shepherd/issues/4179)) ([a35b3e1](https://github.com/erwins-enkel/shepherd/commit/a35b3e15c949aa31119a0aecbd2150d9663d2322))
+* **herdr:** strip inherited SHEPHERD_TOKEN from sessions and terminals ([#4167](https://github.com/erwins-enkel/shepherd/issues/4167)) ([#4169](https://github.com/erwins-enkel/shepherd/issues/4169)) ([8a87565](https://github.com/erwins-enkel/shepherd/commit/8a87565922275bd00f91a2527840db0865054adc))
+* **lint:** burn down no-silent-catch baseline ([#4098](https://github.com/erwins-enkel/shepherd/issues/4098)) ([13b1d08](https://github.com/erwins-enkel/shepherd/commit/13b1d0828ff5cce8f6ea204a8ba9942a9f38d36f)), closes [#4083](https://github.com/erwins-enkel/shepherd/issues/4083)
+* **lint:** flag literal .catch fallbacks ([#4100](https://github.com/erwins-enkel/shepherd/issues/4100)) ([9273e87](https://github.com/erwins-enkel/shepherd/commit/9273e87cec85aba6d12f2c5801b38668e97ceb96))
+* **plan-gate:** adopt orphan verdict onto reviewed plan, not live file ([#4160](https://github.com/erwins-enkel/shepherd/issues/4160)) ([#4171](https://github.com/erwins-enkel/shepherd/issues/4171)) ([5a4bb7f](https://github.com/erwins-enkel/shepherd/commit/5a4bb7f863c5d285b06b7dc209e5da99ea116b57))
+* **plan-gate:** boot-readiness barrier for consider() ([#4161](https://github.com/erwins-enkel/shepherd/issues/4161)) ([#4173](https://github.com/erwins-enkel/shepherd/issues/4173)) ([a46a341](https://github.com/erwins-enkel/shepherd/commit/a46a3416faf090691815118c7a9734bb13bf933a))
+* **plan-gate:** dropInflight only drops own entry ([#4163](https://github.com/erwins-enkel/shepherd/issues/4163)) ([#4170](https://github.com/erwins-enkel/shepherd/issues/4170)) ([f26ee37](https://github.com/erwins-enkel/shepherd/commit/f26ee3717f7bc5bc5bdab3e915eadb579ae83025))
+* **plan-gate:** effort switch matches CC 2.1.327 picker footer ([#4043](https://github.com/erwins-enkel/shepherd/issues/4043)) ([1c85449](https://github.com/erwins-enkel/shepherd/commit/1c854499134b810cac097bd48864a69b1dc9bb3a))
+* **plan-gate:** effort switch survives narrow panes, retries once ([#4027](https://github.com/erwins-enkel/shepherd/issues/4027)) ([51e7d41](https://github.com/erwins-enkel/shepherd/commit/51e7d41d12dc2df1996a6a30cb00c72487c66959))
+* **plan-gate:** withdraw approval before findings steer in planning phase ([#4162](https://github.com/erwins-enkel/shepherd/issues/4162)) ([#4168](https://github.com/erwins-enkel/shepherd/issues/4168)) ([cdb2216](https://github.com/erwins-enkel/shepherd/commit/cdb22165c80357956a0ec55445eb59f2f6b89223))
+* **poller:** keep sandboxed sessions working through quiet turns ([#4040](https://github.com/erwins-enkel/shepherd/issues/4040)) ([62ded04](https://github.com/erwins-enkel/shepherd/commit/62ded04d7b8902dec19161e5bcaf2863cfa812e1))
+* **poller:** settle sandboxed sessions found at rest after restart ([#4102](https://github.com/erwins-enkel/shepherd/issues/4102)) ([0754264](https://github.com/erwins-enkel/shepherd/commit/0754264825c3bf41ef289f5a07afac8a105b0bd4))
+* **preview:** harden preview proxy and loopback listeners ([#4209](https://github.com/erwins-enkel/shepherd/issues/4209)) ([917649d](https://github.com/erwins-enkel/shepherd/commit/917649db29e1ff30c741d539cff1061fdfbf511a))
+* **readiness:** ts_strict follow-ups — TS6 text, dedupe, monorepo wording, extends resolution ([#4101](https://github.com/erwins-enkel/shepherd/issues/4101)) ([ba6e8dd](https://github.com/erwins-enkel/shepherd/commit/ba6e8dd85f4bb798aaeb10dbf3d6566270cc4eed))
+* **reaper:** reap subreaper orphans + their trees, stop ended agent scopes ([#4207](https://github.com/erwins-enkel/shepherd/issues/4207)) ([de07e0c](https://github.com/erwins-enkel/shepherd/commit/de07e0cb8499c09fbcffbf524e83631da886f2e1)), closes [#4039](https://github.com/erwins-enkel/shepherd/issues/4039)
+* review feedback survives restore; send refusal reasons ([#4144](https://github.com/erwins-enkel/shepherd/issues/4144)) ([#4149](https://github.com/erwins-enkel/shepherd/issues/4149)) ([0e9f028](https://github.com/erwins-enkel/shepherd/commit/0e9f02840c7c4beb878e9f7a178e5fd8b8631236))
+* **review:** boot barrier for consider() vs reapOrphans ([#4172](https://github.com/erwins-enkel/shepherd/issues/4172)) ([#4178](https://github.com/erwins-enkel/shepherd/issues/4178)) ([4cc5554](https://github.com/erwins-enkel/shepherd/commit/4cc55545d00029b585a42360b6db9fe43cbd2902))
+* **review:** recover from technical critic failures (codex empty -o file + bounded same-head retry) ([#4049](https://github.com/erwins-enkel/shepherd/issues/4049)) ([187ce43](https://github.com/erwins-enkel/shepherd/commit/187ce43b5dbab7ddf65cd30f765e5451c362bb14))
+* **review:** stop late rework rounds from blocking on new findings ([#4104](https://github.com/erwins-enkel/shepherd/issues/4104)) ([51ae740](https://github.com/erwins-enkel/shepherd/commit/51ae7400dc21ea0ae5f6a6e96eca1a806a801929))
+* **sandbox:** accept current GitHub App token format ([#4114](https://github.com/erwins-enkel/shepherd/issues/4114)) ([68b3aef](https://github.com/erwins-enkel/shepherd/commit/68b3aef6a67f2e7af74f7f0ade08038848aee4b5))
+* **sandbox:** bind symlinked skill targets + codex ~/.agents/skills ([#4032](https://github.com/erwins-enkel/shepherd/issues/4032)) ([30ccbd3](https://github.com/erwins-enkel/shepherd/commit/30ccbd3d0e0aaf8341294b5b2895adb50ba7ec21))
+* **sandbox:** bind XDG git config RO for task sessions ([#4062](https://github.com/erwins-enkel/shepherd/issues/4062)) ([71b1fd9](https://github.com/erwins-enkel/shepherd/commit/71b1fd9f12606da9367ba468342cab88cec578ae))
+* **sandbox:** link resolved claude/codex into membrane tool bin ([#4022](https://github.com/erwins-enkel/shepherd/issues/4022)) ([5158ee8](https://github.com/erwins-enkel/shepherd/commit/5158ee856a0c8b2521b557638a91175300b4606b))
+* **sandbox:** tighten membrane setup and profile handling ([#4203](https://github.com/erwins-enkel/shepherd/issues/4203)) ([9ae10ad](https://github.com/erwins-enkel/shepherd/commit/9ae10ad30629c5c963ecadd03fb183e80648af03))
+* **spawn:** space-prefix typed spawn line to skip shell history ([#4113](https://github.com/erwins-enkel/shepherd/issues/4113)) ([d6c23ae](https://github.com/erwins-enkel/shepherd/commit/d6c23aeca74dfa6a4f22a67ca80a4d7ff94666a3)), closes [#4111](https://github.com/erwins-enkel/shepherd/issues/4111)
+* **ui:** chat sends survive session switch; keep drafts ([#4030](https://github.com/erwins-enkel/shepherd/issues/4030)) ([62936d7](https://github.com/erwins-enkel/shepherd/commit/62936d75e4525741c73aa9f190d66880e9e69d9f))
+* **ui:** keep top repo search result in view on mobile ([#4099](https://github.com/erwins-enkel/shepherd/issues/4099)) ([fa86ded](https://github.com/erwins-enkel/shepherd/commit/fa86ded211f4ee4db555d27818bb759a17a5b3b1))
+* **ui:** name repo + session in egress-drop toast ([#4024](https://github.com/erwins-enkel/shepherd/issues/4024)) ([734b11a](https://github.com/erwins-enkel/shepherd/commit/734b11a1e3f2b524d7d667aa6f5f1584506a26a6))
+* **ui:** new project names why a create failed; freeze attachments ([#4034](https://github.com/erwins-enkel/shepherd/issues/4034)) ([5d628f4](https://github.com/erwins-enkel/shepherd/commit/5d628f4403f0f21d239c8e04111b9f56ca9d7da1))
+* **ui:** phone pull-down needs a longer pull ([#4031](https://github.com/erwins-enkel/shepherd/issues/4031)) ([a9e123b](https://github.com/erwins-enkel/shepherd/commit/a9e123b4c197528ce3c9ac74a521c2f0f41b1fec))
+* **ui:** resolve relative chat file links against worktree ([#4038](https://github.com/erwins-enkel/shepherd/issues/4038)) ([5d75fc3](https://github.com/erwins-enkel/shepherd/commit/5d75fc3d85f2bd95796943d9f67f48160ae58483))
+* **ui:** show review feedback rows in Backlog settings ([#4185](https://github.com/erwins-enkel/shepherd/issues/4185)) ([439138d](https://github.com/erwins-enkel/shepherd/commit/439138db3c728e3ae64a96f233c0ce8acc9f40fe))
+
+
+### Code Refactoring
+
+* drop opt-in telemetry ([#4199](https://github.com/erwins-enkel/shepherd/issues/4199)) ([dff959c](https://github.com/erwins-enkel/shepherd/commit/dff959c2913ca018107b9197c1867c5835a66441))
+* **readiness:** async fs probes, no sync node:fs ([#4094](https://github.com/erwins-enkel/shepherd/issues/4094)) ([88b6f54](https://github.com/erwins-enkel/shepherd/commit/88b6f54c940b75c8db2668b4372577caec3e08ca)), closes [#4088](https://github.com/erwins-enkel/shepherd/issues/4088)
+* **server:** shared async helpers (sleep, withTimeout, backoffDelay) ([#4086](https://github.com/erwins-enkel/shepherd/issues/4086)) ([830de46](https://github.com/erwins-enkel/shepherd/commit/830de462a6259b51a8a3dd22112d35873680b1ce)), closes [#4077](https://github.com/erwins-enkel/shepherd/issues/4077)
+* shared execFileAsync replaces local promisify(execFile) ([#4085](https://github.com/erwins-enkel/shepherd/issues/4085)) ([392e58b](https://github.com/erwins-enkel/shepherd/commit/392e58bc4f1bc9a8ff5418c86f0ebbe5d3dababc)), closes [#4078](https://github.com/erwins-enkel/shepherd/issues/4078)
+
+
+### Documentation
+
+* **adr:** promote 5 architecture comment decisions to ADRs ([#4135](https://github.com/erwins-enkel/shepherd/issues/4135)) ([53cddd1](https://github.com/erwins-enkel/shepherd/commit/53cddd1563ed77b61e1706da7e6274f2bee34f96)), closes [#4128](https://github.com/erwins-enkel/shepherd/issues/4128)
+* **agents:** fix herdr FAIL contradiction, align test scope with Verify ([#4063](https://github.com/erwins-enkel/shepherd/issues/4063)) ([a228648](https://github.com/erwins-enkel/shepherd/commit/a2286486109fba15ebd840e3cec96f1075429d93))
+* delete tautological, fix stale comments ([#4129](https://github.com/erwins-enkel/shepherd/issues/4129)) ([#4137](https://github.com/erwins-enkel/shepherd/issues/4137)) ([49eb8ba](https://github.com/erwins-enkel/shepherd/commit/49eb8ba5a22eb7cd623d4fab9baf43cd400f1b73))
+* **research:** ai-coding takeaways from Tobi Lütke on David Senra ([#4151](https://github.com/erwins-enkel/shepherd/issues/4151)) ([bb29458](https://github.com/erwins-enkel/shepherd/commit/bb294583a4062f8e1f0500a08f32c44ce4dae46b))
+* **research:** claude ship vs shepherd overlap + collisions ([#4125](https://github.com/erwins-enkel/shepherd/issues/4125)) ([960a06b](https://github.com/erwins-enkel/shepherd/commit/960a06b62bd65ba89102587d7984e85ed4ebdd90))
+* **research:** comment-audit/ban prompt evaluation ([#4109](https://github.com/erwins-enkel/shepherd/issues/4109)) ([12472a3](https://github.com/erwins-enkel/shepherd/commit/12472a359a16958881b5a128ef4bb5919ba5c075))
+* **research:** deepsec spike vs Cloudflare audit skill ([#4155](https://github.com/erwins-enkel/shepherd/issues/4155)) ([#4187](https://github.com/erwins-enkel/shepherd/issues/4187)) ([ee69f0a](https://github.com/erwins-enkel/shepherd/commit/ee69f0af2276dc69582e632ab8556969c5948e69))
+* **research:** evaluate effect adoption ([#4075](https://github.com/erwins-enkel/shepherd/issues/4075)) ([23052dc](https://github.com/erwins-enkel/shepherd/commit/23052dcd7c679c58974cd6af08cd0e216c134ce0))
+* **research:** evaluate vercel-labs/ui SDK adoption ([#4108](https://github.com/erwins-enkel/shepherd/issues/4108)) ([72b756c](https://github.com/erwins-enkel/shepherd/commit/72b756c5fed9910dfff21c5036853b317194ca9f))
+* **research:** oxc (oxlint/oxfmt) svelte compatibility ([#4091](https://github.com/erwins-enkel/shepherd/issues/4091)) ([0503598](https://github.com/erwins-enkel/shepherd/commit/05035982571418c39d566540f9d51f4d0b855777))
+* running shepherd alongside claude ship ([#4148](https://github.com/erwins-enkel/shepherd/issues/4148)) ([#4190](https://github.com/erwins-enkel/shepherd/issues/4190)) ([4b4a53c](https://github.com/erwins-enkel/shepherd/commit/4b4a53c74710a4e328ca5e770c3c4329c6b47690))
+* **spec:** tla+ model of plan-gate lifecycle ([#4154](https://github.com/erwins-enkel/shepherd/issues/4154)) ([#4165](https://github.com/erwins-enkel/shepherd/issues/4165)) ([deaa024](https://github.com/erwins-enkel/shepherd/commit/deaa02473a54e33e624db2ce03cfc24f27653550))
+* **src:** move long comment specs to docs, tighten the rest ([#4142](https://github.com/erwins-enkel/shepherd/issues/4142)) ([a05749b](https://github.com/erwins-enkel/shepherd/commit/a05749b7036c08f51c913d6698c83b045c8b0aa3))
+* sync docs to recent source changes ([#4029](https://github.com/erwins-enkel/shepherd/issues/4029)) ([eb19f05](https://github.com/erwins-enkel/shepherd/commit/eb19f05f16bbe8c168c1a55a01b7506363320ec2))
+* sync docs to recent source changes ([#4196](https://github.com/erwins-enkel/shepherd/issues/4196)) ([8c6f634](https://github.com/erwins-enkel/shepherd/commit/8c6f6345ff7ee248cd3444234c5fcd58047d1f25))
+
 ## [2.8.0](https://github.com/erwins-enkel/shepherd/compare/v2.7.0...v2.8.0) (2026-11-14)
 
 

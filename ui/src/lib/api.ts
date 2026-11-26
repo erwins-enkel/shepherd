@@ -3640,6 +3640,18 @@ export async function getRepoRunDefaults(): Promise<{ repos: RepoRunDefaults[] }
   return getJson("/api/repo-run-defaults", "repo-run-defaults");
 }
 
+/** A repo with on-demand Postgres switched on (#4232). `repoPath` is the realpath the repo
+ *  config keys on. */
+export interface PostgresRepo {
+  repoPath: string;
+  name: string;
+}
+
+/** The repos with Postgres on request, sorted by name — Settings › Resources › Postgres's list. */
+export async function getPostgresRepos(): Promise<{ repos: PostgresRepo[] }> {
+  return getJson("/api/postgres/repos", "postgres-repos");
+}
+
 /** Project-bootstrap state of a repo (#3105) — mirrors the server's RepoBootstrapView. */
 export interface RepoBootstrapView {
   state: "off" | "active" | "done";

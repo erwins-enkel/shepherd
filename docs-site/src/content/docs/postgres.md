@@ -9,7 +9,8 @@ copy of its repo's template, and the copy is dropped when the session is
 archived. No project needs its own Docker Compose file for Postgres, and agents
 never need Docker access inside their sandbox.
 
-It is **off by default**: turn it on for this machine, then per repo.
+It is **off by default**: turn it on for this machine, then pick the repos that
+get it.
 
 ## Requirements
 
@@ -27,8 +28,11 @@ It is **off by default**: turn it on for this machine, then per repo.
    - **Image** (default `postgres:18`): keep it on one major version.
    Changing the port or image recreates the container on the next request; the
    data volume is kept.
-2. **Repo settings → Agent → Postgres on request:** switch it on for each repo
-   that needs a database. Sessions pick up the tool at their next spawn or
+2. **Pick the repos.** Under **Repos with Postgres** in the same block, type a
+   repo's name and pick it to switch it on; **✕** switches a repo off again. You
+   can pick repos before turning the server on: they get the tool once it is on.
+   This is the same switch as **Repo settings → Agent → Postgres on request**,
+   so either place works. Sessions pick up the tool at their next spawn or
    resume.
 
 ## How agents use it

@@ -9520,7 +9520,7 @@
   "tooltip_postgres_needs": "Voraussetzungen",
   "tooltip_postgres_needs_body": "Docker auf diesem Rechner und Postgres eingeschaltet unter Einstellungen → Ressourcen. Vorerst nur Claude-Sessions in Trusted und Standard; Sessions bekommen das Tool beim nächsten Start oder Fortsetzen.",
   "postgres_settings_heading": "Postgres",
-  "postgres_settings_scope": "Ein gemeinsamer Postgres-Server, den Shepherd in Docker nur betreibt, solange Agenten ihn brauchen. Repos schalten ihn unter Repo-Einstellungen → Agent zu.",
+  "postgres_settings_scope": "Ein gemeinsamer Postgres-Server, den Shepherd in Docker nur betreibt, solange Agenten ihn brauchen. Wähle seine Repos unten oder unter Repo-Einstellungen → Agent.",
   "postgres_settings_unavailable": "Die Postgres-Einstellungen sind nicht verfügbar.",
   "postgres_settings_enabled": "Postgres bei Bedarf betreiben",
   "postgres_settings_port": "Port",
@@ -9539,8 +9539,16 @@
   "diagnostics_hint_postgres_image": "Gestoppt. Das Image wird geladen, sobald ein Agent zum ersten Mal eine Datenbank anfordert.",
   "diagnostics_hint_postgres_uninspectable": "Der Postgres-Server konnte nicht geprüft werden.",
   "feat_postgres_title": "Postgres bei Bedarf",
-  "feat_postgres_body": "Shepherd kann einen gemeinsamen Postgres-Server für deine Repos betreiben und ihn nur starten, wenn ein Agent ihn braucht. Jede Session bekommt eine eigene Datenbank-Kopie, die beim Archivieren gelöscht wird. Schalte es unter Einstellungen → Ressourcen ein, dann pro Repo unter Repo-Einstellungen → Agent.",
+  "feat_postgres_body": "Shepherd kann einen gemeinsamen Postgres-Server für deine Repos betreiben und ihn nur starten, wenn ein Agent ihn braucht. Jede Session bekommt eine eigene Datenbank-Kopie, die beim Archivieren gelöscht wird. Schalte es unter Einstellungen → Ressourcen ein und wähle dort unter Repos mit Postgres seine Repos.",
   "epic_archived_review_status": "Session beendet · PR offen",
   "feat_epic_archived_reviews_title": "Offene Reviews in Epic-Gruppen",
-  "feat_epic_archived_reviews_body": "In der Ansicht „Alle“ in Mission Control bleibt der Link zu einem offenen Pull Request im Epic sichtbar, wenn die Session endet."
+  "feat_epic_archived_reviews_body": "In der Ansicht „Alle“ in Mission Control bleibt der Link zu einem offenen Pull Request im Epic sichtbar, wenn die Session endet.",
+  "postgres_repos_title": "Repos mit Postgres",
+  "postgres_repos_hint": "Agenten in diesen Repos können eine eigene Datenbank anfordern. Derselbe Schalter wie unter Repo-Einstellungen → Agent → Postgres auf Anfrage.",
+  "postgres_repos_global_off": "Postgres ist auf diesem Rechner aus. Diese Repos bekommen es, sobald du es oben einschaltest.",
+  "postgres_repos_none": "Noch kein Repo hat Postgres.",
+  "postgres_repos_add": "Repo hinzufügen…",
+  "postgres_repos_remove_aria": "Postgres für {repo} ausschalten",
+  "postgres_repos_save_failed": "Postgres für {repo} konnte nicht geändert werden.",
+  "postgres_repos_load_failed": "Die Repos mit Postgres konnten nicht geladen werden."
 }

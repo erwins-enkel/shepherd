@@ -4518,6 +4518,27 @@ async function handleRepoRunDefaults({ req, parts, deps }: Ctx): Promise<Respons
   return json({ repos });
 }
 
+/** GET /api/postgres/repos (#4232): the repos under the repo root with on-demand Postgres
+ *  switched on (stored postgresMode on-request), for Settings › Resources › Postgres. */
+async function handlePostgresRepos({ req, parts, deps, token }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "postgres" && parts[2] === "repos" && !parts[3]))
+    return null;
+  if (req.method !== "GET") return null;
+  // repo_config keys are realpath-resolved; rows for a repo no longer under the root drop out.
+  const names = new Map(
+    listRepos(config.repoRoot)
+      .filter((r) => tokenRepoAllowed(token, r.path))
+      .map((r) => [r.realPath, r.name]),
+  );
+  const repos = [...deps.store.postgresRepoPaths()]
+    .flatMap((repoPath) => {
+      const name = names.get(repoPath);
+      return name === undefined ? [] : [{ repoPath, name }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return json({ repos });
+}
+
 /** #3221: derived, read-only — the repo is on GitHub and no workflow runs on a PR head, so its
  *  PRs carry no checks. The automation pane warns next to `mergeWithoutCi`. */
 function withNoPrCi<T extends object>(
@@ -16186,6 +16207,7 @@ const ROUTE_HANDLERS = [
   handleRepoSecrets,
   handleAgentExtensions,
   handleRepoRunDefaults,
+  handlePostgresRepos,
   handleRepoBootstrap,
   handleSchedules,
   handleRepoBrowserOpen,

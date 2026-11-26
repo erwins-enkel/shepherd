@@ -3,19 +3,21 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import { m } from "#lib/paraglide/messages.js";
-import { getSettings, putPostgresSettings } from "#lib/api.js";
+import { getPostgresRepos, getSettings, putPostgresSettings } from "#lib/api.js";
 import type { PostgresSettings, Settings } from "#lib/types.js";
 import SettingsPostgresBlock from "./SettingsPostgresBlock.svelte";
 
 vi.mock("#lib/api.js", async (original) => ({
   ...(await original<typeof import("#lib/api.js")>()),
   getSettings: vi.fn(),
+  getPostgresRepos: vi.fn(),
   putPostgresSettings: vi.fn(),
 }));
 
 let settings: PostgresSettings;
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(getPostgresRepos).mockResolvedValue({ repos: [] });
   settings = { enabled: false, port: 54318, idleMinutes: 15, image: "postgres:18" };
   vi.mocked(getSettings).mockImplementation(
     async () => ({ postgres: structuredClone(settings) }) as Settings,

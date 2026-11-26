@@ -781,6 +781,13 @@ of what was already sent or dismissed, so restoring it doesn't bring those comme
 
 **Review bots** edits the bot allowlist.
 
+These three settings (**Review feedback**, **Review bots**, **Resolve addressed threads**) are
+shared repo rules: in a repo whose rules live in `.shepherd/config.json`, an edit is staged and
+committed when you confirm it, and every machine follows it. In a repo that already has that
+file, a value you set on one machine before these settings were shared doesn't carry over: the
+defaults (**In autopilot**, the default bot list, resolving off) apply until you set your choice
+again and confirm it.
+
 **On the card.** Waiting comments show as an amber **N review comments** badge on the session
 card and in the git rail. Click it to read them, then **Send to agent** or **Dismiss**. If a send
 can't go out, the dialog says why, for example the agent isn't running or the PR is already
@@ -788,8 +795,8 @@ closed. After five automatic sends in an hour, a session stops sending on its ow
 has passed. The badge's tooltip then says sending is paused, and you can still send by hand.
 
 A session on a connected machine shows its badge the same way. **Send to agent** and **Dismiss**
-act on that machine, so they need it connected. The machine's own repo settings decide what it
-reads and sends.
+act on that machine, so they need it connected. That machine reads and sends according to the
+repo's settings as it sees them, shared rules included.
 
 ### Resolve addressed threads
 

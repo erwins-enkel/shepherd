@@ -41,7 +41,7 @@ public struct RepoProjectDraft {
     }
 
     private func values(_ rules: RepoRules) throws -> [String: NSObject] {
-        // The contract restricts rules to scalar strings and booleans.
+        // Rules are strings, booleans or string arrays; NSObject equality compares arrays by value.
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(rules)) as? [String: NSObject] ?? [:]
     }
 }

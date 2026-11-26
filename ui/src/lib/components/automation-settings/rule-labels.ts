@@ -23,6 +23,9 @@ const RULE_NAMES: Record<RuleField, () => string> = {
   autoLabel: m.drain_label_label,
   defaultModel: m.automation_default_model_label,
   defaultEffort: m.automation_default_effort_label,
+  reviewFeedbackMode: m.reposettings_review_feedback_name,
+  reviewFeedbackBots: m.reposettings_review_bots_name,
+  reviewFeedbackResolve: m.reposettings_review_resolve_name,
 };
 
 export function ruleName(key: RuleField): string {

@@ -9289,7 +9289,7 @@
   "reposettings_review_bots_err_duplicate": "That bot is already listed.",
   "reposettings_review_bots_err_full": "At most 20 bots.",
   "feat_review_feedback_steer_title": "Review comments reach the agent",
-  "feat_review_feedback_steer_body": "Comments on a session's PR from people with write access, and from review bots like CodeRabbit or Copilot, now go to its agent. Autopilot sessions get them automatically. Elsewhere the card shows \"N review comments\": open it to send or dismiss. Repo settings › Review sets the mode and the bots.",
+  "feat_review_feedback_steer_body": "Comments on a session's PR from people with write access, and from review bots like CodeRabbit or Copilot, now go to its agent. Autopilot sessions get them automatically. Elsewhere the card shows \"N review comments\": open it to send or dismiss. Repo settings › Review sets the mode and the bots; as shared repo rules they apply on every machine.",
   "automergebanner_approval_pending": "the Claude Approvals check waits on a human approval. Approve it on GitHub",
   "claude_ship_badge": "Claude Ship",
   "claude_ship_badge_waiting": "Awaiting approval",

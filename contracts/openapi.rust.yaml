@@ -11425,6 +11425,17 @@ components:
           type: string
         defaultEffort:
           type: string
+        reviewFeedbackMode:
+          type: string
+          description: off | manual | autopilot | always (see RepoConfig.reviewFeedbackMode).
+        reviewFeedbackBots:
+          type: array
+          items:
+            type: string
+          description: Trusted review-bot logins (see RepoConfig.reviewFeedbackBots).
+        reviewFeedbackResolve:
+          type: boolean
+          description: Resolve addressed review threads (see RepoConfig.reviewFeedbackResolve).
     RepoRulesPatch:
       type: object
       additionalProperties: false
@@ -11469,6 +11480,17 @@ components:
           type: string
         defaultEffort:
           type: string
+        reviewFeedbackMode:
+          type: string
+          description: off | manual | autopilot | always (see RepoConfig.reviewFeedbackMode).
+        reviewFeedbackBots:
+          type: array
+          items:
+            type: string
+          description: Trusted review-bot logins (see RepoConfig.reviewFeedbackBots).
+        reviewFeedbackResolve:
+          type: boolean
+          description: Resolve addressed review threads (see RepoConfig.reviewFeedbackResolve).
     RepoMachinePatch:
       type: object
       additionalProperties: false
@@ -11623,6 +11645,17 @@ components:
           type: string
         defaultEffort:
           type: string
+        reviewFeedbackMode:
+          type: string
+          description: off | manual | autopilot | always (see RepoConfig.reviewFeedbackMode).
+        reviewFeedbackBots:
+          type: array
+          items:
+            type: string
+          description: Trusted review-bot logins (see RepoConfig.reviewFeedbackBots).
+        reviewFeedbackResolve:
+          type: boolean
+          description: Resolve addressed review threads (see RepoConfig.reviewFeedbackResolve).
         leitrechner:
           type: string
           nullable: true
@@ -11687,6 +11720,9 @@ components:
                   anyOf:
                     - type: boolean
                     - type: string
+                    - type: array
+                      items:
+                        type: string
         multipleAutoDrain:
           type: array
           items:

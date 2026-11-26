@@ -9,6 +9,7 @@ import {
   withRepoConfigLock,
 } from "../src/repo-config-file";
 import { saveRepoConfigRules, REPO_CONFIG_PR_BRANCH } from "../src/repo-config-pr";
+import { REVIEW_FEEDBACK_PRESET_BOTS } from "../src/review-feedback-core";
 
 const repos: ReturnType<typeof configRepo>[] = [];
 afterEach(() => {
@@ -222,4 +223,22 @@ test("fork rejection never opens an upstream PR", async () => {
   expect(
     git(r.origin, "for-each-ref", "--format=%(refname)", `refs/heads/${REPO_CONFIG_PR_BRANCH}`),
   ).toBe("");
+});
+
+test("an unchanged bot list (#4184) is no delta: value equality, not array identity", async () => {
+  const { r, forge } = fixture();
+  await save(r, r.b, forge, { reviewFeedbackBots: ["claude"] });
+  const result = await save(r, r.b, forge, {
+    reviewFeedbackBots: ["claude"],
+    planGateEnabled: true,
+  });
+  expect(result).toMatchObject({
+    kind: "pr",
+    pending: { changes: { reviewFeedbackBots: ["claude"], planGateEnabled: true } },
+  });
+  // Back to an equal copy of the default list: only the unrelated draft change remains.
+  const reverted = await save(r, r.b, forge, {
+    reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
+  });
+  expect(reverted.kind === "pr" && reverted.pending.changes).toEqual({ planGateEnabled: true });
 });

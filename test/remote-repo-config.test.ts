@@ -136,3 +136,13 @@ test("a peer stalled after headers is cancelled and reported unavailable", async
   });
   expect(cancelled).toBe(true);
 }, 10_000);
+test("bot lists (#4184) compare by value: equal lists match, different lists differ", () => {
+  const a = machine("a", true);
+  const b = machine("b", true);
+  expect(compareRepoConfigs([a, b]).fields).toEqual([]);
+  b.config.reviewFeedbackBots = ["claude"];
+  expect(compareRepoConfigs([a, b]).fields).toEqual([
+    { instanceId: "a", fields: { reviewFeedbackBots: a.config.reviewFeedbackBots } },
+    { instanceId: "b", fields: { reviewFeedbackBots: ["claude"] } },
+  ]);
+});

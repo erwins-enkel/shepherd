@@ -31,6 +31,9 @@ function setup(commit: string | null = "abc123", offline = false, metadataFailed
     signoffAuthority: "human",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    reviewFeedbackMode: "autopilot",
+    reviewFeedbackBots: ["coderabbitai", "claude"],
+    reviewFeedbackResolve: false,
     maxAuto: 1,
     repoConfigBranch: metadataFailed ? undefined : "trunk",
     repoConfigCommit: commit,
@@ -155,20 +158,46 @@ it("machine limits save immediately while rules stay staged", async () => {
   ).toBe("repo");
 });
 
-it("review feedback rows render once, under this machine", async () => {
+it("review feedback rows (#4184) are shared rules: staged, then confirmed in one write", async () => {
   setup();
   await expect.element(page.getByText("abc123", { exact: true })).toBeVisible();
   await open("review");
-  for (const field of ["reviewFeedbackMode", "reviewFeedbackResolve"]) {
+  for (const field of ["reviewFeedbackMode", "reviewFeedbackResolve", "reviewFeedbackBots"]) {
     await expect.poll(() => document.querySelectorAll(`[data-field="${field}"]`).length).toBe(1);
     expect(
       document
         .querySelector(`[data-field="${field}"]`)
         ?.closest("[data-settings-layer]")
         ?.getAttribute("data-settings-layer"),
-    ).toBe("rechner");
+    ).toBe("repo");
   }
   expect(document.querySelectorAll('[data-field="criticEnabled"]')).toHaveLength(1);
+  await page
+    .getByRole("combobox", { name: m.reposettings_review_feedback_name(), exact: true })
+    .selectOptions("always");
+  await page
+    .getByRole("switch", { name: m.reposettings_review_resolve_name(), exact: true })
+    .click();
+  expect(puts).toEqual([]);
+  await page.getByRole("button", { name: m.automation_layers_review(), exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect
+    .element(dialog.getByText(m.reposettings_review_feedback_always(), { exact: true }))
+    .toBeVisible();
+  await dialog.getByRole("button", { name: m.automation_layers_save(), exact: true }).click();
+  await vi.waitFor(() =>
+    expect(puts).toEqual([{ reviewFeedbackMode: "always", reviewFeedbackResolve: true }]),
+  );
+});
+
+it("first sharing commits an unchanged bot list without reporting a concurrent change", async () => {
+  setup(null);
+  await page.getByRole("button", { name: m.automation_layers_share(), exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect.element(dialog.getByText("coderabbitai, claude").first()).toBeVisible();
+  await dialog.getByRole("button", { name: m.automation_layers_save(), exact: true }).click();
+  await vi.waitFor(() => expect(puts).toHaveLength(1));
+  expect(puts[0]).toMatchObject({ reviewFeedbackBots: ["coderabbitai", "claude"] });
 });
 
 it("offline ownership pauses visibly and a confirmed takeover joins other rules in one write", async () => {

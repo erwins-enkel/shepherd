@@ -40,6 +40,33 @@ export function normalizeBotLogin(login: string): string {
     .replace(/\[bot\]$/, "");
 }
 
+// #4126/#4184: reviewFeedbackMode / reviewFeedbackBots — shared by the settings PUT and the
+// committed `.shepherd/config.json` reader.
+const REVIEW_FEEDBACK_MODES: readonly ReviewFeedbackMode[] = [
+  "off",
+  "manual",
+  "autopilot",
+  "always",
+];
+export function parseReviewFeedbackMode(v: unknown): ReviewFeedbackMode | { error: string } {
+  if (REVIEW_FEEDBACK_MODES.includes(v as ReviewFeedbackMode)) return v as ReviewFeedbackMode;
+  return { error: `reviewFeedbackMode must be one of: ${REVIEW_FEEDBACK_MODES.join(", ")}` };
+}
+
+const REVIEW_FEEDBACK_BOTS_MAX = 20;
+/** A normalized GitHub login (lowercase, no `[bot]` suffix). */
+const REVIEW_FEEDBACK_BOT_RE = /^[a-z0-9][a-z0-9-]{0,38}$/;
+/** Bot logins normalized, empties dropped, deduped; at most 20 GitHub-shaped logins. */
+export function parseReviewFeedbackBots(v: unknown): string[] | { error: string } {
+  if (!Array.isArray(v) || !v.every((b) => typeof b === "string"))
+    return { error: "reviewFeedbackBots must be an array of strings" };
+  const bots = [...new Set(v.map(normalizeBotLogin).filter(Boolean))];
+  if (bots.length > REVIEW_FEEDBACK_BOTS_MAX)
+    return { error: `reviewFeedbackBots allows at most ${REVIEW_FEEDBACK_BOTS_MAX} entries` };
+  const bad = bots.find((b) => !REVIEW_FEEDBACK_BOT_RE.test(b));
+  return bad === undefined ? bots : { error: "reviewFeedbackBots entries must be GitHub logins" };
+}
+
 /** Written by Shepherd itself: critic reviews, author responses and the issue log all carry a
  *  `<!-- shepherd…` marker. */
 export function isShepherdAuthored(body: string): boolean {

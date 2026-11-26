@@ -7,6 +7,7 @@ import {
   repoConfigGit,
   repoConfigGitContext,
   REPO_RULE_DEFAULTS,
+  sameRuleValue,
   type RepoConfigFile,
   type RepoRules,
 } from "./repo-config-file";
@@ -26,7 +27,9 @@ const rules = (file: RepoConfigFile | null): Rules => ({
 });
 function changes(before: Rules, after: Rules): RepoConfigChanges {
   return Object.fromEntries(
-    Object.entries(after).filter(([key, value]) => value !== before[key as keyof Rules]),
+    Object.entries(after).filter(
+      ([key, value]) => !sameRuleValue(value, before[key as keyof Rules]),
+    ),
   );
 }
 function sameRules(file: RepoConfigFile, desired: Rules): boolean {

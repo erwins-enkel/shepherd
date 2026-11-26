@@ -9289,7 +9289,7 @@
   "reposettings_review_bots_err_duplicate": "Dieser Bot steht schon in der Liste.",
   "reposettings_review_bots_err_full": "Höchstens 20 Bots.",
   "feat_review_feedback_steer_title": "Review-Kommentare erreichen den Agenten",
-  "feat_review_feedback_steer_body": "Kommentare zum PR einer Session von Personen mit Schreibrechten und von Review-Bots wie CodeRabbit oder Copilot gehen jetzt an ihren Agenten. Autopilot-Sessions bekommen sie automatisch. Sonst zeigt die Karte „N Review-Kommentare“: öffnen, um zu senden oder zu verwerfen. Modus und Bots stellst du unter Repo-Einstellungen › Review ein.",
+  "feat_review_feedback_steer_body": "Kommentare zum PR einer Session von Personen mit Schreibrechten und von Review-Bots wie CodeRabbit oder Copilot gehen jetzt an ihren Agenten. Autopilot-Sessions bekommen sie automatisch. Sonst zeigt die Karte „N Review-Kommentare“: öffnen, um zu senden oder zu verwerfen. Modus und Bots stellst du unter Repo-Einstellungen › Review ein; als geteilte Repo-Regeln gelten sie auf jedem Rechner.",
   "automergebanner_approval_pending": "der Claude-Approvals-Check wartet auf eine menschliche Freigabe. Gib auf GitHub frei",
   "claude_ship_badge": "Claude Ship",
   "claude_ship_badge_waiting": "Wartet auf Freigabe",

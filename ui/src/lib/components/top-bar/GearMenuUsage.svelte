@@ -3,6 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { formatTokenLabel } from "#lib/format.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { steeringReport } from "#lib/steering-report.svelte.js";
   import {
     codexGaugeList,
     codexTokenUsage,
@@ -87,11 +88,16 @@
     class="gm-open"
     data-gear-row
     aria-haspopup="dialog"
-    aria-label={m.topbar_usage_link()}
+    aria-label={steeringReport.unread ? m.topbar_usage_link_unread() : m.topbar_usage_link()}
     use:coachTarget={coachId}
     onclick={onOpenUsage}
   >
-    <span class="gm-label">{m.gearmenu_usage_label()}</span>
+    <span class="gm-label">
+      {m.gearmenu_usage_label()}{#if steeringReport.unread}<span
+          class="gm-unread"
+          aria-hidden="true"
+        ></span>{/if}
+    </span>
     {#if hottest}
       <span class="gm-line">
         <span class="gm-code">{windowCode}</span>
@@ -198,6 +204,17 @@
     background: var(--color-hover);
     box-shadow: inset 0 0 0 1px var(--color-line-bright);
   }
+  /* Weekly steering digest not opened yet (#4176). */
+  .gm-unread {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 6px;
+    vertical-align: middle;
+    border-radius: 50%;
+    background: var(--color-blue);
+  }
+
   .gm-label {
     font-size: var(--fs-micro);
     letter-spacing: 0.18em;

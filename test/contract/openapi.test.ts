@@ -13,7 +13,7 @@ import { TOKEN_SCOPES } from "../../src/token-scopes";
 import { AGENT_PROVIDERS, DISPATCH_STATES, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
 import { CiRestartHolds } from "../../src/ci-restart-hold";
-import type { SteeringReport } from "../../src/steering-core";
+import { steeringTrend, type SteeringReport } from "../../src/steering-core";
 import type {
   RemoteCancelResult,
   RemoteDispatchView,
@@ -1687,25 +1687,31 @@ describe("steering report", () => {
   const wire = (report: SteeringReport | null) => {
     let running = false;
     s.deps.steering = {
-      snapshot: () => ({ running, report }),
+      snapshot: () => ({ running, report, trend: steeringTrend(report ? [report] : []), unread }),
       start: () => (running ? false : (running = true)),
+      markSeen: () => void (unread = false),
     };
   };
+  let unread = false;
   afterAll(() => {
     delete s.deps.steering;
   });
 
   test("GET /api/steering/report: none, ok and failed reports; 503 when unwired", async () => {
     const get = () => fetch(`${s.baseUrl}/api/steering/report`, { headers: bearer(token) });
-    for (const report of [null, fx.steeringReport, fx.steeringFailedReport]) {
+    const weekly = { ...fx.steeringReport, trigger: "weekly" as const };
+    for (const report of [null, fx.steeringReport, fx.steeringFailedReport, weekly]) {
       wire(report);
       const res = await get();
       expect(res.status).toBe(200);
       expect(await validateResponse("GET", "/api/steering/report", res)).toEqual({
         running: false,
         report,
+        trend: steeringTrend(report ? [report] : []),
+        unread: false,
       });
     }
+    expect(steeringTrend([weekly])).toHaveLength(1);
     delete s.deps.steering;
     const unwired = await get();
     expect(unwired.status).toBe(503);
@@ -1731,6 +1737,23 @@ describe("steering report", () => {
     const unwired = await run();
     expect(unwired.status).toBe(503);
     await validateResponse("POST", "/api/steering/report/run", unwired);
+  });
+
+  test("POST /api/steering/report/seen: 200 {unread:false}; 503 when unwired", async () => {
+    const seen = () =>
+      fetch(`${s.baseUrl}/api/steering/report/seen`, { method: "POST", headers: bearer(token) });
+    wire(fx.steeringReport);
+    unread = true;
+    const res = await seen();
+    expect(res.status).toBe(200);
+    expect(await validateResponse("POST", "/api/steering/report/seen", res)).toEqual({
+      unread: false,
+    });
+    expect(unread).toBe(false);
+    delete s.deps.steering;
+    const unwired = await seen();
+    expect(unwired.status).toBe(503);
+    await validateResponse("POST", "/api/steering/report/seen", unwired);
   });
 
   test("a read-scope token is refused (operator-only)", async () => {

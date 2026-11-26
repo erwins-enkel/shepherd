@@ -2984,12 +2984,54 @@ components:
           allOf:
             - $ref: "#/components/schemas/SteeringTables"
           nullable: true
+    SteeringTrendPoint:
+      type: object
+      additionalProperties: false
+      description: One weekly ok/thin report reduced to the trend's numbers (#4176). Each metric is over the report's typed, prompt-labelled sessions; null when there are none.
+      required:
+        - reportId
+        - createdAt
+        - windowEnd
+        - n
+        - prescribingShare
+        - medianCorrections
+        - medianReview
+        - medianCi
+      properties:
+        reportId:
+          type: string
+        createdAt:
+          type: integer
+        windowEnd:
+          type: integer
+        n:
+          type: integer
+          minimum: 0
+        prescribingShare:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+        medianCorrections:
+          type: number
+          nullable: true
+          minimum: 0
+        medianReview:
+          type: number
+          nullable: true
+          minimum: 0
+        medianCi:
+          type: number
+          nullable: true
+          minimum: 0
     SteeringReportSnapshot:
       type: object
       additionalProperties: true
       required:
         - running
         - report
+        - trend
+        - unread
       properties:
         running:
           type: boolean
@@ -2997,6 +3039,23 @@ components:
           allOf:
             - $ref: "#/components/schemas/SteeringReport"
           nullable: true
+        trend:
+          type: array
+          description: Weekly ok/thin reports, oldest first (#4176).
+          items:
+            $ref: "#/components/schemas/SteeringTrendPoint"
+        unread:
+          type: boolean
+          description: The newest weekly ok/thin report has not been opened yet (#4176).
+    SteeringSeenResult:
+      type: object
+      additionalProperties: true
+      description: POST /api/steering/report/seen.
+      required:
+        - unread
+      properties:
+        unread:
+          type: boolean
     SteeringRunResult:
       type: object
       additionalProperties: true
@@ -13129,7 +13188,7 @@ paths:
   /api/steering/report:
     get:
       operationId: getSteeringReport
-      description: The latest stored steering report (#4175) and whether a run is in flight. Operator only.
+      description: The latest stored steering report (#4175), whether a run is in flight, the weekly trend and the unread flag (#4176). Operator only.
       responses:
         "200":
           description: Latest report, or null when none was ever generated.
@@ -13174,6 +13233,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunSteeringReportError"
+  /api/steering/report/seen:
+    post:
+      operationId: markSteeringReportSeen
+      description: The operator opened the steering report; the newest weekly digest is no longer unread (#4176).
+      responses:
+        "200":
+          description: Marked seen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SteeringSeenResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: The steering report service is not wired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/reply:
     parameters:
       - name: id

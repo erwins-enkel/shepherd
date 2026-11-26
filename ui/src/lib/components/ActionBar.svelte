@@ -53,7 +53,7 @@
     onmenu?: () => void;
     menuOpen?: boolean;
     /** Settings-owned attention on the Menu tab (diagnostics), as the gear's pip was. */
-    menuPip?: "red" | "yellow" | null;
+    menuPip?: "red" | "yellow" | "info" | null;
   } = $props();
 
   // The lens rank renders only where it belongs: the phone list screen.
@@ -84,10 +84,11 @@
     aria-expanded={menuOpen}
     aria-label={m.topbar_menu_aria()}
     use:coachTarget={"gear-menu"}
-    ><span class="menu-glyph" aria-hidden="true"
-      >⚙︎{#if menuPip}<span class="menu-pip" data-tier={menuPip}></span>{/if}</span
-    >{m.actionbar_menu()}</button
   >
+    <span class="menu-glyph" aria-hidden="true">
+      ⚙︎{#if menuPip}<span class="menu-pip" data-tier={menuPip}></span>{/if}
+    </span>{m.actionbar_menu()}
+  </button>
 {/snippet}
 
 {#snippet backlogBtn()}
@@ -97,8 +98,10 @@
     type="button"
     onclick={onbacklog}
     data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "R" }) : undefined}
-    aria-keyshortcuts={!mobile ? "r" : undefined}>{m.actionbar_backlog()}</button
+    aria-keyshortcuts={!mobile ? "r" : undefined}
   >
+    {m.actionbar_backlog()}
+  </button>
 {/snippet}
 
 {#if !(desktopOnly && mobile)}
@@ -144,8 +147,10 @@
           href={commitUrl}
           target="_blank"
           rel="external noreferrer noopener"
-          title={m.actionbar_commit_title({ sha })}>{sha}</a
+          title={m.actionbar_commit_title({ sha })}
         >
+          {sha}
+        </a>
         <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
           {#each THEMES as t (t.pref)}
             <button
@@ -155,8 +160,10 @@
               aria-pressed={theme.resolved === t.pref}
               title={m.actionbar_theme_option({ label: t.label() })}
               aria-label={m.actionbar_theme_option({ label: t.label() })}
-              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+              onclick={() => theme.setPref(t.pref)}
             >
+              <ThemeIcon icon={t.icon} />
+            </button>
           {/each}
         </div>
         <button
@@ -166,8 +173,10 @@
           aria-pressed={theme.contrast}
           title={m.actionbar_contrast_toggle()}
           aria-label={m.actionbar_contrast_toggle()}
-          onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+          onclick={() => theme.toggleContrast()}
         >
+          <ThemeIcon icon="contrast" />
+        </button>
         <LanguageSwitcher />
       </div>
     {/if}
@@ -386,6 +395,10 @@
   }
   .menu-pip[data-tier="yellow"] {
     background: var(--color-amber);
+  }
+  /* Unread weekly steering digest (#4176), the gear pip's info tier. */
+  .menu-pip[data-tier="info"] {
+    background: var(--color-blue);
   }
   /* The primary's resting glow is desktop-only; on the phone every slot is flat. That `box-shadow:
      none` above outranks .btn:focus-visible (0,3,0 vs 0,2,0), which also kills the outline — so

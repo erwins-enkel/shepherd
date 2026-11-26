@@ -121,6 +121,17 @@ export async function disablePush(): Promise<void> {
   }).catch(() => {});
 }
 
+/** Subscribe to "open-usage" messages the SW posts when the weekly steering push is clicked
+ *  (#4176): open Usage on its Steering lens. Returns a disposer. */
+export function onOpenUsage(cb: () => void): () => void {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return () => {};
+  const handler = (e: MessageEvent) => {
+    if (e.data?.type === "open-usage" && e.data.tab === "steering") cb();
+  };
+  navigator.serviceWorker.addEventListener("message", handler);
+  return () => navigator.serviceWorker.removeEventListener("message", handler);
+}
+
 /** Subscribe to "select-session" messages posted by the SW on notification click.
  *  Returns a disposer. */
 export function onSelectSession(cb: (id: string) => void): () => void {

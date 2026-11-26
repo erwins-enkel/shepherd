@@ -154,6 +154,7 @@
     onsettingsaskassistant,
     onsettingsopenusage,
     showUsage,
+    usageSteeringRequest,
     onusageclose,
     showClone,
     oncloneclose,
@@ -304,6 +305,8 @@
     /** Settings → Decision model "Usage → Spend" (#3071): close Settings and open Usage. */
     onsettingsopenusage?: () => void;
     showUsage: boolean;
+    /** Bumped per weekly steering push tap: Usage switches to its Steering lens (#4176). */
+    usageSteeringRequest?: number;
     onusageclose: () => void;
     showClone: boolean;
     oncloneclose: () => void;
@@ -697,7 +700,7 @@
 {#if showUsage}
   <LazyMount load={loadUsage} onerror={onusageclose}>
     {#snippet children(Usage)}
-      <Usage onclose={onusageclose} />
+      <Usage onclose={onusageclose} steeringRequest={usageSteeringRequest} />
     {/snippet}
   </LazyMount>
 {/if}

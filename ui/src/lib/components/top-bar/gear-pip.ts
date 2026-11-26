@@ -9,3 +9,9 @@ export function diagnosticsPip(diagnosticsOverall: DiagnosticState): "red" | "ye
   if (diagnosticsOverall === "warning") return "yellow";
   return null;
 }
+
+/** Fold the unread weekly steering digest (#4176) into a pip: blue "info" below any stronger
+ *  tier. Shown on every gear (folded or not) — the digest's only top-level affordance. */
+export function withSteeringPip(tier: GearPipTier, steeringUnread: boolean): GearPipTier {
+  return tier ?? (steeringUnread ? "info" : null);
+}

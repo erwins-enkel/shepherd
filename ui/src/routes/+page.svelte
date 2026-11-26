@@ -194,7 +194,7 @@
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
   import MobileFabs from "#lib/components/MobileFabs.svelte";
-  import { diagnosticsPip } from "#lib/components/top-bar/gear-pip.js";
+  import { diagnosticsPip, withSteeringPip } from "#lib/components/top-bar/gear-pip.js";
   import HostPopover from "#lib/components/heavy-slot/HostPopover.svelte";
   import {
     needsResultRefresh,
@@ -230,7 +230,8 @@
     loadSettings as loadSettingsOverlay,
   } from "#lib/components/page/overlay-loaders.js";
   import { prefetchWhenIdle } from "#lib/lazy-component.js";
-  import { registerSW, onSelectSession } from "#lib/push.js";
+  import { registerSW, onSelectSession, onOpenUsage } from "#lib/push.js";
+  import { steeringReport } from "#lib/steering-report.svelte.js";
   import { onLaunchLink, sessionIdFromLink } from "#lib/launch-link.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { clearDecommissioning, markDecommissioning } from "#lib/decommissioning.svelte.js";
@@ -408,6 +409,13 @@
   // the boot settles so their first open doesn't wait on the network.
   onMount(() => prefetchWhenIdle([loadNewTask, loadSettingsOverlay]));
   let showUsage = $state(false);
+  // Weekly steering push taps (#4176): each bump shows Usage → Steering, even when Usage is
+  // already open on another lens. Reset on close.
+  let usageSteeringRequest = $state(0);
+  function openUsageSteering() {
+    usageSteeringRequest++;
+    showUsage = true;
+  }
   // Phone only: the full-screen host panel (the bar chip's popover on desktop).
   let showHostPanel = $state(false);
   let settingsTab = $state<SettingsSectionId>("workspace");
@@ -2667,6 +2675,10 @@
     // `?link=web+shepherd://session/<id>` = cold launch of the installed app (issue #2547).
     const deepLink = params.get("session") ?? sessionIdFromLink(params.get("link"));
     const disposeSelect = onSelectSession((id) => void jumpHandlers.selectFromDeepLink(id));
+    // Weekly steering digest (#4176): unread dots from boot; its push opens Usage → Steering.
+    void steeringReport.load();
+    if (params.get("usage") === "steering") openUsageSteering();
+    const disposeOpenUsage = onOpenUsage(openUsageSteering);
     // Warm launch: the open app window receives the link without a reload. Unknown ids are
     // dropped — before sessions load, the cold-launch deepLink above covers it.
     onLaunchLink((id) => {
@@ -2818,6 +2830,7 @@
     return () => {
       dispose();
       disposeSelect();
+      disposeOpenUsage();
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("pageshow", onPageShow);
     };
@@ -4256,7 +4269,7 @@
           onstatusfilter={(s) => (statusFilter = s)}
           onmenu={() => (phoneMenuOpen = !phoneMenuOpen)}
           menuOpen={phoneMenuOpen}
-          menuPip={diagnosticsPip(store.diagnosticsOverall)}
+          menuPip={withSteeringPip(diagnosticsPip(store.diagnosticsOverall), steeringReport.unread)}
         />
         <MobileFabs
           onnew={() => (showNew = true)}
@@ -4787,7 +4800,11 @@
     showUsage = true;
   }}
   {showUsage}
-  onusageclose={() => (showUsage = false)}
+  {usageSteeringRequest}
+  onusageclose={() => {
+    showUsage = false;
+    usageSteeringRequest = 0;
+  }}
   {showClone}
   oncloneclose={() => {
     showClone = false;

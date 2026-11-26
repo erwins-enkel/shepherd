@@ -55,14 +55,21 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const sessionId = event.notification.data?.sessionId;
-  const target = sessionId ? "/?session=" + encodeURIComponent(sessionId) : "/";
+  // The weekly steering digest (#4176) opens Usage on its Steering lens instead of a session.
+  const steering = event.notification.data?.kind === "steering_report";
+  const target = steering
+    ? "/?usage=steering"
+    : sessionId
+      ? "/?session=" + encodeURIComponent(sessionId)
+      : "/";
   event.waitUntil(
     (async () => {
       const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       for (const c of clients) {
         if ("focus" in c) {
           await c.focus();
-          if (sessionId) c.postMessage({ type: "select-session", id: sessionId });
+          if (steering) c.postMessage({ type: "open-usage", tab: "steering" });
+          else if (sessionId) c.postMessage({ type: "select-session", id: sessionId });
           return;
         }
       }

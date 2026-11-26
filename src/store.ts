@@ -7807,12 +7807,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** The newest steering report, or null when none was ever generated. */
-  latestSteeringReport(): SteeringReport | null {
-    const row = this.db
-      .query(`SELECT * FROM steering_reports ORDER BY createdAt DESC, rowid DESC LIMIT 1`)
-      .get() as SteeringReportRow | null;
-    return row ? hydrateSteeringReport(row) : null;
+  /** The newest steering report (of `trigger`, when given), or null when there is none. */
+  latestSteeringReport(trigger?: SteeringReport["trigger"]): SteeringReport | null {
+    return this.listSteeringReports(trigger, 1)[0] ?? null;
+  }
+
+  /** Stored steering reports (of `trigger`, when given), newest first (#4176 trend). */
+  listSteeringReports(
+    trigger?: SteeringReport["trigger"],
+    limit = STEERING_REPORTS_KEPT,
+  ): SteeringReport[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM steering_reports WHERE (?1 IS NULL OR trigger = ?1)
+         ORDER BY createdAt DESC, rowid DESC LIMIT ?2`,
+      )
+      .all(trigger ?? null, limit) as SteeringReportRow[];
+    return rows.map(hydrateSteeringReport);
   }
 
   insertMaintainRun(run: MaintainRun): void {

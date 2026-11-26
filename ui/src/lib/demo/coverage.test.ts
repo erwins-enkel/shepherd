@@ -253,6 +253,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/prompt-budget"),
   get("/api/steering/report"),
   post("/api/steering/report/run"),
+  post("/api/steering/report/seen"),
 
   // ambient reads (#2295)
   get("/api/plugins/manage/installed"),

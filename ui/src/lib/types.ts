@@ -2970,9 +2970,27 @@ export interface SteeringReport {
   tables: SteeringTables | null;
 }
 
+/** One weekly report reduced to the trend's numbers (#4176); metrics are null when the report had
+ *  no typed, prompt-labelled session. */
+export interface SteeringTrendPoint {
+  reportId: string;
+  createdAt: number;
+  windowEnd: number;
+  n: number;
+  /** 0..1 */
+  prescribingShare: number | null;
+  medianCorrections: number | null;
+  medianReview: number | null;
+  medianCi: number | null;
+}
+
 export interface SteeringReportSnapshot {
   running: boolean;
   report: SteeringReport | null;
+  /** Weekly ok/thin reports, oldest first. */
+  trend: SteeringTrendPoint[];
+  /** The newest weekly digest has not been opened yet. */
+  unread: boolean;
 }
 
 /** What one named block of the spawn prompt cost. `tokens` is an ESTIMATE (chars/4), never a

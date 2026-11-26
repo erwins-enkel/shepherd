@@ -206,6 +206,8 @@ import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
 import { STEERING_LABEL, SteeringReportService } from "./steering";
+import { steeringHeadline } from "./steering-core";
+import { shouldHold } from "./usage-hold";
 import {
   deriveRequirementsViaAgent,
   deriveRequirementsViaJudge,
@@ -943,6 +945,30 @@ const steeringReports = new SteeringReportService({
       includeTools: false,
     }),
   emit: (event) => events.emit("steering:report", event),
+  // Weekly digest (#4176): defer under the usage hold (same rule as held tasks and drain; unknown
+  // usage reads 0, never held), push the headline once a weekly report is worth reading.
+  usageHeld: () => {
+    const lim = usageLimits.limits(Date.now());
+    return shouldHold({
+      enabled: config.usageHoldEnabled,
+      holdPct: config.usageHoldPct,
+      session5hPct: lim.session5h?.pct ?? 0,
+      weekPct: lim.week?.pct ?? 0,
+      force: false,
+    });
+  },
+  onWeeklyReady: (report) =>
+    void push
+      .notify({
+        kind: "steering_report",
+        sessionId: "",
+        tag: "steering_report",
+        name: "steering",
+        headline: steeringHeadline(report) ?? undefined,
+        sessionsReviewed: report.sample?.considered ?? 0,
+        cooldownKey: "steering_report",
+      })
+      .catch((err) => console.warn("[push] steering_report notify failed:", err)),
 });
 
 // Lazy holder for the restricted agent-ingress listener's ephemeral port. The listener is started
@@ -3896,6 +3922,17 @@ const timerTask = (label: string, fn: () => Promise<unknown>) => () => {
     .catch((err) => console.warn(`[${label}] tick failed:`, err))
     .finally(settled);
 };
+
+// Weekly steering digest (#4176): an hourly due-check (first one 10 min after boot, clear of the
+// startup burst). Due-ness is read from the stored reports, so a restart loses nothing.
+const steeringWeeklyTick = timerTask("steering-weekly", () => steeringReports.tickWeekly());
+setTimeout(
+  () => {
+    steeringWeeklyTick();
+    setInterval(steeringWeeklyTick, 60 * 60 * 1000);
+  },
+  10 * 60 * 1000,
+);
 
 // Base-moved notice (#2589): steer idle agents whose base branch gained commits they lack. The
 // service drops a tick that lands while the previous pass is still fetching.

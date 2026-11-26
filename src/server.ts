@@ -3,6 +3,7 @@ import {
   POSTGRES_SETTING,
   isPostgresMode,
   parsePostgresPatch,
+  postgresRepoOn,
   storedPostgresSettings,
   type PostgresMode,
 } from "./postgres-core";
@@ -7678,7 +7679,7 @@ async function startStoredPreviewScript(
     await launcher.startScript(
       storedScript,
       s.worktreePath,
-      service.previewLaunch(s, storedScript),
+      await service.previewLaunch(s, storedScript),
     );
     return json({
       ok: true,
@@ -7721,6 +7722,7 @@ async function sendPreviewSetupSteer(
       worktreePath: s.worktreePath,
       command,
       agentProvider: s.agentProvider ?? "claude",
+      postgres: (deps.postgres?.settings().enabled ?? false) && postgresRepoOn(cfg.postgresMode),
     }),
   );
   return ok

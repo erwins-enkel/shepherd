@@ -2,7 +2,7 @@
 // and the bootstrap directives' Postgres status follow the same capability.
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { SessionService, composeSystemPromptBlocks } from "../src/service";
+import { PREVIEW_SETUP_STEER, SessionService, composeSystemPromptBlocks } from "../src/service";
 import { DEFAULT_POSTGRES_SETTINGS, connectionFor } from "../src/postgres-core";
 import {
   POSTGRES_APP_CONTRACT,
@@ -278,4 +278,15 @@ test("composer: the injected notice rides for Codex too, never plain", () => {
     composeSystemPromptBlocks(false, opts).map((b) => b.name);
   expect(names({ postgres: "injected", agentProvider: "codex" })).toContain("postgres-notice");
   expect(names({ postgres: "injected", plain: true })).not.toContain("postgres-notice");
+});
+
+test("PREVIEW_SETUP_STEER: the DATABASE_URL rule only with postgres (#4238)", () => {
+  const base = { scriptPath: "/g/shepherd/preview-start.sh", worktreePath: "/wt", command: null };
+  const on = PREVIEW_SETUP_STEER({ ...base, postgres: true });
+  expect(on).toContain("Shepherd's on-demand Postgres");
+  expect(on).toContain("must read `$DATABASE_URL`");
+  expect(on).toContain("never hardcode a database host, port or credential");
+  expect(on).toContain("must not add a Docker Compose file or start its own Postgres");
+  for (const off of [PREVIEW_SETUP_STEER(base), PREVIEW_SETUP_STEER({ ...base, postgres: false })])
+    expect(off).not.toContain("DATABASE_URL");
 });

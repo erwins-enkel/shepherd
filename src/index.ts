@@ -1470,6 +1470,10 @@ deferredStarts.push(() => {
   sweepOrphanSecretDirs(config.agentSpawnDir, live).catch((err: unknown) =>
     console.warn("[agent-secrets] startup secret-dir sweep failed:", err),
   );
+  // #4238: the preview launch's Postgres env dirs, same keep rule.
+  sweepOrphanSecretDirs(join(config.agentSpawnDir, "preview"), live).catch((err: unknown) =>
+    console.warn("[agent-secrets] startup preview secret-dir sweep failed:", err),
+  );
 });
 
 // GitHub App mode: resume the gh token refresh of membranes that outlived the restart (after the

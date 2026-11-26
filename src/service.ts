@@ -2201,16 +2201,32 @@ export function PREVIEW_START_STEER(
   );
 }
 
+/** A trusted preview launch through the Postgres env launcher (#4238): the server env, as the
+ *  direct launch in startPreviewScript gets it. */
+function trustedPreviewLaunch(argv: string[], worktreePath: string): PreviewLaunch {
+  return {
+    argv,
+    env: { ...(process.env as Record<string, string>), SHEPHERD_WORKTREE_PATH: worktreePath },
+  };
+}
+
+/** #4238: the preview script's rule when Shepherd injects the repo's on-demand Postgres. */
+const PREVIEW_POSTGRES_RULE =
+  "This repo uses Shepherd's on-demand Postgres: Shepherd sets `DATABASE_URL` (plus the libpq `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD` and `PGDATABASE` vars) in the preview script's environment, so the script must read `$DATABASE_URL`, never hardcode a database host, port or credential, and must not add a Docker Compose file or start its own Postgres. ";
+
 export function PREVIEW_SETUP_STEER({
   scriptPath,
   worktreePath,
   command,
   agentProvider = "claude",
+  postgres = false,
 }: {
   scriptPath: string;
   worktreePath: string;
   command: string | null;
   agentProvider?: "claude" | "codex";
+  /** The repo uses on-demand Postgres (#4238): add the `DATABASE_URL` rule. */
+  postgres?: boolean;
 }): string {
   const prefix =
     agentProvider === "codex"
@@ -2226,6 +2242,7 @@ export function PREVIEW_SETUP_STEER({
     `The script must be repo-specific and safe to run repeatedly from any worktree of this repo. It should set a runtime root variable such as \`WORKTREE_ROOT="\${SHEPHERD_WORKTREE_PATH:-${worktreePath}}"\`, cd there, perform any required local setup such as installing missing dependencies or preparing local services, choose a free dev-server port when the default is busy, write the chosen port to \`$WORKTREE_ROOT/.shepherd-preview\`, then exec the foreground dev/test server process. ` +
     `Do not run \`tailscale serve\` from this script: Shepherd owns tailnet exposure. After the script starts the local dev server and writes \`.shepherd-preview\`, Shepherd's preview sweep detects the port, binds a preview proxy slot, and, when \`SHEPHERD_PREVIEW_AUTO_SERVE\` is enabled and this node's Tailscale hostname is available, registers that proxy slot with Tailscale automatically. If no Preview badge or tailnet preview URL appears, first verify that the dev server is still running and \`.shepherd-preview\` contains the actual listening port. ` +
     `If the repo needs Docker, databases, seed data, env files, or a non-Node toolchain, encode the local steps in that script with clear failure messages. ` +
+    (postgres ? PREVIEW_POSTGRES_RULE : "") +
     `After creating the script, run it once in a managed/background terminal (not as a blocking foreground command), confirm the port it listens on, and then continue what you were doing.`
   );
 }
@@ -4348,19 +4365,26 @@ export class SessionService {
    *
    * `scriptPath` is the canonical `<git-common-dir>/shepherd/preview-start.sh` (the caller checked),
    * so the common dir is its grandparent — no git call on the loop.
+   *
+   * A session holding an on-demand Postgres lease (#4238) also gets its connection env — only
+   * those vars, never the repo's agent secrets — through the 0600 launcher dir, never argv. A
+   * trusted launch then returns the launcher with the server env instead of null.
    */
-  previewLaunch(s: Session, scriptPath: string): PreviewLaunch | null {
+  async previewLaunch(s: Session, scriptPath: string): Promise<PreviewLaunch | null> {
+    const pgDir = await this.previewPostgresDir(s);
+    const script = pgDir ? secretEnvLauncher(pgDir, [scriptPath]) : [scriptPath];
     const repoProfile = resolveProfile(
       null,
       this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
       this.defaultProfile,
     );
-    if (repoProfile === "trusted" && (s.sandboxApplied ?? "trusted") === "trusted") return null;
+    if (repoProfile === "trusted" && (s.sandboxApplied ?? "trusted") === "trusted")
+      return pgDir ? trustedPreviewLaunch(script, s.worktreePath) : null;
     const home = homedir();
     const extraEnv = { ...collectPassthroughEnv(), SHEPHERD_WORKTREE_PATH: s.worktreePath };
     if (this.detectBackend() === null) {
       return {
-        argv: [scriptPath],
+        argv: script,
         env: {
           ...extraEnv,
           HOME: home,
@@ -4384,11 +4408,35 @@ export class SessionService {
       term: process.env.TERM,
       extraEnv: { ...extraEnv, SHEPHERD_PREVIEW_LOG: log },
       maskCredentials: true,
+      secretEnvDir: pgDir ?? undefined,
     }).filter((f) => f !== "--die-with-parent"); // detached: must outlive a server restart
     return {
-      argv: ["bwrap", ...flags, "--bind", log, log, "--", scriptPath],
+      argv: ["bwrap", ...flags, "--bind", log, log, "--", ...script],
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     };
+  }
+
+  /** The preview's Postgres env dir (#4238): the session's connection vars only (host = loopback:
+   *  the preview runs on the host net), written when Postgres is on, the repo has it on and the
+   *  live session holds an active lease; it also kicks `ensureRunning` in the background. Null
+   *  otherwise, or on a failure (logged, never a value) — the preview then launches as before. */
+  private async previewPostgresDir(s: Session): Promise<string | null> {
+    const pg = this.deps.postgres;
+    if (!pg?.settings().enabled || s.status === "archived") return null;
+    const mode = this.deps.store.getRepoConfig(s.repoPath).postgresMode;
+    if (!postgresRepoOn(mode) || !pg.hasLease(s.id)) return null;
+    try {
+      const env = postgresEnv(await pg.connection(s.id, POSTGRES_HOST_LOOPBACK));
+      const dir = await writeSessionSecretDir(this.previewSecretBaseDir(), s.id, env);
+      pg.ensureRunning().catch((e: unknown) =>
+        console.warn(`[postgres] ${s.id}: preview ensure failed: ${(e as Error).message}`),
+      );
+      return dir;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[postgres] ${s.id}: preview env not injected: ${msg}`);
+      return null;
+    }
   }
 
   /** This task spawn's per-repo agent secret dir (#4122): written fresh (or a stale one removed)
@@ -4453,10 +4501,19 @@ export class SessionService {
     return this.deps.agentSpawnDir ?? config.agentSpawnDir;
   }
 
-  /** Archive: drop the session's agent secret dir (#4122). Never throws. */
+  /** The preview launch's Postgres env dirs (#4238), apart from the agent secret dirs. */
+  private previewSecretBaseDir(): string {
+    return join(this.agentSecretBaseDir(), "preview");
+  }
+
+  /** Archive: drop the session's agent secret dir (#4122) and its preview Postgres env dir
+   *  (#4238). Never throws. */
   private async removeAgentSecretDir(id: string): Promise<void> {
     await removeSessionSecretDir(this.agentSecretBaseDir(), id).catch((err: unknown) =>
       console.warn(`[agent-secrets] secret dir for ${id} not removed:`, err),
+    );
+    await removeSessionSecretDir(this.previewSecretBaseDir(), id).catch((err: unknown) =>
+      console.warn(`[agent-secrets] preview secret dir for ${id} not removed:`, err),
     );
   }
 

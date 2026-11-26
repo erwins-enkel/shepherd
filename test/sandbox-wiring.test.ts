@@ -26,6 +26,7 @@ import { join } from "node:path";
 import type { StandardCreateInput, Session } from "../src/types";
 import type { GitForge, Issue, PrStatus } from "../src/forge/types";
 import type { UsageLimits } from "../src/usage-limits";
+import { secretEnvLauncher } from "../src/agent-secrets";
 import {
   DEFAULT_POSTGRES_SETTINGS,
   connectionFor,
@@ -88,8 +89,12 @@ function makeService(opts: {
   ghGrants?: ConstructorParameters<typeof SessionService>[0]["ghGrants"];
   prepareScratchpadBind?: ConstructorParameters<typeof SessionService>[0]["prepareScratchpadBind"];
   previewLogFile?: (sessionId: string) => string;
+  postgres?: ConstructorParameters<typeof SessionService>[0]["postgres"];
+  agentSpawnDir?: string;
 }) {
   return new SessionService({
+    postgres: opts.postgres,
+    agentSpawnDir: opts.agentSpawnDir,
     transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store: opts.store,
     namer: async () => "s",
@@ -1488,17 +1493,17 @@ describe("SessionService.previewLaunch (F03)", () => {
     return { store, service, s };
   };
 
-  test("trusted repo + trusted session → null (unchanged direct launch)", () => {
+  test("trusted repo + trusted session → null (unchanged direct launch)", async () => {
     const { service, s } = setup("trusted", "bwrap");
-    expect(service.previewLaunch(s, script)).toBeNull();
+    expect(await service.previewLaunch(s, script)).toBeNull();
   });
 
   for (const profile of ["standard", "autonomous"] as const) {
-    test(`${profile} repo → bwrap membrane, --clearenv, creds masked, no --die-with-parent`, () => {
+    test(`${profile} repo → bwrap membrane, --clearenv, creds masked, no --die-with-parent`, async () => {
       process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
       try {
         const { service, s } = setup(profile, "bwrap");
-        const l = service.previewLaunch(s, script)!;
+        const l = (await service.previewLaunch(s, script))!;
         expect(l.argv[0]).toBe("bwrap");
         expect(l.argv.slice(-2)).toEqual(["--", script]);
         expect(l.argv).toContain("--clearenv");
@@ -1532,17 +1537,17 @@ describe("SessionService.previewLaunch (F03)", () => {
     });
   }
 
-  test("trusted repo but sandboxed SESSION → wrapped", () => {
+  test("trusted repo but sandboxed SESSION → wrapped", async () => {
     const { service, s } = setup("trusted", "bwrap");
     const sandboxed = { ...s, sandboxApplied: "standard" as const };
-    expect(service.previewLaunch(sandboxed, script)?.argv[0]).toBe("bwrap");
+    expect((await service.previewLaunch(sandboxed, script))?.argv[0]).toBe("bwrap");
   });
 
-  test("sandboxed repo, no backend → script directly with a minimal env", () => {
+  test("sandboxed repo, no backend → script directly with a minimal env", async () => {
     process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
     try {
       const { service, s } = setup("standard", null);
-      const l = service.previewLaunch(s, script)!;
+      const l = (await service.previewLaunch(s, script))!;
       expect(l.argv).toEqual([script]);
       expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
       expect(l.env.DUMMY_SERVER_SECRET).toBeUndefined();
@@ -1573,6 +1578,144 @@ describe("SessionService.previewLaunch (F03)", () => {
       delete process.env.DUMMY_SERVER_SECRET;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ── #4238: the preview launch gets the session's Postgres env (lease only) ────
+describe("SessionService.previewLaunch: on-demand Postgres env (#4238)", () => {
+  const script = "/repo/.git/shepherd/preview-start.sh";
+  let spawnDir: string;
+  beforeEach(() => {
+    spawnDir = mkdtempSync(join(tmpdir(), "pg-preview-"));
+  });
+  afterEach(() => rmSync(spawnDir, { recursive: true, force: true }));
+
+  const conn = (id: string) =>
+    connectionFor(
+      "127.0.0.1",
+      DEFAULT_POSTGRES_SETTINGS.port,
+      id,
+      sessionPassword("k".repeat(64), id),
+    );
+
+  function setup(opts: {
+    profile: "trusted" | "standard";
+    mode: "off" | "on-request" | "auto";
+    lease: boolean;
+    backend?: SandboxBackend;
+  }) {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", {
+      ...defaultRepoConfig(),
+      sandboxProfile: opts.profile,
+      postgresMode: opts.mode,
+    });
+    const s = store.create({
+      name: "p",
+      prompt: "x",
+      repoPath: "/repo",
+      baseBranch: "main",
+      branch: "shepherd/p",
+      worktreePath: "/wt/p",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_p",
+    });
+    const hosts: string[] = [];
+    let ensured = 0;
+    const postgres = {
+      settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: true }),
+      hasLease: () => opts.lease,
+      ensureRunning: async () => void ensured++,
+      request: async () => ({ status: "starting" as const }),
+      reset: async () => ({ status: "starting" as const }),
+      sessionStatus: async () => ({ server: "off" as const, database: "none" as const }),
+      connection: async (id: string, host = "127.0.0.1") => {
+        hosts.push(host);
+        return conn(id);
+      },
+    };
+    const service = makeService({
+      store,
+      record: {},
+      detectBackend: () => (opts.backend === undefined ? "bwrap" : opts.backend),
+      postgres,
+      agentSpawnDir: spawnDir,
+    });
+    return { store, service, s, hosts, ensured: () => ensured };
+  }
+
+  const dirOf = (id: string) => join(spawnDir, "preview", `${id}.secrets`);
+  const files = (dir: string): Record<string, string> => {
+    if (!existsSync(dir)) return {};
+    const out: Record<string, string> = {};
+    for (const f of readdirSync(dir)) out[f] = readFileSync(join(dir, f), "utf8");
+    return out;
+  };
+
+  for (const mode of ["auto", "on-request"] as const) {
+    test(`trusted, ${mode} + lease → launcher argv with the dir, the 6 vars on disk only`, async () => {
+      const { service, s, hosts, ensured } = setup({ profile: "trusted", mode, lease: true });
+      const l = (await service.previewLaunch(s, script))!;
+      const dir = dirOf(s.id);
+      expect(l.argv).toEqual(secretEnvLauncher(dir, [script]));
+      expect(l.argv.slice(0, 2)).toEqual(["/bin/sh", "-c"]);
+      expect(l.argv.slice(3)).toEqual(["shepherd-secret-env", dir, script]);
+      expect(hosts).toEqual(["127.0.0.1"]);
+      const expected = postgresEnv(conn(s.id));
+      expect(files(dir)).toEqual(expected);
+      expect(Object.keys(expected)).toHaveLength(6);
+      expect(l.argv.join("\n")).not.toContain(expected.PGPASSWORD!);
+      expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
+      expect(JSON.stringify(l.env)).not.toContain(expected.PGPASSWORD!);
+      expect(ensured()).toBe(1);
+    });
+  }
+
+  test("standard + bwrap + lease → launcher after `--`, dir bound RO, no value in argv", async () => {
+    const { service, s } = setup({ profile: "standard", mode: "auto", lease: true });
+    const l = (await service.previewLaunch(s, script))!;
+    const dir = dirOf(s.id);
+    expect(l.argv[0]).toBe("bwrap");
+    const sep = l.argv.lastIndexOf("--");
+    expect(l.argv.slice(sep + 1)).toEqual(secretEnvLauncher(dir, [script]));
+    const ro = l.argv.findIndex((x, k) => x === "--ro-bind" && l.argv[k + 1] === dir);
+    expect(ro).toBeGreaterThan(0);
+    expect(l.argv[ro + 2]).toBe(dir);
+    expect(ro).toBeLessThan(sep);
+    const pw = postgresEnv(conn(s.id)).PGPASSWORD!;
+    expect(JSON.stringify(l)).not.toContain(pw);
+    expect(l.argv).not.toContain("DATABASE_URL");
+    expect(Object.keys(l.env)).toEqual(["PATH"]);
+  });
+
+  test("standard, no backend + lease → launcher with the minimal env", async () => {
+    const { service, s } = setup({ profile: "standard", mode: "auto", lease: true, backend: null });
+    const l = (await service.previewLaunch(s, script))!;
+    expect(l.argv).toEqual(secretEnvLauncher(dirOf(s.id), [script]));
+    expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
+  });
+
+  test("no lease, or mode off → unchanged (trusted null), no dir written", async () => {
+    for (const o of [
+      { mode: "auto" as const, lease: false },
+      { mode: "off" as const, lease: true },
+    ]) {
+      const { service, s, hosts } = setup({ profile: "trusted", ...o });
+      expect(await service.previewLaunch(s, script)).toBeNull();
+      expect(hosts).toEqual([]);
+      expect(existsSync(dirOf(s.id))).toBe(false);
+    }
+    const { service, s } = setup({ profile: "standard", mode: "auto", lease: false });
+    expect((await service.previewLaunch(s, script))!.argv.slice(-2)).toEqual(["--", script]);
+  });
+
+  test("archive removes the preview dir", async () => {
+    const { service, s } = setup({ profile: "trusted", mode: "auto", lease: true });
+    await service.previewLaunch(s, script);
+    expect(existsSync(dirOf(s.id))).toBe(true);
+    await service.archive(s.id);
+    expect(existsSync(dirOf(s.id))).toBe(false);
   });
 });
 

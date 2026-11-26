@@ -10,26 +10,32 @@ describe("buildPreviewUrl — loopback branch", () => {
     );
   });
 
-  it("127.0.0.1 → uses location host+protocol", () => {
+  it("localhost https → preserves https and localhost", () => {
+    expect(buildPreviewUrl(null, { protocol: "https:", hostname: "localhost" }, PORT)).toBe(
+      "https://localhost:8001/",
+    );
+  });
+
+  it("127.0.0.1 → uses location protocol and 127.0.0.1", () => {
     expect(buildPreviewUrl(null, { protocol: "http:", hostname: "127.0.0.1" }, PORT)).toBe(
       "http://127.0.0.1:8001/",
     );
   });
 
-  it("::1 → uses location host+protocol", () => {
+  it("::1 → uses location protocol and 127.0.0.1", () => {
     expect(buildPreviewUrl(null, { protocol: "http:", hostname: "::1" }, PORT)).toBe(
-      "http://::1:8001/",
+      "http://127.0.0.1:8001/",
     );
   });
 
-  it("[::1] → uses location host+protocol", () => {
+  it("[::1] → uses location protocol and 127.0.0.1", () => {
     expect(buildPreviewUrl(null, { protocol: "http:", hostname: "[::1]" }, PORT)).toBe(
-      "http://[::1]:8001/",
+      "http://127.0.0.1:8001/",
     );
   });
 
   it("loopback wins even when previewHost is set", () => {
-    // Dev must stay on localhost; previewHost must be ignored.
+    // Dev must stay on the local machine; previewHost must be ignored.
     expect(
       buildPreviewUrl(
         "agentnode.example.ts.net",

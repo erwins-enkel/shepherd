@@ -427,7 +427,13 @@ import { buildUsageBreakdown } from "./usage-breakdown";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
-import { detectDevCommand, previewReach } from "./preview";
+import {
+  detectDevCommand,
+  loopbackV6Available,
+  needsLoopbackV6,
+  previewReach,
+  serveLoopbackV6,
+} from "./preview";
 import { SharedBrowserError } from "./shared-browser";
 import { isShelved } from "./shelve";
 import { gateBrowserView, openBrowserView, type BrowserViewSession } from "./browser-view";
@@ -16589,7 +16595,7 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   return null;
 };
 
-export function serve(deps: AppDeps, port: number) {
+export function serve(deps: AppDeps, port: number, opts: { loopbackV6?: boolean } = {}) {
   const app = makeApp(deps);
   // Feeds the `lag` metric of Server-Timing; one unref'd timer, production listener only.
   startLoopLagMonitor();
@@ -17110,7 +17116,7 @@ export function serve(deps: AppDeps, port: number) {
       ws.data.bridge?.close();
     }
   }
-  return Bun.serve<WsData>({
+  const options: Bun.Serve.Options<WsData> = {
     port,
     hostname: config.host,
     // Bun's 128 MiB default would reject screen-recording uploads at the transport
@@ -17150,5 +17156,34 @@ export function serve(deps: AppDeps, port: number) {
       message: (ws, msg) => withOp(`WS message ${ws.data.kind}`, () => onSocketMessage(ws, msg)),
       close: (ws) => withOp(`WS close ${ws.data.kind}`, () => onSocketClose(ws)),
     },
-  });
+  };
+  const server = Bun.serve<WsData>(options);
+  if (!opts.loopbackV6 || !needsLoopbackV6(config.host) || !loopbackV6Available()) return server;
+  return withLoopbackV6(server, options);
+}
+
+/** Also serve `options` on `[::1]` at `server`'s port; stopping `server` stops that companion
+ *  too. If the `[::1]` bind fails, `server` is stopped and an error naming `[::1]:<port>` is
+ *  thrown (the bind error as its `cause`). */
+function withLoopbackV6(server: Server<WsData>, options: Bun.Serve.Options<WsData>) {
+  const port = server.port!;
+  let companion: Server<WsData>;
+  try {
+    companion = serveLoopbackV6(options, port);
+  } catch (err) {
+    void server.stop(true).catch(() => {
+      /* best-effort: server already gone */
+    });
+    throw new Error(`Failed to listen on [::1]:${port} alongside ${config.host}:${port}`, {
+      cause: err,
+    });
+  }
+  const stopPrimary = server.stop.bind(server);
+  server.stop = async (closeActiveConnections?: boolean) => {
+    await Promise.all([
+      stopPrimary(closeActiveConnections),
+      companion.stop(closeActiveConnections),
+    ]);
+  };
+  return server;
 }

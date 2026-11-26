@@ -14,6 +14,10 @@ import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
+import { resolveDevPort } from "../src/preview";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { HerdrAgent } from "../src/herdr";
 import type { ListenerScanTarget, WorktreeListeners } from "../src/process-reaper";
 
@@ -497,6 +501,118 @@ test("preview sweep: pick is called with the session's worktreePath first in hin
 
   expect(pickCalls.length).toBeGreaterThanOrEqual(1);
   expect(pickCalls[0]!.hintDirs[0]).toBe(s.worktreePath);
+});
+
+test("preview sweep: reserved ports are filtered out before pick", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSessionInput);
+  const pickCalls: number[][] = [];
+  const service = { ...makePreviewService(), isReservedPort: (p: number) => p === 8005 };
+
+  const poller = new StatusPoller(
+    store,
+    withListAsync({ list: () => [baseHerdrAgent], readAsync: async () => "" } as any),
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => 100_000,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service,
+      sweepMs: 4000,
+      scan: (worktrees) => {
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: [8005, 5173], hintDirs: [] });
+        return m;
+      },
+      pick: async (ports) => {
+        pickCalls.push(ports);
+        return 5173;
+      },
+    },
+  );
+
+  await poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+
+  expect(pickCalls[0]).toEqual([5173]);
+});
+
+test("preview sweep: a FIFO hint in one worktree does not stall detection for others", async () => {
+  const dirA = mkdtempSync(join(tmpdir(), "sweep-fifo-"));
+  const dirB = mkdtempSync(join(tmpdir(), "sweep-hint-"));
+  try {
+    const mk = Bun.spawn(["mkfifo", join(dirA, ".shepherd-preview")]);
+    expect(await mk.exited).toBe(0);
+    writeFileSync(join(dirB, ".shepherd-preview"), "5174\n");
+
+    const store = new SessionStore(":memory:");
+    store.create({ ...baseSessionInput, worktreePath: dirA, herdrAgentId: "term_a" });
+    const b = store.create({ ...baseSessionInput, worktreePath: dirB, herdrAgentId: "term_b" });
+    const agents: HerdrAgent[] = [
+      { ...baseHerdrAgent, cwd: dirA, terminalId: "term_a" },
+      { ...baseHerdrAgent, cwd: dirB, terminalId: "term_b" },
+    ];
+    const service = makePreviewService();
+    let clock = 100_000;
+    const ports = new Map([
+      [dirA, [5173]],
+      [dirB, [5174]],
+    ]);
+    const poller = new StatusPoller(
+      store,
+      withListAsync({ list: () => agents, readAsync: async () => "" } as any),
+      () => {},
+      () => {},
+      1000,
+      3000,
+      undefined,
+      () => clock,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        service,
+        sweepMs: 4000,
+        scan: (worktrees) => {
+          const m = new Map<string, WorktreeListeners>();
+          for (const t of worktrees)
+            m.set(t.worktreePath, { ports: ports.get(t.worktreePath) ?? [], hintDirs: [] });
+          return m;
+        },
+        pick: (p, dirs) =>
+          resolveDevPort(
+            p,
+            dirs,
+            undefined,
+            async () => true,
+            async () => ({ lo: 1, hi: 2 }),
+          ),
+      },
+    );
+
+    await poller.tick();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(service._convergeArgs.length).toBe(1);
+    expect(service._convergeArgs[0]!.find((a) => a.sessionId === b.id)?.devPort).toBe(5174);
+
+    // the sweep finished (re-entrancy flag cleared): a later tick sweeps again
+    clock += 5000;
+    await poller.tick();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(service._convergeArgs.length).toBe(2);
+  } finally {
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+  }
 });
 
 // ── GET /api/preview server endpoint ─────────────────────────────────────────

@@ -35,6 +35,7 @@ import {
   storedPostgresSettings,
   type PostgresConnection,
   type PostgresSettings,
+  POSTGRES_HOST_LOOPBACK,
 } from "./postgres-core";
 import type { PostgresLease, PostgresLeaseState } from "./store";
 import type { Session } from "./types";
@@ -112,7 +113,7 @@ const IDLE_TICK_MS = 60_000;
 const READY_POLL_MS = 500;
 const DEFAULT_READY_TIMEOUT_MS = 60_000;
 const DEFAULT_REQUEST_BUDGET_MS = 45_000;
-const HOST = "127.0.0.1";
+const HOST = POSTGRES_HOST_LOOPBACK;
 
 function defaultDocker(): DockerRun {
   const env = dockerChildEnv(process.env);
@@ -379,8 +380,13 @@ export class PostgresService {
 
   /** Ensure the server, the repo template and this session's clone; answer within the budget.
    *  Idempotent: a repeat call returns the same DSN. Past the budget it answers `starting` while
-   *  the work continues, so the agent's next call picks up the result. */
-  async request(sessionId: string, signal?: AbortSignal): Promise<PostgresRequestOutcome> {
+   *  the work continues, so the agent's next call picks up the result. `host` is where the session
+   *  reaches the server: the host loopback, or the slirp gateway from an Autonomous netns (#4239). */
+  async request(
+    sessionId: string,
+    signal?: AbortSignal,
+    host: string = HOST,
+  ): Promise<PostgresRequestOutcome> {
     const session = this.store.get(sessionId);
     if (!session || session.archivedAt)
       throw new PostgresError("no-session", "Unknown or archived session");
@@ -388,7 +394,7 @@ export class PostgresService {
       throw new PostgresError("disabled", "Postgres is turned off in Settings");
     let work = this.requests.get(sessionId);
     if (!work) {
-      work = this.provision(sessionId, session.repoPath).finally(() =>
+      work = this.provision(sessionId, session.repoPath, host).finally(() =>
         this.requests.delete(sessionId),
       );
       work.catch((e: unknown) => this.log(`request ${sessionId} failed: ${(e as Error).message}`));
@@ -407,7 +413,11 @@ export class PostgresService {
     }
   }
 
-  private async provision(sessionId: string, repoPath: string): Promise<PostgresConnection> {
+  private async provision(
+    sessionId: string,
+    repoPath: string,
+    host: string,
+  ): Promise<PostgresConnection> {
     await this.ensureRunning();
     const { leaseKey } = await this.loadSecrets();
     const password = sessionPassword(leaseKey, sessionId);
@@ -420,7 +430,7 @@ export class PostgresService {
       if (exists === "0") await this.psql(cloneScript(repoPath, sessionId));
     });
     this.lastBusyAt = this.now();
-    return connectionFor(HOST, this.settings().port, sessionId, password);
+    return connectionFor(host, this.settings().port, sessionId, password);
   }
 
   /** The session's lease, if any (resume/relaunch use it to re-start the server). */

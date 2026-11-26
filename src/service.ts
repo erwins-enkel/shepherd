@@ -56,6 +56,7 @@ import {
   type PostgresAvailability,
   type PostgresNoticeMode,
 } from "./postgres-contract";
+import { POSTGRES_HOST_LOOPBACK } from "./postgres-core";
 import { bootstrapSessionPhase } from "./bootstrap";
 import {
   HOUSE_STACK_SETTING,
@@ -265,6 +266,7 @@ import {
   detectEgressBackend as detectRealEgressBackend,
   detectEgressHostLoopback as detectRealEgressHostLoopback,
   SLIRP_HOST_GATEWAY,
+  type HostGateway,
   egressMembraneOverrideFlags,
   buildEgressAllowlist,
   buildEgressConfig,
@@ -2447,11 +2449,15 @@ function primaryDirectiveBlock(
   return null;
 }
 
-/** The `<postgres-notice>` mode for a session (#4232 follow-up): none without the tool; a
- *  non-isolated session runs in the shared repo checkout. */
-function postgresNoticeMode(tool: boolean, isolated: boolean): PostgresNoticeMode | undefined {
-  if (!tool) return undefined;
-  return isolated ? "worktree" : "shared-checkout";
+/** The `<postgres-notice>` mode for a session (#4232 follow-up): a non-isolated session runs in
+ *  the shared repo checkout; a session without the tool on a Postgres repo is told not to
+ *  substitute its own database (#4239); none when Postgres is off for it. */
+function postgresNoticeMode(
+  postgres: PostgresAvailability,
+  isolated: boolean,
+): PostgresNoticeMode | undefined {
+  if (postgres.tool) return isolated ? "worktree" : "shared-checkout";
+  return postgres.globalEnabled && postgres.repoOn ? "no-tool" : undefined;
 }
 
 /**
@@ -2486,7 +2492,12 @@ function trailingBlocks(
     blocks.push(taggedBlock("scheduled-run-notice", SCHEDULED_RUN_NOTICE));
   // Postgres notice (#4232 follow-up): only where `postgres_request` exists. MCP tools may load
   // deferred (name only, no description), so the how-to rides here too.
-  if (opts.postgres && !opts.plain && opts.agentProvider !== "codex")
+  // The no-tool notice rides for Codex too: it is the main session without the tool.
+  if (
+    opts.postgres &&
+    !opts.plain &&
+    (opts.postgres === "no-tool" || opts.agentProvider !== "codex")
+  )
     blocks.push(taggedBlock("postgres-notice", postgresSessionNotice(opts.postgres)));
   // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
   // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
@@ -2599,8 +2610,8 @@ export interface ComposeSystemPromptOptions {
   agentSkills?: boolean;
   /** A schedule fired this session (#3469); absent/false → no `<scheduled-run-notice>`. */
   scheduled?: boolean;
-  /** Set when the session has the `postgres_request` tool (#4232 `postgresRequest` capability):
-   *  where it runs, which picks the notice's `.env` advice. Absent → no `<postgres-notice>`. */
+  /** Set when Postgres is on for the session's repo (#4232): with the `postgres_request` tool, where
+   *  it runs (picks the `.env` advice); `no-tool` otherwise (#4239). Absent → no `<postgres-notice>`. */
   postgres?: PostgresNoticeMode;
 }
 
@@ -2671,7 +2682,8 @@ export interface ComposeSystemPromptOptions {
  * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  * `opts.postgres`, when set, appends the `<postgres-notice>` — callers set it from the session's
- * `postgresRequest` capability, so the block rides exactly where the tool does (never plain/Codex).
+ * `postgresRequest` capability, so the how-to rides exactly where the tool does; the `no-tool`
+ * variant rides for Codex too (never plain).
  */
 export function composeSystemPromptBlocks(
   autopilotActive = false,
@@ -3549,6 +3561,37 @@ export class SessionService {
     return null;
   }
 
+  /** The on-demand Postgres port to open for an egress-confined spawn (#4239), or null: Postgres on
+   *  for this machine and repo, a Claude session (Codex has no `postgres_request`), and a
+   *  host-loopback-capable slirp. Opened at spawn/resume only; `postgresHostFor` checks it later. */
+  private postgresEgressGateway(
+    repoPath: string,
+    agentProvider: string | undefined,
+  ): HostGateway | null {
+    const settings = this.deps.postgres?.settings();
+    if (!settings?.enabled || agentProvider === "codex") return null;
+    if (this.deps.store.getRepoConfig(repoPath).postgresMode !== "on-request") return null;
+    if (!this.detectHostLoopback()) return null;
+    return { ip: SLIRP_HOST_GATEWAY, port: settings.port };
+  }
+
+  /**
+   * Which host this session's `postgres_request` DSN must use (#4239): the host loopback for a
+   * session sharing the host net (trusted, standard, egress-degraded autonomous); the slirp gateway
+   * for an egress-confined session whose spawn opened the CURRENT Postgres port; null when that
+   * spawn did not (Postgres switched on or its port changed after the spawn, or no host loopback),
+   * so the tool can say a resume is needed instead of handing out an unreachable DSN.
+   */
+  async postgresHostFor(sessionId: string): Promise<string | null> {
+    const session = this.deps.store.get(sessionId);
+    if (!session || session.sandboxApplied !== "autonomous" || !session.egressApplied)
+      return POSTGRES_HOST_LOOPBACK;
+    const port = this.deps.postgres?.settings().port;
+    const inputs = await readEgressSpawnInputs(egressTmpDir(sessionId));
+    const open = inputs?.hostGateways?.some((g) => g.ip === SLIRP_HOST_GATEWAY && g.port === port);
+    return open ? SLIRP_HOST_GATEWAY : null;
+  }
+
   /** How an egress-confined spawn hears about a blocked host (#3921). The hook channel needs a
    *  Claude agent whose http hooks actually reach the ingress: hooks on, no token (`--clearenv`
    *  strips it, so a token 401s — see buildHooksFragment), and a host gateway (else the baked base
@@ -4182,6 +4225,7 @@ export class SessionService {
       sessionId: ctx.sessionId,
       repoPath: ctx.repoPath,
       connectorHosts: connectorEgressHosts(repoConfig.claudeAiConnectorsEnabled, ctx),
+      agentProvider: ctx.agentProvider,
     });
     const slotShimEnv = await this.slotShimEnv(ctx.agentProvider);
     // api-key passthrough (trusted, or a sandboxed profile degraded to no-backend):
@@ -4454,6 +4498,7 @@ export class SessionService {
     repoPath: string;
     /** The claude.ai connector proxy when this spawn gets the connectors (connectorEgressHosts). */
     connectorHosts: string[];
+    agentProvider: string | undefined;
   }): { wrapped: string[]; egressAllowlist?: string[]; egressDnsLog?: string } {
     const { innerArgv, profile, backend, egressBackend, membrane, egressOn } = args;
     if (!egressOn) {
@@ -4468,15 +4513,18 @@ export class SessionService {
     // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
     // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
     // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
-    const hostGateway =
-      this.egressHostGateway(profile, backend, egressBackend ?? null) ?? undefined;
-    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
+    // Plus the on-demand Postgres port when this spawn gets `postgres_request` (#4239).
+    const hostGateways = [
+      this.egressHostGateway(profile, backend, egressBackend ?? null),
+      this.postgresEgressGateway(args.repoPath, args.agentProvider),
+    ].filter((g): g is HostGateway => g !== null);
+    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateways });
     writeEgressConfigFiles(tmp, cfg);
     // What reapplyEgressAllowlist rebuilds from when the repo's allowlist changes mid-session.
     writeEgressSpawnInputs(tmp, {
       spawnId: randomUUID(),
       repoPath: args.repoPath,
-      hostGateway,
+      hostGateways,
       connectorHosts: args.connectorHosts,
       allowlist,
     });
@@ -4554,7 +4602,7 @@ export class SessionService {
     const old = inputs.allowlist;
     const same = allowlist.length === old.length && allowlist.every((e, i) => e === old[i]);
     if (same && !inputs.uncertain) return;
-    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway: inputs.hostGateway });
+    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateways: inputs.hostGateways });
     // A removed entry revokes the IPs already pinned for it; a pure addition keeps them. After an
     // uncertain reload the session may run a list with entries the wanted one lacks: drop them all.
     const flushPinned = inputs.uncertain === true || old.some((e) => !allowlist.includes(e));
@@ -4831,7 +4879,7 @@ export class SessionService {
       epicIntent: !input.auto && detectEpicIntent(input.prompt),
       agentProvider: ctx.agentProvider,
       branchRename: ctx.branchRename,
-      postgres: postgresNoticeMode(ctx.postgresTool, ctx.isolated),
+      postgres: postgresNoticeMode(postgres, ctx.isolated),
       // The ONE place the live config value enters — never defaulted at any module-level
       // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
       // literal "en" default).
@@ -4925,7 +4973,6 @@ export class SessionService {
       reviewFeedbackResolve: reviewFeedbackResolveAllowed({ plain: input.plain, repoConfig }),
       postgresRequest: postgresRequestAllowed({
         plain: input.plain,
-        profile,
         postgresMode: repoConfig.postgresMode,
         globalEnabled: this.deps.postgres?.settings().enabled ?? false,
       }),

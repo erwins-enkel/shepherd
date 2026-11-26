@@ -25,6 +25,7 @@ import { join } from "node:path";
 import type { StandardCreateInput, Session } from "../src/types";
 import type { GitForge, Issue, PrStatus } from "../src/forge/types";
 import type { UsageLimits } from "../src/usage-limits";
+import { DEFAULT_POSTGRES_SETTINGS } from "../src/postgres-core";
 import type { EgressWatcher } from "../src/egress-watch";
 
 // A herdr stub that records the argv it was started with (the assertion target).
@@ -939,6 +940,104 @@ test("egress note channel: no host gateway (no ingress port / no slirp host loop
 test("egress note channel: token set or hooks ingest off → steer", async () => {
   expect(await noteChannelFor({ token: "t" })).toBe("steer");
   expect(await noteChannelFor({ hooksIngest: false })).toBe("steer");
+});
+
+// ── on-demand Postgres gateway (#4239) ───────────────────────────────────────
+
+describe("on-demand Postgres from an egress-confined session (#4239)", () => {
+  const PG_PORT = DEFAULT_POSTGRES_SETTINGS.port;
+  const pg = { enabled: true, port: PG_PORT };
+
+  async function spawnWith(opts: {
+    profile?: "autonomous" | "trusted";
+    repoOn?: boolean;
+    hostLoopback?: boolean;
+    egress?: boolean;
+  }) {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", {
+      ...defaultRepoConfig(),
+      sandboxProfile: opts.profile ?? "autonomous",
+      postgresMode: (opts.repoOn ?? true) ? "on-request" : "off",
+    });
+    const service = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "s",
+      worktree: worktreeStub(),
+      herdr: herdrStub({}),
+      detectBackend: () => "bwrap",
+      detectEgressBackend: () => ((opts.egress ?? true) ? "slirp4netns" : null),
+      detectEgressHostLoopback: () => opts.hostLoopback ?? true,
+      agentIngressPort: () => 7331,
+      egressWatcher: makeWatcherStub(),
+      postgres: {
+        settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, ...pg }),
+        hasLease: () => false,
+        ensureRunning: async () => {},
+        request: async () => ({ status: "starting" as const }),
+      },
+    });
+    const s = await service.create(baseInput());
+    return { service, s, dir: egressTmpDir(s.id) };
+  }
+
+  const gateways = (dir: string) =>
+    (
+      JSON.parse(readFileSync(join(dir, "egress-spawn.json"), "utf8")) as {
+        hostGateways?: Array<{ ip: string; port: number }>;
+      }
+    ).hostGateways;
+
+  afterEach(() => {
+    pg.enabled = true;
+    pg.port = PG_PORT;
+  });
+
+  test("Postgres on: the spawn opens ingress + Postgres and the DSN host is the slirp gateway", async () => {
+    const { service, s, dir } = await spawnWith({});
+    try {
+      expect(gateways(dir)).toEqual([
+        { ip: "10.0.2.2", port: 7331 },
+        { ip: "10.0.2.2", port: PG_PORT },
+      ]);
+      expect(readFileSync(join(dir, "egress.nft"), "utf8")).toContain(
+        `ip daddr 10.0.2.2 tcp dport ${PG_PORT} accept`,
+      );
+      expect(await service.postgresHostFor(s.id)).toBe("10.0.2.2");
+      // Port changed after the spawn → the open rule no longer matches: resume needed.
+      pg.port = PG_PORT + 1;
+      expect(await service.postgresHostFor(s.id)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("repo off, Postgres off or no slirp host loopback: no Postgres rule, host unresolved", async () => {
+    for (const opts of [{ repoOn: false }, { hostLoopback: false }]) {
+      const { service, s, dir } = await spawnWith(opts);
+      try {
+        expect(gateways(dir)?.some((g) => g.port === PG_PORT) ?? false).toBe(false);
+        expect(await service.postgresHostFor(s.id)).toBeNull();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    pg.enabled = false;
+    const { s, dir } = await spawnWith({});
+    try {
+      expect(gateways(dir)).toEqual([{ ip: "10.0.2.2", port: 7331 }]);
+    } finally {
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("a host-net session (trusted, or autonomous without egress) uses the host loopback", async () => {
+    for (const opts of [{ profile: "trusted" as const }, { egress: false }]) {
+      const { service, s } = await spawnWith(opts);
+      expect(await service.postgresHostFor(s.id)).toBe("127.0.0.1");
+    }
+  });
 });
 
 // ── local helpers ─────────────────────────────────────────────────────────────

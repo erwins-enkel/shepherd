@@ -16,8 +16,11 @@ get it.
 
 - **Docker on the Shepherd host**, reachable by the user Shepherd runs as
   (rootless Docker works). Shepherd pulls `postgres:18` on first use.
-- A **Claude** task session running **Trusted** or **Standard**. Autonomous and
-  Codex sessions don't get the tool yet.
+- A **Claude** task session, on any sandbox profile. An **Autonomous** session
+  reaches the server through its sandbox's gateway (`10.0.2.2`); its firewall
+  opens the Postgres port when the session starts or resumes, so after switching
+  Postgres on, resume a running Autonomous session. Codex sessions don't get the
+  tool yet; they are told not to substitute a database of their own.
 
 ## Turn it on
 

@@ -134,13 +134,40 @@ describe("egress spawn inputs", () => {
     const inputs = {
       spawnId: "sp-1",
       repoPath: "/r",
-      hostGateway: { ip: "10.0.2.2", port: 7331 },
+      hostGateways: [
+        { ip: "10.0.2.2", port: 7331 },
+        { ip: "10.0.2.2", port: 54318 },
+      ],
       connectorHosts: ["mcp-proxy.anthropic.com"],
       allowlist: ["a.example.com"],
     };
     writeEgressSpawnInputs(d, inputs);
     expect(await readEgressSpawnInputs(d)).toEqual(inputs);
     expect(readEgressSpawnId(d)).toBe("sp-1");
+  });
+
+  test("a legacy single hostGateway normalizes to hostGateways", async () => {
+    const d = tmp();
+    const legacy = {
+      spawnId: "sp-1",
+      repoPath: "/r",
+      hostGateway: { ip: "10.0.2.2", port: 7331 },
+      connectorHosts: [],
+      allowlist: ["a.example.com"],
+    };
+    writeFileSync(join(d, "egress-spawn.json"), JSON.stringify(legacy));
+    expect(await readEgressSpawnInputs(d)).toEqual({
+      spawnId: "sp-1",
+      repoPath: "/r",
+      hostGateways: [{ ip: "10.0.2.2", port: 7331 }],
+      connectorHosts: [],
+      allowlist: ["a.example.com"],
+    });
+    writeFileSync(
+      join(d, "egress-spawn.json"),
+      JSON.stringify({ ...legacy, hostGateway: { ip: "10.0.2.2" } }),
+    );
+    expect(await readEgressSpawnInputs(d)).toBeNull();
   });
 
   test("absent or malformed → null", async () => {

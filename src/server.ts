@@ -9740,6 +9740,7 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
     operatorActions: operatorActionDeps(deps),
     sessionPhase: (s) => sessionPhases(deps).phaseOf(s),
     egressBlocked: (id) => deps.egress?.blockedHosts(id) ?? null,
+    postgresHost: (id) => deps.service.postgresHostFor(id),
     ciDownloads: ciDownloadsFor(deps),
     scheduleNoop: {
       hasLocalWork,

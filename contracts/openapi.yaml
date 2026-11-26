@@ -8145,7 +8145,7 @@ components:
           type: string
           enum: [off, on-request]
           description: >-
-            Machine-local, default off. on-request offers trusted and standard Claude task sessions the postgres_request MCP tool, which hands them their own clone database on Shepherd's shared on-demand Postgres server (Settings → Resources → Postgres must be on). Sessions pick up the tool at their next spawn or resume.
+            Machine-local, default off. on-request offers Claude task sessions (any sandbox profile; Autonomous reaches it through the slirp gateway) the postgres_request MCP tool, which hands them their own clone database on Shepherd's shared on-demand Postgres server (Settings → Resources → Postgres must be on). Sessions pick up the tool at their next spawn or resume.
         automationConfirmed:
           type: boolean
         automationRowExists:

@@ -228,6 +228,14 @@ describe("ensureRunning", () => {
 });
 
 describe("request", () => {
+  it("builds the DSN on the host the session reaches (slirp gateway for autonomous)", async () => {
+    const id = mkSession();
+    const out = await svc().request(id, undefined, "10.0.2.2");
+    if (out.status !== "ready") throw new Error("not ready");
+    expect(out.connection.host).toBe("10.0.2.2");
+    expect(out.connection.dsn).toContain(`@10.0.2.2:54318/${sessionDb(id)}`);
+  });
+
   it("clones once and returns the same DSN on repeat", async () => {
     const s = svc();
     const id = mkSession();

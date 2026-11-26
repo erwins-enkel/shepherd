@@ -224,6 +224,9 @@ export const CLIENT_CONNECTIONS_SQL =
 
 // ── DSN + idle ───────────────────────────────────────────────────────────────
 
+/** Where the server is published on the host (and where host-net sessions reach it). */
+export const POSTGRES_HOST_LOOPBACK = "127.0.0.1";
+
 export interface PostgresConnection {
   dsn: string;
   host: string;

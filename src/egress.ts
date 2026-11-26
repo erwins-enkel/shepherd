@@ -143,10 +143,10 @@ function buildProbeInnerArgv(tmpDir: string, deps: EgressBackendProbeDeps): stri
   const writeFile = deps.writeFile ?? ((p: string, d: string) => writeFileSync(p, d, "utf8"));
   // When host-loopback is available, load the SAME rule shape the real spawn uses, so the
   // self-test actually nft-loads it; omit it otherwise (probe matches production omission).
-  const hostGateway = detectEgressHostLoopback()
-    ? { ip: SLIRP_HOST_GATEWAY, port: PROBE_GATEWAY_PORT }
+  const hostGateways = detectEgressHostLoopback()
+    ? [{ ip: SLIRP_HOST_GATEWAY, port: PROBE_GATEWAY_PORT }]
     : undefined;
-  const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir, hostGateway });
+  const cfg = buildEgressConfig([...ANTHROPIC_EGRESS_HOSTS], { tmpDir, hostGateways });
   writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset);
   writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
   writeFile(join(tmpDir, "resolv.conf"), cfg.resolvConf);
@@ -457,6 +457,12 @@ const SLIRP_RESOLVER = "10.0.2.3";
  *  (reachable once `--disable-host-loopback` is dropped from the slirp invocation). */
 export const SLIRP_HOST_GATEWAY = "10.0.2.2";
 
+/** One host IP+port an egress-confined session may reach through the slirp gateway. */
+export interface HostGateway {
+  ip: string;
+  port: number;
+}
+
 /** The netns tap address slirp4netns `--configure` assigns; `add_hostfwd` delivers here. */
 export const SLIRP_GUEST_ADDR = "10.0.2.100";
 
@@ -678,8 +684,9 @@ export interface EgressConfig {
  * @param opts.resolver      Upstream DNS resolver IP (default "10.0.2.3" = slirp4netns's built-in).
  * @param opts.minCacheTtl   dnsmasq min-cache-ttl seconds (default 600).
  * @param opts.nftSet        nft set identifier (default "inet#egress#allowed").
- * @param opts.hostGateway   When set, opens exactly that host IP+port outbound (least-privilege
- *                           agent→Shepherd reachability via the slirp host-loopback gateway).
+ * @param opts.hostGateways  Opens exactly these host IP+port pairs outbound (least-privilege
+ *                           reachability via the slirp host-loopback gateway: the agent ingress,
+ *                           and the on-demand Postgres port when the repo uses it).
  */
 export function buildEgressConfig(
   allowlist: string[],
@@ -688,27 +695,30 @@ export function buildEgressConfig(
     resolver?: string;
     minCacheTtl?: number;
     nftSet?: string;
-    hostGateway?: { ip: string; port: number };
+    hostGateways?: HostGateway[];
   },
 ): EgressConfig {
   const resolver = opts.resolver ?? SLIRP_RESOLVER;
   const minCacheTtl = opts.minCacheTtl ?? DEFAULT_MIN_CACHE_TTL;
   const nftSet = opts.nftSet ?? DEFAULT_NFT_SET;
-  const { tmpDir, hostGateway } = opts;
+  const { tmpDir } = opts;
+  const hostGateways = opts.hostGateways ?? [];
 
   // Guard: nftSet is interpolated directly into dnsmasq and nft config — must be safe.
   if (!/^[a-z0-9#_]+$/i.test(nftSet)) {
     throw new Error(`buildEgressConfig: invalid nftSet "${nftSet}" — must match /^[a-z0-9#_]+$/i`);
   }
 
-  // Guard: hostGateway.port is interpolated directly into the nft ruleset — must be a port.
-  if (
-    hostGateway &&
-    !(Number.isInteger(hostGateway.port) && hostGateway.port >= 1 && hostGateway.port <= 65535)
-  ) {
-    throw new Error(
-      `buildEgressConfig: invalid hostGateway.port "${hostGateway.port}" — must be an integer 1..65535`,
-    );
+  // Guard: ip + port are interpolated directly into the nft ruleset — must be an IPv4 + a port.
+  for (const g of hostGateways) {
+    if (!(Number.isInteger(g.port) && g.port >= 1 && g.port <= 65535)) {
+      throw new Error(
+        `buildEgressConfig: invalid hostGateway.port "${g.port}" — must be an integer 1..65535`,
+      );
+    }
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(g.ip)) {
+      throw new Error(`buildEgressConfig: invalid hostGateway.ip "${g.ip}" — must be IPv4`);
+    }
   }
 
   // ── dnsmasq argv ────────────────────────────────────────────────────────────
@@ -746,7 +756,7 @@ export function buildEgressConfig(
 
   // ── nft ruleset ─────────────────────────────────────────────────────────────
   // family inet, table egress, default-drop with explicit REJECT for fast-fail.
-  // When hostGateway is set, ONE least-privilege allow for the host IP+port goes
+  // Each hostGateway gets ONE least-privilege allow for its host IP+port, which goes
   // right after the allowed-set accepts (return traffic is covered by ct established).
   // The resolver accept is bound to dnsmasq's fixed query port (see DNSMASQ_QUERY_PORT), and TCP 53
   // is not opened at all: either would let the agent query the upstream resolver directly and
@@ -765,9 +775,9 @@ export function buildEgressConfig(
   const allowRules = ports
     .map((p) => `    ip daddr @${portSetName("allowed", p)} tcp dport ${p} accept`)
     .join("\n");
-  const hostGatewayRule = hostGateway
-    ? `\n    ip daddr ${hostGateway.ip} tcp dport ${hostGateway.port} accept`
-    : "";
+  const hostGatewayRule = hostGateways
+    .map((g) => `\n    ip daddr ${g.ip} tcp dport ${g.port} accept`)
+    .join("");
   const nftRuleset = `table inet egress {
 ${sets}
   chain out {
@@ -1087,7 +1097,9 @@ export interface EgressSpawnInputs {
   /** Fresh per spawn: a reapply that sees it change knows the session was respawned meanwhile. */
   spawnId: string;
   repoPath: string;
-  hostGateway?: { ip: string; port: number };
+  /** The host IP+ports the spawn opened (agent ingress, Postgres). Files written before the list
+   *  carry a single `hostGateway`; {@link readEgressSpawnInputs} normalizes it into this. */
+  hostGateways?: HostGateway[];
   connectorHosts: string[];
   /** The allowlist currently applied to the session. */
   allowlist: string[];
@@ -1107,8 +1119,7 @@ export function writeEgressSpawnInputs(tmpDir: string, inputs: EgressSpawnInputs
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
 
-function isHostGateway(v: unknown): v is { ip: string; port: number } {
-  if (v === undefined) return true;
+function isHostGateway(v: unknown): v is HostGateway {
   const g = v as { ip?: unknown; port?: unknown } | null;
   return (
     typeof g === "object" && g !== null && typeof g.ip === "string" && Number.isInteger(g.port)
@@ -1133,13 +1144,20 @@ export async function readEgressSpawnInputs(tmpDir: string): Promise<EgressSpawn
   try {
     const raw = await fsp.readFile(join(tmpDir, SPAWN_INPUTS_FILE), "utf8");
     if (raw.length > MAX_SPAWN_INPUTS_BYTES) return null;
-    const v = JSON.parse(raw) as Partial<EgressSpawnInputs>;
+    const v = JSON.parse(raw) as Partial<EgressSpawnInputs> & { hostGateway?: unknown };
+    // Legacy single `hostGateway` (spawned before the list) → one-element `hostGateways`.
+    if (v.hostGateway !== undefined && v.hostGateways === undefined) {
+      if (!isHostGateway(v.hostGateway)) return null;
+      v.hostGateways = [v.hostGateway];
+    }
+    delete v.hostGateway;
     const ok =
       typeof v.spawnId === "string" &&
       typeof v.repoPath === "string" &&
       isStringArray(v.connectorHosts) &&
       isStringArray(v.allowlist) &&
-      isHostGateway(v.hostGateway) &&
+      (v.hostGateways === undefined ||
+        (Array.isArray(v.hostGateways) && v.hostGateways.every(isHostGateway))) &&
       (v.uncertain === undefined || typeof v.uncertain === "boolean");
     return ok ? (v as EgressSpawnInputs) : null;
   } catch {

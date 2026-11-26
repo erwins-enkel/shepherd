@@ -89,7 +89,7 @@ function makeTmpWithGateway(port: number): string {
   const dir = mkdtempSync(join(tmpdir(), "egress-runner-gw-"));
   const cfg = buildEgressConfig(["api.anthropic.com"], {
     tmpDir: dir,
-    hostGateway: { ip: SLIRP_HOST_GATEWAY, port },
+    hostGateways: [{ ip: SLIRP_HOST_GATEWAY, port }],
   });
   writeFileSync(join(dir, "egress.nft"), cfg.nftRuleset);
   writeFileSync(join(dir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));

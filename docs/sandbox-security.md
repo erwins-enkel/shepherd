@@ -169,8 +169,8 @@ update workflow … without workflows permission`. A workflow edit on a branch
   OIDC federation, so it stays off by default. A sandboxed Claude task session
   that hits the rejection calls the `gh_request_permission` MCP tool
   (`src/agent-control.ts`). The session then shows a `gh-permission-request`
-  hold and a banner with the agent's reason and files, and the operator answers
-  **Grant** or **Deny**. Only the operator app can answer: the route is not
+  hold and a prompt with the agent's reason and files (a strip on the Terminal
+  tab, a card in Chat), and the operator answers **Grant** or **Deny**. Only the operator app can answer: the route is not
   reachable through agent ingress. Codex sessions never hit this, because they
   always run `trusted` with the operator's own `gh`.
 

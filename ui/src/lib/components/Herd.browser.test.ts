@@ -1343,6 +1343,103 @@ describe("Herd session-less epic groups (#3814)", () => {
   const key = "/repo/a#3451";
   const loose = session({ id: "n1", name: "unrelated task", issueNumber: 999 });
 
+  const reviewChild = (number: number, pr: number, open: boolean) =>
+    child(number, {
+      state: "in-review",
+      claimed: true,
+      retiredPrNumber: pr,
+      ...(open && { archivedReview: { number: pr, url: `https://github.com/o/r/pull/${pr}` } }),
+    });
+
+  it("updates archived review links beside the live child when a PR closes", async () => {
+    const snapshot = (open: boolean) => ({
+      [key]: epicOf(3451, [
+        reviewChild(231, 254, open),
+        reviewChild(233, 253, true),
+        child(246, { state: "running" }),
+      ]),
+    });
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [session({ id: "live", name: "live issue", issueNumber: 246 })],
+      git: {},
+      epics: snapshot(true),
+      activeEpicKeys: new Set([key]),
+    });
+    const review = (pr: number) => page.getByRole("link", { name: `PR #${pr}`, exact: true });
+    await expect.element(review(254)).toHaveAttribute("href", "https://github.com/o/r/pull/254");
+    await expect.element(review(253)).toHaveAttribute("href", "https://github.com/o/r/pull/253");
+    expect(document.querySelectorAll(".epic-children [data-unit-id]")).toHaveLength(1);
+    expect(document.querySelectorAll(".archived-review")).toHaveLength(2);
+    await expect
+      .element(page.getByText(m.herd_group_summary({ sessions: 1, repos: 1 })))
+      .toBeInTheDocument();
+    expect(document.querySelector(".cue-no-agent")).toBeNull();
+    expect(document.querySelector(".archived-review")?.textContent).toContain("#231");
+    await screen.rerender({ epics: snapshot(false) });
+    await expect.element(review(254)).not.toBeInTheDocument();
+    await expect.element(review(253)).toBeInTheDocument();
+    await expect.element(page.getByText("child 233", { exact: true })).toBeInTheDocument();
+    await screen.rerender({ collapsedKeys: new Set([key]) });
+    await expect.element(review(253)).not.toBeInTheDocument();
+    await screen.rerender({ collapsedKeys: new Set(), originFilter: "scheduled" });
+    await expect.element(review(253)).not.toBeInTheDocument();
+    await screen.rerender({ originFilter: null, filter: "ready" });
+    await expect.element(review(253)).not.toBeInTheDocument();
+    await screen.rerender({ filter: "all", statusFilter: "running" });
+    await expect.element(review(253)).not.toBeInTheDocument();
+    await screen.rerender({ statusFilter: null });
+    await expect.element(review(253)).toBeInTheDocument();
+  });
+
+  it("shows each confirmed sessionless review once and treats a historical PR as unconfirmed", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      epics: { [key]: epicOf(3451, [reviewChild(231, 254, false), reviewChild(233, 253, true)]) },
+      activeEpicKeys: new Set([key]),
+    });
+    const link = page.getByRole("link", { name: "PR #253", exact: true });
+    await expect.element(link).toBeInTheDocument();
+    expect(document.querySelector(".cue-no-agent")).not.toBeNull();
+    const note = document.querySelector(".epic-sessionless")!;
+    expect(note.textContent).toContain(m.epic_sessionless_claimed_unknown({ number: 231 }));
+    expect(note.textContent).not.toContain("253");
+    expect(note.textContent).not.toContain("254");
+    await screen.rerender({ epics: { [key]: epicOf(3451, [reviewChild(233, 253, false)]) } });
+    await expect.element(link).not.toBeInTheDocument();
+    expect(note.textContent).toContain(m.epic_sessionless_claimed_unknown({ number: 233 }));
+    expect(note.textContent).not.toContain("253");
+  });
+
+  it("matches live successors before the machine filter, including remotely dispatched children", async () => {
+    const host = { instanceId: "m1", name: "studio", platform: "darwin" };
+    const children = [
+      reviewChild(11, 51, true),
+      { ...reviewChild(12, 52, true), elsewhere: { host, sessionId: "sent", prNumber: null } },
+      reviewChild(13, 53, true),
+    ];
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [session({ id: "local", issueNumber: 11 })],
+      remoteSessions: [session({ id: "sent", repoPath: "/remote", issueNumber: 13, host })],
+      git: {},
+      epics: { [key]: epicOf(3451, children) },
+      activeEpicKeys: new Set([key]),
+      machineFilter: "local",
+    });
+    const link = (n: number) => page.getByRole("link", { name: `PR #${n}`, exact: true });
+    await expect.element(link(53)).toBeInTheDocument();
+    await expect.element(link(51)).not.toBeInTheDocument();
+    await expect.element(link(52)).not.toBeInTheDocument();
+    await screen.rerender({ machineFilter: host.instanceId });
+    await expect.element(page.getByText("Epic 3451")).toBeInTheDocument();
+    await expect.element(link(53)).not.toBeInTheDocument();
+    await screen.rerender({ repoFilter: new Set(["/different"]), machineFilter: "all" });
+    await expect.element(link(53)).not.toBeInTheDocument();
+  });
+
   it("shows a running epic without child sessions: status, honest reason, details access", async () => {
     const onepic = vi.fn();
     render(Herd, {

@@ -10,7 +10,8 @@ import {
 import { requirementsFromLabels } from "./drain-placement";
 import { epicIntegrationBranch } from "./epic-branch";
 import type { SubIssueRef } from "./forge/types";
-import type { DeliveryFact } from "./types";
+import type { DeliveryFact, Session } from "./types";
+import { sessionIssue } from "./target-repo";
 
 const ACTIVE_LABEL = "shepherd:active"; // mirror src/drain-core.ts
 
@@ -296,6 +297,39 @@ function baseMismatchWarning(
     mm.prNumber != null ? ` — re-target it (gh pr edit ${mm.prNumber} --base ${pinned})` : "";
   const target = mm.actualBase ? `targets \`${mm.actualBase}\`` : "targets an unknown base";
   return `child #${mm.childNumber} PR${pr} ${target}, not the epic branch \`${pinned}\`${edit} — epic blocked until fixed`;
+}
+
+/** For each unfinished child without live work, select its latest archived session before
+ *  consulting delivery or forge data. A replacement session supersedes its predecessor's PR. */
+export function archivedReviewSessions(
+  epic: Epic,
+  sessions: readonly Session[],
+): Map<number, Session> {
+  const eligible = new Set(
+    epic.children
+      .filter((c) => !c.issueClosed && !c.integrationMerged && !c.sessionId && !c.elsewhere)
+      .map((c) => c.number),
+  );
+  const newest = new Map<number, Session>();
+  for (const session of sessions) {
+    const issue = sessionIssue(session);
+    if (issue?.repoPath !== epic.repoPath || !eligible.has(issue.number)) continue;
+    if (session.status !== "archived") {
+      eligible.delete(issue.number);
+      newest.delete(issue.number);
+      continue;
+    }
+    const previous = newest.get(issue.number);
+    if (
+      !previous ||
+      session.createdAt > previous.createdAt ||
+      (session.createdAt === previous.createdAt &&
+        session.desig.localeCompare(previous.desig, "en", { numeric: true }) > 0)
+    ) {
+      newest.set(issue.number, session);
+    }
+  }
+  return newest;
 }
 
 /** #3423: attach {@link EpicChild.retiredPrNumber} — for a session-less `in-review` child, the PR of

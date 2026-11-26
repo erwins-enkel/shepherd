@@ -34,7 +34,12 @@ import {
   type StandalonePool,
 } from "./drain-core";
 import { bootstrapMissing } from "./bootstrap";
-import { assembleEpic, withIntegrationFacts, withRetiredPrs } from "./epic-model";
+import {
+  archivedReviewSessions,
+  assembleEpic,
+  withIntegrationFacts,
+  withRetiredPrs,
+} from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
 import { repoLeadTimes } from "./delivery-metrics";
@@ -473,6 +478,7 @@ export interface DrainDeps {
     | "getEpicRunEnd"
     | "getEpicClock"
     | "listDeliveryFactsForIssues"
+    | "listDeliveryFactsForSessions"
     | "listMergedDeliveryFacts"
     | "setSessionBaseBranch"
     | "recordEpicFirstFinish"
@@ -1089,7 +1095,73 @@ export class DrainService {
         ? probe
         : assembleEpic({ ...base, baseMismatches: liveMismatches, offEpicMerges: liveOffEpic });
     const runEnd = this.deps.store.getEpicRunEnd(repoPath, run.parentIssueNumber);
-    return this.timeEpic(repoPath, runEnd ? { ...epic, runEnd } : epic, all, integratedDetails);
+    const reviewed = await this.withArchivedReviews(epic, all);
+    return this.timeEpic(
+      repoPath,
+      runEnd ? { ...reviewed, runEnd } : reviewed,
+      all,
+      integratedDetails,
+    );
+  }
+
+  /** A background read may serve a stale snapshot under rate limits. Only the cache's
+   *  current view can confirm a review, including after warming a previously cold repo. */
+  private async currentReviewUrls(repoPath: string): Promise<Map<number, string>> {
+    const open = new Map<number, string>();
+    const cache = this.deps.openPrSnapshot;
+    const forge = this.deps.resolveForge(repoPath);
+    if (!cache || !forge) return open;
+    await cache.get(forge, { background: true });
+    const current = cache.peekCurrent(forge);
+    if (current && !current.value.capped) {
+      for (const { number, url } of current.value.prs) {
+        if (/^https?:\/\//i.test(url) && URL.canParse(url)) open.set(number, url);
+      }
+    }
+    return open;
+  }
+
+  private async withArchivedReviews(epic: Epic, sessions: Session[]): Promise<Epic> {
+    if (!this.deps.openPrSnapshot) return epic;
+    const candidates = archivedReviewSessions(epic, sessions);
+    if (!candidates.size) return epic;
+    const facts = this.deps.store.listDeliveryFactsForSessions(
+      [...candidates.values()].map((s) => s.id),
+    );
+    const bySession = new Map(facts.map((f) => [f.sessionId, f]));
+    const prs = new Map<number, { repoPath: string; number: number }>();
+    for (const [issue, session] of candidates) {
+      const fact = bySession.get(session.id);
+      if (
+        session.archiveReason !== "merged" &&
+        fact &&
+        fact.repoPath === session.repoPath &&
+        fact.issueNumber === session.issueNumber &&
+        fact.prNumber != null &&
+        fact.mergedAt == null
+      ) {
+        prs.set(issue, { repoPath: fact.repoPath, number: fact.prNumber });
+      }
+    }
+    if (!prs.size) return epic;
+    const repos = new Set([...prs.values()].map((pr) => pr.repoPath));
+    const urls = new Map(
+      await Promise.all(
+        [...repos].map(async (repo) => {
+          // best-effort: an unreadable PR repository cannot confirm a review for its children.
+          const open = await this.currentReviewUrls(repo).catch(() => null);
+          return [repo, open] as const;
+        }),
+      ),
+    );
+    return {
+      ...epic,
+      children: epic.children.map((child) => {
+        const pr = prs.get(child.number);
+        const url = pr && urls.get(pr.repoPath)?.get(pr.number);
+        return pr && url ? { ...child, archivedReview: { number: pr.number, url } } : child;
+      }),
+    };
   }
 
   /** The pin-keyed inputs of {@link buildEpic}'s divergence / base warnings. An incremental epic
@@ -1162,7 +1234,7 @@ export class DrainService {
       repoPath,
       epic.children.map((c) => c.number),
     );
-    // #3423: a retired child's open PR, so the run area can name the merge the chain waits on.
+    // Preserve the historical PR even after the forge stops listing it as open.
     const retired = new Set(
       all.filter((s) => s.status === "archived" && s.archiveReason === "drain").map((s) => s.id),
     );
@@ -1282,6 +1354,8 @@ export class DrainService {
             c.number,
             c.state,
             c.prNumber,
+            c.archivedReview?.number ?? null,
+            c.archivedReview?.url ?? null,
             c.elsewhere?.host.instanceId ?? null,
             c.elsewhere?.sessionId ?? null,
             c.integratedPrNumber ?? null,

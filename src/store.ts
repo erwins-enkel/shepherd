@@ -7608,6 +7608,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .all(repoPath, ...issueNumbers) as DeliveryFact[];
   }
 
+  /** Routed sessions have a home issue but no issue number in their delivery fact. */
+  listDeliveryFactsForSessions(ids: string[]): DeliveryFact[] {
+    if (!ids.length) return [];
+    return this.db
+      .query(`SELECT * FROM delivery_facts WHERE sessionId IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify(ids)) as DeliveryFact[];
+  }
+
   /** Drop delivery facts for sessions created before `beforeTs` (own retention sweep, matching
    *  reviewer_spawns' window — the two are read together). Returns the count removed. */
   pruneDeliveryFacts(beforeTs: number): number {

@@ -2363,6 +2363,73 @@ describe("drain epic mode", () => {
     expect(h.statuses).toHaveLength(before);
   });
 
+  test("emitEpic removes a closed archived review once while its historical PR and claim persist", async () => {
+    const url = "https://github.com/o/r/pull/254";
+    const value: OpenPrSnapshot = {
+      prs: [
+        {
+          number: 254,
+          url,
+          title: "PR",
+          author: "me",
+          kind: "regular",
+          createdAt: 0,
+          isDraft: false,
+          checks: "none",
+          mergeable: null,
+          jobs: [],
+        },
+      ],
+      statuses: new Map(),
+      capped: false,
+    };
+    let warm = false;
+    const h = makeHarness({
+      getIssueImpl: async () => issue(PARENT),
+      listSubIssuesImpl: async () => [
+        { ...issue(CHILD, { labels: [ACTIVE_LABEL] }), closed: false },
+      ],
+      openPrSnapshot: {
+        peekCurrent: () => (warm ? { at: Date.now(), value } : null),
+        get: async () => {
+          warm = true;
+          return value;
+        },
+      },
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    const s = seedAuto(h, CHILD, { epicParent: PARENT });
+    h.store.upsertDeliveryFact({
+      sessionId: s.id,
+      repoPath: REPO,
+      desig: s.desig,
+      issueNumber: CHILD,
+      createdAt: s.createdAt,
+      prNumber: 254,
+      now: Date.now(),
+    });
+    h.store.archive(s.id, "drain");
+    const stable = { claimed: true, state: "in-review", retiredPrNumber: 254, sessionId: null };
+    await h.drain.pump(REPO);
+    expect(h.epics).toHaveLength(1);
+    expect(h.epics[0]!.children[0]).toMatchObject({
+      ...stable,
+      archivedReview: { number: 254, url },
+    });
+    value.prs = [];
+    await h.drain.pump(REPO);
+    expect(h.epics).toHaveLength(2);
+    expect(h.epics[1]!.children[0]).toMatchObject(stable);
+    expect(h.epics[1]!.children[0]!.archivedReview).toBeUndefined();
+    await h.drain.pump(REPO);
+    expect(h.epics).toHaveLength(2);
+  });
+
   test("emitEpic fires once per change, not once per pump iteration", async () => {
     const h = epicHarness("running", "auto");
     await h.drain.pump(REPO);

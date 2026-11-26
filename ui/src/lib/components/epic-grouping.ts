@@ -271,33 +271,8 @@ export function sessionlessEpicGroups(
   // #3016: integrated work left its epic's group (groupSessionsByEpic) — it lists no child here.
   const live = sessions.filter((s) => !integrated.has(s.id));
   const liveThere = mirrored.filter((s) => !integrated.has(s.id));
-  const withSession = new Set(
-    live.flatMap((s) => (s.issueNumber == null ? [] : [`${s.repoPath}#${s.issueNumber}`])),
-  );
-  const listedThere = new Set(
-    liveThere.flatMap((s) => (s.host ? [sentKey(s.host.instanceId, s.id)] : [])),
-  );
-  const remoteListed = new Set(
-    liveThere.flatMap((s) =>
-      s.host && s.issueNumber != null
-        ? [`${s.host.instanceId}:${s.repoPath}#${s.issueNumber}`]
-        : [],
-    ),
-  );
-  // A child is listed by its own session (a local one for a local epic, one from the epic's machine
-  // for a remote epic) or by the session its `elsewhere` names on another machine — the same two
-  // ways `groupSessionsByEpic` places a member, so a grouped epic never also shows session-less.
-  const ownListed = (epic: Epic, c: Epic["children"][number]) =>
-    isRemoteEpic(epic)
-      ? remoteListed.has(`${epic.host.instanceId}:${epic.repoPath}#${c.number}`)
-      : withSession.has(`${epic.repoPath}#${c.number}`);
-  const listed = (epic: Epic) =>
-    epic.children.some(
-      (c) =>
-        ownListed(epic, c) ||
-        (!!c.elsewhere?.sessionId &&
-          listedThere.has(sentKey(c.elsewhere.host.instanceId, c.elsewhere.sessionId))),
-    );
+  const hasSession = epicChildSessionMatcher(live, liveThere);
+  const listed = (epic: Epic) => epic.children.some((child) => hasSession(epic, child));
   const groups: Array<{ key: string; epic: Epic; sessions: Session[] }> = [];
   for (const key of activeEpicKeys) {
     const epic = epics[key];
@@ -315,4 +290,35 @@ function waitsInView(epic: Epic, repoFilter: ReadonlySet<string>): boolean {
   if (repoFilter.size > 0 && !isRemoteEpic(epic) && !repoFilter.has(epic.repoPath)) return false;
   const { children } = epic;
   return !(children.length > 0 && children.every((c) => c.state === "merged"));
+}
+
+/** Match a child against sessions by its owning checkout and machine, or its dispatch identity. */
+export function epicChildSessionMatcher(
+  sessions: readonly Session[],
+  mirrored: readonly Session[],
+) {
+  const withSession = new Set(
+    sessions.flatMap((s) => (s.issueNumber == null ? [] : [`${s.repoPath}#${s.issueNumber}`])),
+  );
+  const listedThere = new Set(
+    mirrored.flatMap((s) => (s.host ? [sentKey(s.host.instanceId, s.id)] : [])),
+  );
+  const remoteListed = new Set(
+    mirrored.flatMap((s) =>
+      s.host && s.issueNumber != null
+        ? [`${s.host.instanceId}:${s.repoPath}#${s.issueNumber}`]
+        : [],
+    ),
+  );
+  // A child is listed by its own session (a local one for a local epic, one from the epic's machine
+  // for a remote epic) or by the session its `elsewhere` names on another machine — the same two
+  // ways `groupSessionsByEpic` places a member, so a grouped epic never also shows session-less.
+  const ownListed = (epic: Epic, c: Epic["children"][number]) =>
+    isRemoteEpic(epic)
+      ? remoteListed.has(`${epic.host.instanceId}:${epic.repoPath}#${c.number}`)
+      : withSession.has(`${epic.repoPath}#${c.number}`);
+  return (epic: Epic, c: EpicChild) =>
+    ownListed(epic, c) ||
+    (!!c.elsewhere?.sessionId &&
+      listedThere.has(sentKey(c.elsewhere.host.instanceId, c.elsewhere.sessionId)));
 }

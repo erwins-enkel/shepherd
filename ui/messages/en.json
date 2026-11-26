@@ -8403,8 +8403,8 @@
   "epic_sessionless_running": "Running · no agent active here",
   "epic_sessionless_paused": "Paused · no agent active here",
   "epic_sessionless_reason_paused": "The run is paused — no child starts until it resumes.",
-  "epic_sessionless_claimed_unknown": "#{number} is claimed, but there is no session or PR here — ownership unknown.",
-  "epic_sessionless_inflight_unknown": "#{number} counts as in progress, but there is no session or PR here — ownership unknown.",
+  "epic_sessionless_claimed_unknown": "#{number} is claimed, but no live session or open PR is confirmed here — ownership unknown.",
+  "epic_sessionless_inflight_unknown": "#{number} counts as in progress, but no live session or open PR is confirmed here — ownership unknown.",
   "epic_sessionless_pr_open": "#{number}: PR #{pr} awaits merge.",
   "epic_sessionless_elsewhere": "#{number} is handled on {machine}.",
   "epic_sessionless_waits_on": "#{number} waits on {blockers}.",
@@ -9539,5 +9539,8 @@
   "diagnostics_hint_postgres_image": "Stopped. The image is pulled when an agent first asks for a database.",
   "diagnostics_hint_postgres_uninspectable": "The Postgres server could not be checked.",
   "feat_postgres_title": "Postgres on demand",
-  "feat_postgres_body": "Shepherd can run one shared Postgres server for your repos and start it only when an agent needs it. Each session gets its own database copy, dropped on archive. Turn it on in Settings → Resources, then per repo under Repo settings → Agent."
+  "feat_postgres_body": "Shepherd can run one shared Postgres server for your repos and start it only when an agent needs it. Each session gets its own database copy, dropped on archive. Turn it on in Settings → Resources, then per repo under Repo settings → Agent.",
+  "epic_archived_review_status": "Session ended · PR open",
+  "feat_epic_archived_reviews_title": "Open reviews in epic groups",
+  "feat_epic_archived_reviews_body": "In Mission Control’s All view, an epic keeps a link to an open pull request after its session ends."
 }

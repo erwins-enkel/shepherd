@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { DrainStatus, Epic } from "#lib/types.js";
+  import type { DrainStatus, Epic, EpicChild } from "#lib/types.js";
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import HerdGroup from "./HerdGroup.svelte";
   import type { HerdRowCtx } from "./HerdGroup.svelte";
   import EpicGroupHeader from "../EpicGroupHeader.svelte";
@@ -13,6 +14,7 @@
     key: string;
     epic: Epic;
     sessions: import("#lib/types.js").Session[];
+    reviews: { issue: number; title: string; pr: NonNullable<EpicChild["archivedReview"]> }[];
     /** Set on a running/paused epic with no child session (#3814): the group says why it waits
      *  instead of listing rows. */
     wait?: SessionlessEpicWait;
@@ -105,6 +107,27 @@
     onmenu={remote ? undefined : (x, y, opener) => openMenu(g.key, x, y, opener)}
   />
   {#if !collapsedKeys.has(g.key)}
+    {#if g.sessions.length || g.reviews.length}
+      <div class="epic-children">
+        <HerdGroup sessions={g.sessions} withPreview={true} {ctx} />
+        {#each g.reviews as review (review.issue)}
+          <div class="archived-review">
+            <div><span class="issue">#{review.issue}</span> <span>{review.title}</span></div>
+            <div class="review-meta">
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+              <a
+                href={firstSafeHttpUrl(review.pr.url) ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {m.childrun_pr_link({ number: review.pr.number })}
+              </a>
+              <span>{m.epic_archived_review_status()}</span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
     {#if g.wait}
       <!-- Right-click here is a pointer shortcut to the header's menu, which keyboard users
            reach from the header toggle (context-menu key / Shift+F10). -->
@@ -120,13 +143,10 @@
             type="button"
             class="gbtn"
             onclick={() => onepic?.(g.epic.repoPath, g.epic.parentIssueNumber)}
-            >{m.epic_sessionless_open()}</button
           >
+            {m.epic_sessionless_open()}
+          </button>
         {/if}
-      </div>
-    {:else}
-      <div class="epic-children">
-        <HerdGroup sessions={g.sessions} withPreview={true} {ctx} />
       </div>
     {/if}
   {/if}
@@ -159,6 +179,26 @@
      own edges. */
   .epic-children {
     --nest: 20px;
+  }
+  .archived-review {
+    padding: 6px 8px 6px calc(14px + var(--nest));
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    overflow-wrap: anywhere;
+  }
+  .archived-review .issue,
+  .archived-review a {
+    font-family: var(--font-mono);
+  }
+  .archived-review a {
+    color: var(--color-amber);
+  }
+  .review-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
   }
   .epic-children :global(.unit) {
     padding-left: calc(14px + var(--nest));

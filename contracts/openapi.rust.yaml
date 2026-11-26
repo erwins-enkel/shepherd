@@ -8092,9 +8092,20 @@ components:
           type: integer
           nullable: true
           description: Epoch ms the child was done (integrated into the epic branch, else merged); null while not done or when unknown. Always sent by the current server; optional so an older server stays valid.
+        archivedReview:
+          type: object
+          description: An archived child session's pull request confirmed open in its repository.
+          required:
+            - number
+            - url
+          properties:
+            number:
+              type: integer
+            url:
+              type: string
         retiredPrNumber:
           type: integer
-          description: "#3423: the still-open PR of a session-less in-review child whose session the drain retired (checks cleared, mergeable, left for a human merge). Absent otherwise."
+          description: PR recorded when the drain retired a session for this child, with no recorded merge. Use archivedReview for a confirmed open PR.
         requirements:
           type: array
           items:

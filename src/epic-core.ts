@@ -36,11 +36,10 @@ export interface EpicChild {
   /** When this child was done: its `epic_integrated` stamp, else the `mergedAt` of its delivery
    *  fact; null while it is not done, or when unknown. Set by `buildEpic` (see `startedAt`). */
   endedAt?: number | null;
-  /** #3423: the still-open PR of the session the drain retired for this child (archived with
-   *  reason "drain" — retire requires cleared checks and a mergeable PR, then leaves it for a human
-   *  merge). Set by `buildEpic` only while the child is session-less and `in-review`; absent
-   *  otherwise. */
+  /** Historical PR recorded for a drain-retired session on a session-less, in-review child. */
   retiredPrNumber?: number;
+  /** The latest archived session's PR, confirmed in its repository's current open-PR snapshot. */
+  archivedReview?: { number: number; url: string };
   /** What the child needs from the machine it runs on, read from its labels and its epic's
    *  (src/drain-placement.ts). Absent when it needs nothing in particular. */
   requirements?: Capability[];
@@ -323,16 +322,14 @@ export interface Epic {
 
 /** Child lifecycle state from its issue/session/PR facts. `done` = the set of member
  *  #s that are done-in-epic (integration-merged OR issue-closed). A claimed, session-less,
- *  open, not-yet-integrated child reads as in-review (spawned and retired/in-flight, PR
- *  awaiting merge). Spawn-eligibility gating still lives in `selectEpicCandidates`. */
+ *  open, not-yet-integrated child reads as in-review regardless of its PR state. Spawn-eligibility gating still lives in `selectEpicCandidates`. */
 export function deriveChildState(c: EpicChild, done: Set<number>): EpicChildState {
   if (c.integrationMerged || c.issueClosed) return "merged";
   if (c.sessionId && c.prNumber != null) return "in-review";
   if (c.sessionId) return "running";
   // Sent to another machine: running there until it opens its PR, then that machine's to land.
   if (c.elsewhere) return c.elsewhere.prNumber != null ? "in-review" : "running";
-  // claimed but no live local session + issue still open = spawned & retired/in-flight
-  // (PR awaiting human merge); session was archived after the retire path.
+  // A claim keeps a session-less child in flight even when its PR state is unknown.
   if (c.claimed) return "in-review";
   return c.blockedBy.every((b) => done.has(b)) ? "ready" : "blocked";
 }

@@ -66,7 +66,7 @@ describe("assembleEpic", () => {
     expect(e.children.map((c) => c.number)).toEqual([707, 709]);
     expect(e.children.map((c) => c.order)).toEqual([0, 1]);
   });
-  test("claimed child with no live session surfaces as in-review (retired/in-flight, PR awaiting merge)", () => {
+  test("a claim alone makes a session-less child in-review without confirming an archived PR", () => {
     const e = assembleEpic({
       ...BASE,
       subIssues: [
@@ -86,6 +86,7 @@ describe("assembleEpic", () => {
     expect(c.claimed).toBe(true);
     expect(c.sessionId).toBeNull();
     expect(c.state).toBe("in-review");
+    expect(c.archivedReview).toBeUndefined();
   });
   test("markdown fallback derives state from openIssues + warns on truncation", () => {
     const e = assembleEpic({
@@ -426,12 +427,13 @@ describe("withRetiredPrs (#3423)", () => {
       ...over,
     }) as DeliveryFact;
 
-  test("attaches the newest retired session's open PR to a session-less in-review child", () => {
+  test("attaches the newest retired session's historical PR to a session-less in-review child", () => {
     const out = withRetiredPrs(epicOf([kid(5)]), new Set(["old", "new"]), [
       fact("old", 5, 13),
       fact("new", 5, 14, { createdAt: 2 }),
     ]);
     expect(out.children[0]!.retiredPrNumber).toBe(14);
+    expect(out.children[0]!.archivedReview).toBeUndefined();
   });
 
   test("ignores merged PRs, non-retired sessions, live or non-review children", () => {

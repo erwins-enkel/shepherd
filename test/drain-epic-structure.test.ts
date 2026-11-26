@@ -4,7 +4,7 @@ import { SessionStore } from "../src/store";
 import { GithubForge, type GhRunner } from "../src/forge/github";
 import { graphRateLimit } from "../src/forge/rate-limit";
 import { setIssuesFreshness } from "../src/forge/repo-freshness";
-import type { GitState } from "../src/forge/types";
+import type { GitState, OpenPrSnapshot } from "../src/forge/types";
 import type { Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 
@@ -89,11 +89,16 @@ function ghRunner(closed: Set<number>) {
   };
 }
 
-function makeDrain(run: GhRunner) {
+function makeDrain(
+  run: GhRunner,
+  openPrSnapshot?: ConstructorParameters<typeof DrainService>[0]["openPrSnapshot"],
+) {
   const store = new SessionStore(":memory:");
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });
   const forge = new GithubForge("o/r", {} as never, run);
+  const target = new GithubForge("o/target", {} as never, run);
   const drain = new DrainService({
+    openPrSnapshot,
     store,
     service: {
       create: async (): Promise<Session> => {
@@ -101,7 +106,7 @@ function makeDrain(run: GhRunner) {
       },
       archive: async (): Promise<number> => 0,
     },
-    resolveForge: () => forge,
+    resolveForge: (repoPath) => (repoPath === REPO ? forge : target),
     prCache: { snapshot: () => ({}) as Record<string, GitState> },
     usage: { limits: (): UsageLimitsType => NO_USAGE },
     repos: () => [REPO],
@@ -111,7 +116,7 @@ function makeDrain(run: GhRunner) {
     dropPrCache: () => {},
     rebaseCap: 5,
   });
-  return { drain, run: store.getEpicRun(REPO)! };
+  return { drain, store, run: store.getEpicRun(REPO)! };
 }
 
 /** Assemble the epic every 10 s (the old cache window) for `minutes`, starting at `from`. */
@@ -161,6 +166,112 @@ describe("epic structure reads (#2807)", () => {
       expect(gh.blockedByRest()).toBe(CHILDREN.length); // one read per child, once
     } finally {
       graphRateLimit.noteSuccess();
+    }
+  });
+});
+
+describe("archived epic child reviews", () => {
+  function snapshot(slug: string, ...numbers: number[]): OpenPrSnapshot {
+    return {
+      prs: numbers.map((number) => ({
+        number,
+        url: `https://github.com/${slug}/pull/${number}`,
+        author: "me",
+        kind: "regular",
+        title: "PR",
+        createdAt: 0,
+        isDraft: false,
+        mergeable: null,
+        checks: "none",
+        jobs: [],
+      })),
+      statuses: new Map(),
+      capped: false,
+    };
+  }
+
+  function seed(
+    store: SessionStore,
+    issue: number,
+    pr: number | null,
+    repoPath = REPO,
+    routed = false,
+  ) {
+    const s = store.create({
+      name: "work",
+      prompt: "",
+      repoPath,
+      baseBranch: "main",
+      branch: "topic",
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "s",
+      herdrAgentId: "t",
+      issueNumber: routed ? null : issue,
+      homeIssueNumber: routed ? issue : null,
+      homeIssueRepoPath: routed ? REPO : null,
+    });
+    store.upsertDeliveryFact({
+      sessionId: s.id,
+      repoPath,
+      desig: s.desig,
+      createdAt: s.createdAt,
+      issueNumber: s.issueNumber,
+      prNumber: pr,
+      now: START,
+    });
+    return s;
+  }
+
+  test("confirms manual archives in their own PR repository and skips merged, closed and superseded work", async () => {
+    const reads: string[] = [];
+    const snapshots = new Map([
+      ["o/r", snapshot("o/r", 10, 11, 12)],
+      ["o/target", snapshot("o/target", 13)],
+    ]);
+    const { drain, run, store } = makeDrain(ghRunner(new Set()).run, {
+      peekCurrent: (forge) => ({ at: START, value: snapshots.get(forge.slug!)! }),
+      get: async (forge) => {
+        reads.push(forge.slug!);
+        return snapshots.get(forge.slug!)!;
+      },
+    });
+    store.archive(seed(store, 29, 10).id);
+    store.archive(seed(store, 30, 11).id, "merged");
+    store.archive(seed(store, 31, 55).id);
+    store.archive(seed(store, 32, 12).id);
+    seed(store, 32, 99); // live manual successor
+    store.archive(seed(store, 33, 13, "/target", true).id);
+    store.archive(seed(store, 34, 10, "/target", true).id); // only open in the home repo
+    store.archive(seed(store, 35, 13, "/target").id); // target's own issue #35
+    store.archive(seed(store, 36, 12).id);
+    store.archive(seed(store, 36, null).id); // newer archived attempt with no PR
+
+    const epic = await drain.buildEpic(REPO, run);
+    expect(
+      epic!.children.filter((c) => c.archivedReview).map((c) => [c.number, c.archivedReview]),
+    ).toEqual([
+      [29, { number: 10, url: "https://github.com/o/r/pull/10" }],
+      [33, { number: 13, url: "https://github.com/o/target/pull/13" }],
+    ]);
+    expect(reads.sort()).toEqual(["o/r", "o/target"]);
+  });
+
+  test("an unreadable, stale or capped snapshot leaves the epic available", async () => {
+    const value = snapshot("o/r", 10);
+    let mode: "failure" | "stale" | "capped" = "failure";
+    const { drain, run, store } = makeDrain(ghRunner(new Set()).run, {
+      peekCurrent: () =>
+        mode === "capped" ? { at: START, value: { ...value, capped: true } } : null,
+      get: async () => {
+        if (mode === "failure") throw new Error("offline");
+        return value;
+      },
+    });
+    store.archive(seed(store, 29, 10).id);
+    for (mode of ["failure", "stale", "capped"] as const) {
+      const epic = await drain.buildEpic(REPO, run);
+      expect(epic!.children[0]!.archivedReview).toBeUndefined();
     }
   });
 });

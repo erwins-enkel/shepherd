@@ -1,7 +1,9 @@
 import { test, expect, describe } from "bun:test";
 import {
   isServeConfigDenied,
+  readServeStatus,
   resolveNodeHost,
+  retryTailnetDiscovery,
   TailscaleServeService,
   type TailscaleRunner,
   type TailscaleRunnerSync,
@@ -107,6 +109,116 @@ function makeDeferred(): { resolve: () => void; promise: Promise<void> } {
 }
 
 // ── TailscaleServeService ─────────────────────────────────────────────────────
+
+// ── readServeStatus ───────────────────────────────────────────────────────────
+
+describe("readServeStatus", () => {
+  test("returns runner stdout and asks for serve status JSON", async () => {
+    let seen: string[] = [];
+    const run: TailscaleRunner = async (args) => {
+      seen = args;
+      return { stdout: '{"TCP":{}}' };
+    };
+    expect(await readServeStatus(run)).toBe('{"TCP":{}}');
+    expect(seen).toEqual(["serve", "status", "--json"]);
+  });
+
+  test('returns "" when the runner throws (tailscaled not ready)', async () => {
+    const run: TailscaleRunner = async () => {
+      throw new Error("failed to connect to local tailscaled");
+    };
+    expect(await readServeStatus(run)).toBe("");
+  });
+});
+
+// ── retryTailnetDiscovery ─────────────────────────────────────────────────────
+
+/** Fake scheduler: records each requested delay and lets the test fire the pending callback. */
+function fakeSchedule() {
+  const delays: number[] = [];
+  let pending: (() => void) | null = null;
+  return {
+    delays,
+    schedule: (fn: () => void, ms: number) => {
+      delays.push(ms);
+      pending = fn;
+      return () => {
+        if (pending === fn) pending = null;
+      };
+    },
+    /** Fire the pending attempt and let its async lookups settle. */
+    async tick() {
+      const fn = pending;
+      pending = null;
+      fn?.();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    },
+    get hasPending() {
+      return pending !== null;
+    },
+  };
+}
+
+describe("retryTailnetDiscovery", () => {
+  test("retries until the node host resolves, then calls onResolved once and stops", async () => {
+    const hosts: (string | null)[] = [null, null, "agentnode.example.ts.net"];
+    const calls: [string, string][] = [];
+    const s = fakeSchedule();
+    retryTailnetDiscovery({
+      resolveNodeHost: async () => hosts.shift() ?? null,
+      readServeStatus: async () => '{"serve":1}',
+      onResolved: (h, json) => calls.push([h, json]),
+      schedule: s.schedule,
+    });
+    await s.tick(); // first attempt (2s)
+    await s.tick(); // second attempt (5s)
+    await s.tick(); // third attempt (10s) resolves
+    expect(calls).toEqual([["agentnode.example.ts.net", '{"serve":1}']]);
+    expect(s.delays).toEqual([2000, 5000, 10000]);
+    expect(s.hasPending).toBe(false);
+  });
+
+  test("delays past the list repeat the last (60s) value", async () => {
+    const s = fakeSchedule();
+    retryTailnetDiscovery({
+      resolveNodeHost: async () => null,
+      readServeStatus: async () => "",
+      onResolved: () => {},
+      schedule: s.schedule,
+    });
+    for (let i = 0; i < 7; i++) await s.tick();
+    expect(s.delays).toEqual([2000, 5000, 10000, 30000, 60000, 60000, 60000, 60000]);
+  });
+
+  test("stop() cancels the pending attempt and suppresses an in-flight result", async () => {
+    const s = fakeSchedule();
+    const calls: string[] = [];
+    let release: (h: string) => void = () => {};
+    const handle = retryTailnetDiscovery({
+      resolveNodeHost: () => new Promise<string | null>((r) => (release = r)),
+      readServeStatus: async () => "",
+      onResolved: (h) => calls.push(h),
+      schedule: s.schedule,
+    });
+    await s.tick(); // attempt in flight
+    handle.stop();
+    release("agentnode.example.ts.net");
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(calls).toEqual([]);
+    expect(s.hasPending).toBe(false);
+
+    const s2 = fakeSchedule();
+    const h2 = retryTailnetDiscovery({
+      resolveNodeHost: async () => "x.ts.net",
+      readServeStatus: async () => "",
+      onResolved: (h) => calls.push(h),
+      schedule: s2.schedule,
+    });
+    h2.stop();
+    await s2.tick();
+    expect(calls).toEqual([]);
+  });
+});
 
 describe("TailscaleServeService", () => {
   // 1. register-ok: correct argv, onChange("ok"), snapshot

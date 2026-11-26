@@ -1704,9 +1704,33 @@ function checkOrigin(req: Request): Response | null {
   // origin genuinely IS read-only; an un-allowlisted host should be pointed at
   // SHEPHERD_ALLOWED_HOSTS, not told to "open Shepherd directly" (it already is).
   if (verdict === "preview-port") return json({ error: "forbidden: origin not allowed" }, 403);
-  if (verdict === "host-not-allowed")
+  if (verdict === "host-not-allowed") {
+    noteOriginHostRejection(req.headers.get("Origin"));
     return json({ error: "forbidden: origin host not allowed" }, 403);
+  }
   return null;
+}
+
+/** Origin hostnames already logged by {@link noteOriginHostRejection}; capped so a stream of
+ *  forged Origins can't grow it (or the log) without bound. */
+const loggedRejectedOriginHosts = new Set<string>();
+
+/** Log an "origin host not allowed" rejection once per hostname (issue #4216: a missing tailnet
+ *  host 403'd every login silently for days). Origin is attacker-controlled — only the parsed,
+ *  length-capped hostname is logged. */
+function noteOriginHostRejection(origin: string | null): void {
+  if (loggedRejectedOriginHosts.size >= 32) return;
+  let host = "<malformed>";
+  try {
+    host = new URL(origin ?? "").hostname.slice(0, 253) || host;
+  } catch {
+    // best-effort: malformed Origin — log the placeholder
+  }
+  if (loggedRejectedOriginHosts.has(host)) return;
+  loggedRejectedOriginHosts.add(host);
+  console.warn(
+    `[origin] rejected mutation from origin host ${host}: not allowlisted (SHEPHERD_ALLOWED_HOSTS / tailnet discovery) or not the request's Host`,
+  );
 }
 
 /** The host[:port] values a request was addressed to: `Host`, plus a fronting proxy's

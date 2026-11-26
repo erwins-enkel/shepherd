@@ -23,6 +23,7 @@
     failed = null,
     workingBlocked = {},
     backgroundBusy = {},
+    compact = false,
     onexpand,
   }: {
     /** The repo assistant's repo; null = the global assistant. */
@@ -35,6 +36,8 @@
     failed?: AssistantAction | null;
     workingBlocked?: Record<string, boolean>;
     backgroundBusy?: Record<string, boolean>;
+    /** One line, no preview: the dock folds its bars when many would squeeze the open chat. */
+    compact?: boolean;
     onexpand: () => void;
   } = $props();
 
@@ -92,11 +95,13 @@
   type="button"
   class="ab"
   class:starting={!session}
+  class:compact
+  data-compact={compact || undefined}
   aria-expanded="false"
   aria-label={m.assistant_bar_open({ name })}
   onclick={onexpand}
 >
-  <AssistantMark {repo} {pip} />
+  <AssistantMark {repo} {pip} size={compact ? 20 : 28} />
   <span class="ab-text">
     <span class="ab-head">
       <span class="ab-name">{name}</span>
@@ -106,7 +111,7 @@
         <span class="ab-scope">{scope}</span>
       {/if}
     </span>
-    <span class="ab-line" class:fresh={unread > 0}>{line}</span>
+    {#if !compact}<span class="ab-line" class:fresh={unread > 0}>{line}</span>{/if}
   </span>
   {#if unread > 0}
     <span class="ab-new">{m.assistant_bar_unread({ count: unread })}</span>
@@ -121,8 +126,10 @@
     stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"
-    aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg
+    aria-hidden="true"
   >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
 </button>
 
 <style>
@@ -220,9 +227,16 @@
     height: 14px;
     color: var(--color-muted);
   }
+  .ab.compact {
+    min-height: 34px;
+    padding: 4px 10px;
+  }
   @media (pointer: coarse) {
     .ab {
       min-height: 60px;
+    }
+    .ab.compact {
+      min-height: 44px;
     }
   }
 </style>

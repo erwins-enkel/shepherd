@@ -759,6 +759,10 @@ export interface RepoConfig {
    *  OFF — an autonomous retire cannot merge a stacked PR until #2070 lands, so enabling this
    *  before then stalls the epic. */
   epicStacksEnabled: boolean;
+  /** #4103: while an epic runs or is paused, standalone `autoLabel` issues may also take free
+   *  auto slots (epic children first; `maxAuto` stays shared). Needs `autoDrainEnabled`. Default
+   *  OFF — the leading epic then suspends label-drain for the whole repo. */
+  labelDrainAlongsideEpics: boolean;
   /** Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo
    *  profile the operator logs in to and this repo's agents drive via brokered CDP. Default OFF —
    *  agents attached to this repo can read every login in its profile. */
@@ -1311,6 +1315,7 @@ type RepoCfgRow = {
   claudeShipStewardDefer: number;
   mergeWithoutCi: number;
   epicStacksEnabled: number;
+  labelDrainAlongsideEpics: number;
   sharedBrowserEnabled: number;
   browserAllowedHosts: string | null;
   claudeAiConnectorsEnabled: number;
@@ -1631,6 +1636,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     claudeShipStewardDefer: !!r.claudeShipStewardDefer,
     mergeWithoutCi: !!r.mergeWithoutCi,
     epicStacksEnabled: !!r.epicStacksEnabled,
+    labelDrainAlongsideEpics: !!r.labelDrainAlongsideEpics,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
     browserAllowedHosts: parseStringListJson(r.browserAllowedHosts),
     claudeAiConnectorsEnabled: !!r.claudeAiConnectorsEnabled,
@@ -1682,6 +1688,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.claudeShipStewardDefer)),
     Number(Boolean(cfg.mergeWithoutCi)),
     Number(Boolean(cfg.epicStacksEnabled)),
+    Number(Boolean(cfg.labelDrainAlongsideEpics)),
     Number(Boolean(cfg.sharedBrowserEnabled)),
     JSON.stringify(cfg.browserAllowedHosts ?? []),
     Number(Boolean(cfg.claudeAiConnectorsEnabled)),
@@ -3094,7 +3101,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-                manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
+                manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
                 pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve
          FROM repo_config WHERE repoPath = ?`,
       )
@@ -3109,8 +3116,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -3141,6 +3148,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          claudeShipStewardDefer = excluded.claudeShipStewardDefer,
          mergeWithoutCi = excluded.mergeWithoutCi,
          epicStacksEnabled = excluded.epicStacksEnabled,
+         labelDrainAlongsideEpics = excluded.labelDrainAlongsideEpics,
          sharedBrowserEnabled = excluded.sharedBrowserEnabled,
          browserAllowedHosts = excluded.browserAllowedHosts,
          claudeAiConnectorsEnabled = excluded.claudeAiConnectorsEnabled,
@@ -8321,6 +8329,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("mergeWithoutCi", `mergeWithoutCi INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; stack epic children onto their predecessor's PR branch (#2069)
     add("epicStacksEnabled", `epicStacksEnabled INTEGER NOT NULL DEFAULT 0`);
+    add("labelDrainAlongsideEpics", `labelDrainAlongsideEpics INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; per-repo Shared Browser (agents can read every login in its profile)
     add("sharedBrowserEnabled", `sharedBrowserEnabled INTEGER NOT NULL DEFAULT 0`);
     // #2883: hosts an autonomous Browser Attach may reach; JSON string array (nullable, default []).

@@ -222,6 +222,7 @@ function makeHarness(
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
@@ -1400,6 +1401,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
@@ -1436,6 +1438,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
@@ -2751,6 +2754,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],
@@ -3751,4 +3755,132 @@ test("leitrechner switch during remote spawn planning releases claim without sub
   expect(submits).toBe(0);
   expect(h.forgeRec.added).toContainEqual({ number: 1, label: ACTIVE_LABEL });
   expect(h.forgeRec.removed).toContainEqual({ number: 1, label: ACTIVE_LABEL });
+});
+
+describe("standalone labeled issues alongside an epic (#4103)", () => {
+  const PARENT = 400;
+  const CHILD = 401;
+  const QUEUED = 77;
+  const SOLO = 50;
+
+  function alongsideHarness(
+    status: "running" | "paused",
+    mode: "auto" | "attended",
+    opts: { optIn?: boolean; maxAuto?: number; deadlocked?: boolean } = {},
+  ) {
+    const child = (number: number): SubIssueRef => ({
+      number,
+      title: `child ${number}`,
+      url: `u${number}`,
+      body: "child body",
+      closed: false,
+      labels: ["shepherd:auto"],
+    });
+    // deadlocked: a second child and a mutual block, so no epic child is startable.
+    const subs = opts.deadlocked ? [child(CHILD), child(CHILD + 1)] : [child(CHILD)];
+    const blockedBy = (n: number) =>
+      !opts.deadlocked ? [] : n === CHILD ? [CHILD + 1] : n === CHILD + 1 ? [CHILD] : [];
+    const parent = issue(PARENT, { title: "Epic parent" });
+    const h = makeHarness({
+      maxAuto: opts.maxAuto ?? 3,
+      // Everything carries the auto label: only the standalone issue may spawn beside the epic.
+      issues: [parent, issue(CHILD), issue(QUEUED), issue(SOLO)],
+      getIssueImpl: async (n) => (n === PARENT ? parent : null),
+      listSubIssuesImpl: async (n) => (n === PARENT ? subs : []),
+      listBlockedByImpl: async (n) => blockedBy(n),
+    });
+    h.store.setRepoConfig(REPO, {
+      ...h.store.getRepoConfig(REPO),
+      labelDrainAlongsideEpics: opts.optIn ?? true,
+    });
+    h.store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode, status });
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: QUEUED, mode: "auto" });
+    return h;
+  }
+
+  const spawned = (h: Harness) => h.creates.map((c) => c.issueRef?.number);
+
+  test("opt-in off: the epic keeps precedence and no label listing is used for spawns", async () => {
+    const h = alongsideHarness("running", "attended", { optIn: false });
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([]);
+    expect(h.statuses.at(-1)!.runSummary!.standaloneNext).toEqual([]);
+  });
+
+  test("epic child first, then the standalone issue with no epic stamp", async () => {
+    const h = alongsideHarness("running", "auto");
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([CHILD, SOLO]);
+    expect(h.creates[1]!.baseBranch).toBe("main");
+    expect(h.creates[1]!.epicParent ?? null).toBeNull();
+    expect(h.creates[1]!.incrementalEpicParent ?? null).toBeNull();
+  });
+
+  test("epic held for approval: the standalone issue spawns and the approval stays unspent", async () => {
+    const h = alongsideHarness("running", "attended");
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([SOLO]);
+    // Approved while the solo already runs: the next pump spends it on the epic child.
+    h.drain.approveEpicNext(REPO);
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([SOLO, CHILD]);
+  });
+
+  test("an approval given before a standalone spawn survives it", async () => {
+    const h = alongsideHarness("running", "attended", { deadlocked: true });
+    h.drain.approveEpicNext(REPO);
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([SOLO]);
+    const approved = (h.drain as unknown as { approvedNext: Set<string> }).approvedNext;
+    expect(approved.has(REPO)).toBe(true);
+  });
+
+  test("paused epic: standalone issue spawns while the published status stays disabled", async () => {
+    const h = alongsideHarness("paused", "auto");
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([SOLO]);
+    const [status] = await h.drain.snapshot();
+    expect(status!.enabled).toBe(false);
+    expect(status!.runSummary!.leadingEpic).toBe(PARENT);
+    expect(status!.reason).toBe("disabled");
+  });
+
+  test("paused epic: an unstamped child's ready PR waits, a standalone one hands off", async () => {
+    const h = alongsideHarness("paused", "auto", { maxAuto: 2 });
+    const seed = (n: number) =>
+      h.store.create({
+        name: "auto",
+        prompt: "p",
+        repoPath: REPO,
+        baseBranch: "main", // a forge without ensureBranch bases an epic child here, unstamped
+        branch: `shepherd/auto-${n}`,
+        worktreePath: "/wt",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t",
+        auto: true,
+        issueNumber: n,
+      });
+    const kid = seed(CHILD);
+    const solo = seed(SOLO);
+    for (const [s, pr] of [
+      [kid, 8],
+      [solo, 9],
+    ] as const) {
+      h.prCache[s.id] = openGreen(pr);
+      h.setReview(s.id, "commented", `sha-${pr}`);
+    }
+    await h.drain.pump(REPO);
+    expect(h.store.get(solo.id)?.status).toBe("archived");
+    expect(h.store.get(kid.id)?.status).not.toBe("archived");
+  });
+
+  test("cap reached: the standalone issue is listed as waiting in standaloneNext", async () => {
+    const h = alongsideHarness("running", "auto", { maxAuto: 1 });
+    await h.drain.pump(REPO);
+    expect(spawned(h)).toEqual([CHILD]);
+    const [status] = await h.drain.snapshot();
+    expect(status!.runSummary!.standaloneNext).toEqual([SOLO]);
+    expect(status!.runSummary!.slots).toMatchObject({ used: 1, max: 1 });
+  });
 });

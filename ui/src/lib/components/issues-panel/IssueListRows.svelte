@@ -22,6 +22,7 @@
     runOrder,
     slotHeldBy,
     stateLabel,
+    waitingForSlot,
   } from "../epic-panel";
   import {
     ACTIVE_LABEL,
@@ -159,11 +160,11 @@
         {#if rail.node && row.kind === "epic"}
           {@const pos = queuePosition(runSummary, row.issue.number)}
           {#if epicRole(runSummary, row.issue.number) === "leading"}
-            <span class="node node-lead"
-              ><svg width="8" height="8" viewBox="0 0 8 8"
-                ><path d="M2 1.2v5.6L6.6 4z" fill="currentColor" /></svg
-              ></span
-            >
+            <span class="node node-lead">
+              <svg width="8" height="8" viewBox="0 0 8 8">
+                <path d="M2 1.2v5.6L6.6 4z" fill="currentColor" />
+              </svg>
+            </span>
           {:else if pos != null}
             <span class="node node-queued">{pos}</span>
           {:else}
@@ -244,6 +245,7 @@
     {@const shown = labels.slice(0, MAX_CHIPS)}
     {@const rest = labels.slice(MAX_CHIPS)}
     {@const age = metaAge(issue)}
+    {@const waiting = waitingForSlot(runSummary, issue.number)}
     {#if row.key === firstSingle && hasEpics}
       <div class="section-heading" role="presentation">{m.issuespanel_singles_heading()}</div>
     {/if}
@@ -260,19 +262,23 @@
     >
       <span class="title issue-title">{issue.title}</span>
       <!-- SEP is a variable on purpose: a literal separator loses its spaces at block/element edges. -->
-      <span class="meta"
-        ><span class="meta-num">#{issue.number}</span>{#if running?.(issue)}{SEP}<span
+      <span class="meta">
+        <span class="meta-num">#{issue.number}</span>{#if running?.(issue)}{SEP}<span
             class="dot dot-running"
             aria-hidden="true"
-          ></span>{m.issuelist_running()}{/if}{#if shown.length}{SEP}<span class="lchips"
-            >{#each shown as label, i (label)}{#if i}{GAP}{/if}<span
+          ></span>{m.issuelist_running()}{:else if waiting}{SEP}<span class="waiting">
+            {m.issuelist_waiting_slot()}
+          </span>{/if}{#if shown.length}{SEP}<span class="lchips">
+            {#each shown as label, i (label)}{#if i}{GAP}{/if}<span
                 class="lchip"
-                style:--lc="var(--data-{dataSlot(label)})">{label}</span
-              >{/each}{#if rest.length}{GAP}<span class="lchip more" title={rest.join(", ")}
-                >+{rest.length}</span
-              >{/if}</span
-          >{/if}{SEP}<span class="age" title={m.issuelist_age_tip({ age })}>{age}</span></span
-      >
+                style:--lc="var(--data-{dataSlot(label)})"
+              >
+                {label}
+              </span>{/each}{#if rest.length}{GAP}<span class="lchip more" title={rest.join(", ")}>
+                +{rest.length}
+              </span>{/if}
+          </span>{/if}{SEP}<span class="age" title={m.issuelist_age_tip({ age })}>{age}</span>
+      </span>
     </div>
   {/if}
 {/snippet}
@@ -514,6 +520,10 @@
   }
   .meta-num {
     font-family: var(--font-mono);
+  }
+  /* #4103: a standalone labeled issue queued behind a full slot cap. */
+  .waiting {
+    color: var(--status-warn);
   }
   .meta {
     color: var(--color-faint);

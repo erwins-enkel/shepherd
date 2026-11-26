@@ -3582,6 +3582,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "claudeShipStewardDefer",
   "mergeWithoutCi",
   "epicStacksEnabled",
+  "labelDrainAlongsideEpics",
   "sharedBrowserEnabled",
   "claudeAiConnectorsEnabled",
   "hidden",
@@ -3607,6 +3608,7 @@ type RepoCfgBody = {
   claudeShipStewardDefer?: unknown;
   mergeWithoutCi?: unknown;
   epicStacksEnabled?: unknown;
+  labelDrainAlongsideEpics?: unknown;
   sharedBrowserEnabled?: unknown;
   claudeAiConnectorsEnabled?: unknown;
   hidden?: unknown;
@@ -3770,6 +3772,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       claudeShipStewardDefer?: boolean;
       mergeWithoutCi?: boolean;
       epicStacksEnabled?: boolean;
+      labelDrainAlongsideEpics?: boolean;
       sharedBrowserEnabled?: boolean;
       claudeAiConnectorsEnabled?: boolean;
       hidden?: boolean;
@@ -3871,6 +3874,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     claudeShipStewardDefer: body.claudeShipStewardDefer as boolean | undefined,
     mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
+    labelDrainAlongsideEpics: body.labelDrainAlongsideEpics as boolean | undefined,
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
     claudeAiConnectorsEnabled: body.claudeAiConnectorsEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,

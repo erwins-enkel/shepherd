@@ -412,6 +412,7 @@ const OVERLAY_MAPS = {
   claudeShipStewardDefer: "claudeShipStewardDefer",
   mergeWithoutCi: "mergeWithoutCi",
   epicStacksEnabled: "epicStacks",
+  labelDrainAlongsideEpics: "labelDrainAlongsideEpics",
   sharedBrowserEnabled: "sharedBrowser",
   browserAllowedHosts: "browserAllowedHosts",
   egressExtraHosts: "egressExtraHosts",
@@ -463,6 +464,7 @@ export class RepoConfigStore {
   mergeWithoutCi = $state<Record<string, boolean>>({}); // autonomous merges in a no-CI repo (default off, #3104)
   noPrCi = $state<Record<string, boolean>>({}); // derived: no workflow runs on PRs (read-only, #3221)
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
+  labelDrainAlongsideEpics = $state<Record<string, boolean>>({}); // standalone labeled issues beside an epic (default off, #4103)
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
   egressExtraHosts = $state<Record<string, string[]>>({}); // extra hosts on the Autonomous egress allowlist (#3446)
@@ -546,6 +548,10 @@ export class RepoConfigStore {
     this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: c.mergeWithoutCi };
     this.noPrCi = { ...this.noPrCi, [repoPath]: c.noPrCi ?? false };
     this.epicStacks = { ...this.epicStacks, [repoPath]: c.epicStacksEnabled };
+    this.labelDrainAlongsideEpics = {
+      ...this.labelDrainAlongsideEpics,
+      [repoPath]: c.labelDrainAlongsideEpics ?? false,
+    };
     this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: c.sharedBrowserEnabled };
     this.browserAllowedHosts = {
       ...this.browserAllowedHosts,
@@ -895,6 +901,12 @@ export class RepoConfigStore {
     await this.write(repoPath, { epicStacksEnabled: !this.epicStacksOn(repoPath) });
   }
 
+  async toggleLabelDrainAlongsideEpics(repoPath: string) {
+    await this.write(repoPath, {
+      labelDrainAlongsideEpics: !this.labelDrainAlongsideEpicsOn(repoPath),
+    });
+  }
+
   async toggleSharedBrowser(repoPath: string) {
     await this.write(repoPath, { sharedBrowserEnabled: !this.sharedBrowserOn(repoPath) });
   }
@@ -1037,6 +1049,10 @@ export class RepoConfigStore {
 
   epicStacksOn(repoPath: string): boolean {
     return this.epicStacks[repoPath] ?? false;
+  }
+
+  labelDrainAlongsideEpicsOn(repoPath: string): boolean {
+    return this.labelDrainAlongsideEpics[repoPath] ?? false;
   }
 
   sharedBrowserOn(repoPath: string): boolean {

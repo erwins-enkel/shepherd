@@ -3546,6 +3546,7 @@ export type RepoConfigPatch = Partial<
     | "claudeShipStewardDefer"
     | "mergeWithoutCi"
     | "epicStacksEnabled"
+    | "labelDrainAlongsideEpics"
     | "sharedBrowserEnabled"
     | "browserAllowedHosts"
     | "claudeAiConnectorsEnabled"

@@ -96,6 +96,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],

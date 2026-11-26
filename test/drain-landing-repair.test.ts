@@ -172,6 +172,7 @@ function makeHarness(opts: {
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     claudeAiConnectorsEnabled: false,
     browserAllowedHosts: [],

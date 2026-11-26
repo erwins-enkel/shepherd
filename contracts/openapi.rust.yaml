@@ -6101,6 +6101,11 @@ components:
                 type: array
                 items:
                   type: string
+        standaloneNext:
+          description: "Unmapped standalone labeled issues in drain order: the label-drain candidates (equal to next in label mode), or while an epic leads with labelDrainAlongsideEpics on, those that use free slots alongside it. Empty otherwise. Always sent by the current server; optional so an older server stays valid."
+          type: array
+          items:
+            type: integer
         after:
           description: Open epic children directly blocked by next[0].
           type: array
@@ -10035,6 +10040,9 @@ components:
           description: "Derived, read-only (responses only): the repo is on GitHub and none of its workflows runs on pull requests, so its PRs carry no checks."
         epicStacksEnabled:
           type: boolean
+        labelDrainAlongsideEpics:
+          type: boolean
+          description: While an epic runs or is paused, let standalone labeled issues use free auto slots alongside it (epic children first; `maxAuto` is shared). Needs `autoDrainEnabled`. Off by default.
         claudeShipStewardDefer:
           type: boolean
           description: While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
@@ -10266,6 +10274,9 @@ components:
           description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
         epicStacksEnabled:
           type: boolean
+        labelDrainAlongsideEpics:
+          type: boolean
+          description: While an epic runs or is paused, let standalone labeled issues use free auto slots alongside it (epic children first; `maxAuto` is shared). Needs `autoDrainEnabled`. Off by default.
         claudeShipStewardDefer:
           type: boolean
           description: While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
@@ -11495,6 +11506,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        labelDrainAlongsideEpics:
+          type: boolean
+          description: While an epic runs or is paused, let standalone labeled issues use free auto slots alongside it (epic children first; `maxAuto` is shared). Needs `autoDrainEnabled`. Off by default.
         claudeShipStewardDefer:
           type: boolean
           description: While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
@@ -11550,6 +11564,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        labelDrainAlongsideEpics:
+          type: boolean
+          description: While an epic runs or is paused, let standalone labeled issues use free auto slots alongside it (epic children first; `maxAuto` is shared). Needs `autoDrainEnabled`. Off by default.
         claudeShipStewardDefer:
           type: boolean
           description: While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.
@@ -11715,6 +11732,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        labelDrainAlongsideEpics:
+          type: boolean
+          description: While an epic runs or is paused, let standalone labeled issues use free auto slots alongside it (epic children first; `maxAuto` is shared). Needs `autoDrainEnabled`. Off by default.
         claudeShipStewardDefer:
           type: boolean
           description: While Claude Ship's PR Steward watches a PR (label `claude-pr-steward-watching`), send it no rebase, CI-fix or base-moved steer so only one agent pushes. Off by default.

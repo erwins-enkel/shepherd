@@ -1458,3 +1458,193 @@ test("leitrechner hold blocks new spawns but preserves retiring own sessions", (
     computeNext(state({ leitrechnerHold, autoSessions: [autoSession({ git: MERGEABLE })] })).kind,
   ).toBe("retire");
 });
+
+describe("computeNext: standalone labeled issues alongside an epic (#4103)", () => {
+  const BRANCH = "epic/300-parent";
+  const child = issue(301);
+  const solo = issue(50);
+  const pool = (over: Partial<NonNullable<DrainRepoState["standalone"]>> = {}) => ({
+    candidates: [solo],
+    spawnAgentProvider: "claude" as const,
+    ...over,
+  });
+  const epic = (over: Partial<DrainRepoState> = {}) =>
+    state({
+      candidates: [child],
+      epicIntegrationBranch: BRANCH,
+      epicParent: 300,
+      standalone: pool(),
+      ...over,
+    });
+  const ready = (over: Partial<AutoSessionView>) => autoSession({ git: MERGEABLE, ...over });
+  const soloSpawn = { kind: "spawn" as const, issue: solo };
+
+  test("without a pool the epic decides alone (unchanged)", () => {
+    const d = computeNext(epic({ standalone: null, candidates: [] }));
+    expect(d).toEqual({ kind: "hold", reason: { code: "empty" } });
+  });
+
+  test("a startable epic child takes the slot first", () => {
+    const d = computeNext(epic());
+    expect(d).toEqual({
+      kind: "spawn",
+      issue: child,
+      integrationBranch: BRANCH,
+      epicParent: 300,
+    });
+  });
+
+  test("epic has nothing startable → the standalone issue spawns with no epic field", () => {
+    expect(computeNext(epic({ candidates: [] }))).toEqual(soloSpawn);
+  });
+
+  test("epic-only holds leave the slot to the standalone issue", () => {
+    const holds: Partial<DrainRepoState>[] = [
+      { epicBaseStale: BRANCH },
+      { epicBaseConflict: BRANCH },
+      { epicUnreadable: true },
+      { epicPredecessorUnlanded: [12] },
+      { epicAttended: true },
+      { spawnHold: { issue: 301, reason: { code: "sandbox_interactive", detail: "standard" } } },
+    ];
+    for (const over of holds) expect(computeNext(epic(over))).toEqual(soloSpawn);
+  });
+
+  test("both waiting → the epic's hold is reported", () => {
+    const d = computeNext(epic({ epicBaseStale: BRANCH, standalone: pool({ candidates: [] }) }));
+    expect(d).toEqual({ kind: "hold", reason: { code: "epic_base_stale", detail: BRANCH } });
+  });
+
+  test("the cap is shared: epic sessions fill maxAuto → cap, no standalone spawn", () => {
+    const d = computeNext(
+      epic({
+        candidates: [],
+        maxAuto: 1,
+        autoSessions: [autoSession({ epicParent: 300, issueNumber: 302 })],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "cap", detail: "1" } });
+  });
+
+  test("trouble on any auto session halts the standalone pool too", () => {
+    const d = computeNext(
+      epic({ candidates: [], autoSessions: [autoSession({ status: "blocked" })] }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "blocked", detail: "TASK-01" } });
+  });
+
+  test("the epic's usage-ceiling lift does not cover standalone spawns", () => {
+    const over = { usagePct: 95, usageCeilingIgnored: true };
+    expect(computeNext(epic(over))).toEqual(expect.objectContaining({ issue: child }));
+    expect(computeNext(epic({ ...over, candidates: [] }))).toEqual({
+      kind: "hold",
+      reason: { code: "empty" },
+    });
+  });
+
+  test("the lead-machine hold blocks only the standalone pool", () => {
+    const leitrechnerHold = { code: "leitrechner_paused", detail: "m1" } as never;
+    expect(computeNext(epic({ standalone: pool({ leitrechnerHold }) }))).toEqual(
+      expect.objectContaining({ issue: child }),
+    );
+    expect(computeNext(epic({ candidates: [], standalone: pool({ leitrechnerHold }) }))).toEqual({
+      kind: "hold",
+      reason: { code: "empty" },
+    });
+  });
+
+  test("the pool's own spawn gate and placement apply to its candidate", () => {
+    const reason = { code: "sandbox_interactive", detail: "standard" } as const;
+    const gated = computeNext(
+      epic({ candidates: [], standalone: pool({ spawnHold: { issue: 50, reason } }) }),
+    );
+    expect(gated).toEqual({ kind: "hold", reason: { code: "empty" } });
+    const placement = { host: "m2" } as never;
+    const remote = computeNext(
+      epic({ candidates: [], standalone: pool({ spawnRemote: { issue: 50, placement } }) }),
+    );
+    expect(remote).toEqual({ ...soloSpawn, remote: placement });
+  });
+
+  test("paused epic (enabled false) + pool: standalone retires and spawns, epic work waits", () => {
+    const paused = { enabled: false, candidates: [] };
+    const epicChild = ready({ id: "c", epicParent: 300, issueNumber: 302 });
+    const incremental = ready({ id: "i", incrementalEpicParent: 300, issueNumber: 303 });
+    const repair = ready({ id: "r", landingRepair: true, issueNumber: null });
+    const standaloneSession = ready({ id: "s", issueNumber: 51 });
+    expect(
+      computeNext(epic({ ...paused, autoSessions: [epicChild, incremental, repair], maxAuto: 5 })),
+    ).toEqual(soloSpawn);
+    expect(computeNext(epic({ ...paused, autoSessions: [epicChild, standaloneSession] }))).toEqual(
+      expect.objectContaining({ kind: "retire", sessionId: "s" }),
+    );
+    expect(computeNext(epic({ ...paused, standalone: pool({ candidates: [] }) }))).toEqual({
+      kind: "hold",
+      reason: { code: "disabled" },
+    });
+  });
+
+  test("paused epic + pool: an unstamped child (forge without ensureBranch) is still held", () => {
+    const unstamped = ready({ id: "u", issueNumber: 302 });
+    const d = computeNext(
+      epic({
+        enabled: false,
+        candidates: [],
+        autoSessions: [unstamped],
+        epicChildIssues: new Set([301, 302]),
+        standalone: pool({ candidates: [] }),
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "disabled" } });
+  });
+
+  test("paused epic without a pool stays fully disabled (unchanged)", () => {
+    const d = computeNext(
+      epic({ enabled: false, standalone: null, autoSessions: [ready({ issueNumber: 51 })] }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "disabled" } });
+  });
+});
+
+describe("buildRunSummary: standaloneNext (#4103)", () => {
+  const base = {
+    leadingEpic: null,
+    autoSessions: [] as AutoSessionView[],
+    maxAuto: 2,
+    candidates: [] as Issue[],
+    mappedIssueNumbers: new Set<number>([2]),
+    epicChildren: [],
+    queued: [] as number[],
+  };
+
+  test("label mode: equals next", () => {
+    const r = buildRunSummary({ ...base, candidates: [issue(1), issue(2), issue(3)] });
+    expect(r.standaloneNext).toEqual([1, 3]);
+    expect(r.standaloneNext).toEqual(r.next);
+  });
+
+  test("a remote holder is the leading epic's only when its issue is that epic's child", () => {
+    const host = { id: "m2", name: "m2" } as never;
+    const holder = (issueNumber: number) => ({ issueNumber, host, sessionId: null, desig: null });
+    const r = buildRunSummary({
+      ...base,
+      leadingEpic: 100,
+      epicChildren: [
+        { number: 101, order: 1, blockedBy: [], integrationMerged: false, issueClosed: false },
+      ],
+      remoteHolding: [holder(101), holder(50)],
+    });
+    expect(r.slots.holders.map((h) => [h.issueNumber, h.epicParent])).toEqual([
+      [101, 100],
+      [50, null],
+    ]);
+  });
+
+  test("epic mode: the pool's unmapped candidates, [] without a pool", () => {
+    const epic = { ...base, leadingEpic: 100, candidates: [issue(101)] };
+    expect(buildRunSummary(epic).standaloneNext).toEqual([]);
+    const r = buildRunSummary({ ...epic, standaloneCandidates: [issue(2), issue(5)] });
+    expect(r.standaloneNext).toEqual([5]);
+    expect(r.next).toEqual([101]);
+  });
+});

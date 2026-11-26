@@ -1497,6 +1497,10 @@ export interface RepoConfig {
   /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
    *  merge (#2069). GitHub-only. Default off — opt-in. */
   epicStacksEnabled: boolean;
+  /** #4103: while an epic runs or is paused, standalone labeled issues may use free auto slots
+   *  alongside it (epic children first; the slot cap is shared). Needs auto-drain. Default off.
+   *  Optional: an older server does not send it. */
+  labelDrainAlongsideEpics?: boolean;
   /** Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo
    *  profile this repo's agents drive. Agents can read every login in it. Default off — opt-in. */
   sharedBrowserEnabled: boolean;
@@ -1650,6 +1654,9 @@ export interface DrainRunSummary {
   next: number[];
   /** Matching labels explaining priority in label mode; absent from older servers. */
   nextPriority?: { number: number; labels: string[] }[];
+  /** #4103: unmapped standalone labeled issues in drain order — `next` in label mode, those that
+   *  use free slots beside a leading epic otherwise. Absent from older servers. */
+  standaloneNext?: number[];
   /** Open epic children directly blocked by next[0]. */
   after: number[];
   /** Epics queued behind the leading one, head first (#2624); the head starts once the leader

@@ -123,8 +123,12 @@ export interface AutoSessionView {
   fullAuto: boolean;
   /** The epic parent issue number this session is a child of — the persisted stamp, or for a
    *  legacy unstamped row the number its `epic/<#>-…` base branch names; null for a non-epic
-   *  session. Read only by {@link buildRunSummary}; no drain decision looks at it. */
+   *  session. Read by {@link buildRunSummary} and, while the leading epic is paused, by the
+   *  retire gate (#4103: only standalone sessions retire then). */
   epicParent: number | null;
+  /** #3191: the incremental epic this session is a child of; null/absent otherwise. Read only by
+   *  the paused-epic retire filter (#4103). */
+  incrementalEpicParent?: number | null;
   /** A landing-repair session (CI repair / conflict rework on an epic's landing PR, #2973): it
    *  holds no agent slot — the cap and the run picture's slots leave it out — but retires and
    *  trips trouble holds like any other auto session. LANDING_REPAIR_CAP bounds them. */
@@ -258,6 +262,31 @@ export interface DrainRepoState {
    *  not confirmed yet, or they run there without a PR (see src/drain-remote.ts). They count
    *  against `maxAuto` like local auto sessions. Absent = none. */
   remoteHolding?: readonly RemoteHolder[];
+  /** #4103: standalone labeled issues that may use free slots while an epic leads (running or
+   *  paused; `labelDrainAlongsideEpics` + auto-drain on). Null/undefined = no such pool — label
+   *  mode keeps its candidates in `candidates`, and an epic without the opt-in suspends
+   *  label-drain. With a pool, `enabled: false` means the leading epic is paused: its children
+   *  then neither spawn nor retire, while the pool keeps going. */
+  standalone?: StandalonePool | null;
+  /** #4103: the leading epic's child issue numbers. Read only by the paused-epic retire filter: a
+   *  child spawned without an epic stamp (a forge without `ensureBranch` bases it on the default
+   *  branch, unstamped) is still the epic's own and must wait for the resume. */
+  epicChildIssues?: ReadonlySet<number>;
+}
+
+/** #4103: the label-drain pool that runs alongside a leading epic (see `DrainRepoState.standalone`).
+ *  Epic children take a free slot first; this pool only gets one when the epic yields no spawn. */
+export interface StandalonePool {
+  /** Labeled, unclaimed, ordered issues minus the leading epic's parent and children and queued
+   *  epics' parents (see selectCandidates). */
+  candidates: Issue[];
+  /** Provider a standalone spawn would use (the repo/global default, never the epic's). */
+  spawnAgentProvider: AgentProvider;
+  /** Spawn gate / placement for the pool's next candidate, keyed by issue like `spawnHold`. */
+  spawnHold?: { issue: number; reason: HoldReason } | null;
+  spawnRemote?: { issue: number; placement: Placement } | null;
+  /** Lead-machine (leitrechner) hold — label starts only, so it applies here and never to the epic. */
+  leitrechnerHold?: HoldReason | null;
 }
 
 /** A spawn the drain sent to another machine, holding a slot (see `remoteHolding`). */
@@ -373,10 +402,20 @@ function usageGuardsApply(state: DrainRepoState): boolean {
   return state.spawnAgentProvider === "claude";
 }
 
+/** An epic's own work: a child (stamped, or by issue number) or a landing repair. */
+function epicOwned(s: AutoSessionView, children: ReadonlySet<number> | undefined): boolean {
+  if (s.epicParent != null || s.incrementalEpicParent != null || s.landingRepair) return true;
+  return s.issueNumber != null && !!children?.has(s.issueNumber);
+}
+
 function retireDecision(state: DrainRepoState): DrainDecision | null {
+  // #4103: past the disabled gate with `enabled: false` = a paused epic beside a standalone pool —
+  // only standalone sessions hand off; the paused epic's own work waits for its resume.
+  const standaloneOnly = !state.enabled;
   const toRetire = state.autoSessions.find(
     (s) =>
       !s.fullAuto &&
+      !(standaloneOnly && epicOwned(s, state.epicChildIssues)) &&
       !state.stackHeldSessions?.has(s.id) && // #2070: a stacked layer waiting for the one below it
       !s.misrouted && // #3245: never hand off a session outside its ticket's target repo
       !s.usagePaused &&
@@ -451,7 +490,7 @@ function usageHold(state: DrainRepoState): HoldReason | null {
  * halts NEW spawns).
  */
 export function computeNext(state: DrainRepoState): DrainDecision {
-  if (!state.enabled) return { kind: "hold", reason: { code: "disabled" } };
+  if (!state.enabled && !state.standalone) return DISABLED_HOLD;
 
   // 1. Retire gate — a ready NON-full-auto session is handed off for a human to merge.
   // Full-auto sessions are left for the merge train (it lands them; retiring would remove the
@@ -471,6 +510,50 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   const trouble = troubleHold(state);
   if (trouble) return { kind: "hold", reason: trouble };
 
+  // 3–5. Epic children (or label-mode candidates) take a free slot first (#4103). Only when that
+  // pick holds for a reason of its own — not the shared cap — may a standalone labeled issue use
+  // the slot. Both waiting ⇒ the primary hold is reported, so an epic's card keeps its own cause.
+  const primary = state.enabled ? primarySpawnPick(state) : DISABLED_HOLD;
+  const pool = state.standalone;
+  if (!pool || primary.kind === "spawn" || sharedCapacityHold(primary)) return primary;
+  const alongside = standaloneSpawnPick(state, pool);
+  return alongside.kind === "spawn" ? alongside : primary;
+}
+
+const DISABLED_HOLD: DrainDecision = { kind: "hold", reason: { code: "disabled" } };
+
+/** A hold on the slots every pool shares — no other pool can start either. */
+function sharedCapacityHold(d: DrainDecision): boolean {
+  return d.kind === "hold" && (d.reason.code === "cap" || d.reason.code === "awaiting_signoff");
+}
+
+/** #4103: the standalone pool's pick — lead-machine hold, its candidate's spawn gate, the shared
+ *  cap, then the usage guards WITHOUT the epic's ceiling lift, under the repo's own provider. Its
+ *  spawn carries no epic field: the issue follows the ordinary PR workflow. */
+function standaloneSpawnPick(state: DrainRepoState, pool: StandalonePool): DrainDecision {
+  if (pool.leitrechnerHold) return { kind: "hold", reason: pool.leitrechnerHold };
+  const next = nextCandidate({
+    candidates: pool.candidates,
+    mappedIssueNumbers: state.mappedIssueNumbers,
+  });
+  const gate = next && pool.spawnHold?.issue === next.number ? pool.spawnHold.reason : null;
+  if (gate) return { kind: "hold", reason: gate };
+  const cap = capHold(state);
+  if (cap) return { kind: "hold", reason: cap };
+  const usage = usageHold({
+    ...state,
+    spawnAgentProvider: pool.spawnAgentProvider,
+    usageCeilingIgnored: false,
+  });
+  if (usage) return { kind: "hold", reason: usage };
+  if (!next) return { kind: "hold", reason: { code: "empty" } };
+  const remote = pool.spawnRemote?.issue === next.number ? pool.spawnRemote.placement : null;
+  return { kind: "spawn", issue: next, ...(remote ? { remote } : {}) };
+}
+
+/** Steps 2a–5 of {@link computeNext} for its primary pool: the leading epic's children, or the
+ *  label-mode candidates when no epic leads. */
+function primarySpawnPick(state: DrainRepoState): DrainDecision {
   // 2a–2c. Epic holds: unreadable, base unavailable, base freshness (see epicHold).
   const epic = epicHold(state);
   if (epic) return { kind: "hold", reason: epic };
@@ -599,6 +682,9 @@ export interface RunSummary {
   next: number[];
   /** Label-mode priorities among next; optional for older-server compatibility. */
   nextPriority?: { number: number; labels: string[] }[];
+  /** #4103: unmapped standalone labeled issues in drain order — `next` itself in label mode, the
+   *  {@link StandalonePool}'s while an epic leads, [] when an epic leads without one. */
+  standaloneNext?: number[];
   /** Open epic children directly blocked by `next[0]`; [] in label mode. */
   after: number[];
   /** Epics queued behind the leading one (#2624), head first — the head starts once the leader
@@ -621,16 +707,24 @@ export interface RunSummaryInput {
   >[];
   /** The repo's epic queue, head first. */
   queued: number[];
+  /** #4103: the {@link StandalonePool}'s candidates while an epic leads; ignored in label mode. */
+  standaloneCandidates?: Issue[];
   /** Spawns on other machines that hold a slot (see DrainRepoState.remoteHolding). */
   remoteHolding?: readonly RemoteHolder[];
 }
 
-function remoteSummaryHolder(h: RemoteHolder, leadingEpic: number | null): RunSummaryHolder {
+/** A remote holder is the leading epic's only when its issue is one of that epic's children — a
+ *  standalone issue sent elsewhere beside the epic (#4103) carries no epic identity. */
+function remoteSummaryHolder(
+  h: RemoteHolder,
+  leadingEpic: number | null,
+  epicChildren: ReadonlySet<number>,
+): RunSummaryHolder {
   return {
     sessionId: h.sessionId ?? "",
     desig: h.desig ?? "",
     issueNumber: h.issueNumber,
-    epicParent: leadingEpic,
+    epicParent: epicChildren.has(h.issueNumber) ? leadingEpic : null,
     host: h.host,
   };
 }
@@ -644,6 +738,7 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
   const { leadingEpic, epicChildren } = input;
   const autoSessions = slotHolders(input.autoSessions);
   const remote = input.remoteHolding ?? [];
+  const childNumbers = new Set(epicChildren.map((c) => c.number));
   const byEpic = new Map<number, number[]>();
   for (const s of autoSessions) {
     if (s.epicParent == null || s.epicParent === leadingEpic) continue;
@@ -654,8 +749,12 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
   const windingDown = [...byEpic]
     .sort(([a], [b]) => a - b)
     .map(([epic, inFlight]) => ({ epic, inFlight: inFlight.sort((a, b) => a - b) }));
-  const pending = input.candidates.filter((c) => !input.mappedIssueNumbers.has(c.number));
+  const unmapped = (issues: Issue[]) =>
+    issues.filter((c) => !input.mappedIssueNumbers.has(c.number));
+  const pending = unmapped(input.candidates);
   const next = pending.map((c) => c.number);
+  const standaloneNext =
+    leadingEpic == null ? next : unmapped(input.standaloneCandidates ?? []).map((c) => c.number);
   const nextPriority =
     leadingEpic != null
       ? []
@@ -681,12 +780,13 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
       max: input.maxAuto,
       holders: [
         ...autoSessions.map(summaryHolder),
-        ...remote.map((h) => remoteSummaryHolder(h, leadingEpic)),
+        ...remote.map((h) => remoteSummaryHolder(h, leadingEpic, childNumbers)),
       ],
     },
     landingRepairs: input.autoSessions.filter((s) => s.landingRepair).map(summaryHolder),
     next,
     nextPriority,
+    standaloneNext,
     after,
     queued: input.queued,
   };

@@ -2517,6 +2517,25 @@ test("PUT /api/repo-config rejects non-boolean mergeWithoutCi", async () => {
   expect(res.status).toBe(400);
 });
 
+// ── labelDrainAlongsideEpics repo-config (#4103) ────────────────────────────
+
+test("PUT /api/repo-config accepts labelDrainAlongsideEpics true → 200 and persists it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).labelDrainAlongsideEpics).toBe(false); // default off
+  const res = await putRepoConfig(app, validRepo, { labelDrainAlongsideEpics: true });
+  expect(res.status).toBe(200);
+  expect((await res.json()).labelDrainAlongsideEpics).toBe(true);
+  expect(deps.store.getRepoConfig(validRepo).labelDrainAlongsideEpics).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean labelDrainAlongsideEpics", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { labelDrainAlongsideEpics: "yes" });
+  expect(res.status).toBe(400);
+});
+
 // ── claudeAiConnectorsEnabled repo-config ───────────────────────────────────
 
 test("PUT /api/repo-config accepts claudeAiConnectorsEnabled true → 200 and persists it", async () => {

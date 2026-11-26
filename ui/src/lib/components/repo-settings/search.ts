@@ -102,6 +102,12 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
     },
     {
       section: "start",
+      field: "labelDrainAlongsideEpics",
+      name: m.automation_alongside_epics_name(),
+      description: m.automation_alongside_epics_desc(),
+    },
+    {
+      section: "start",
       field: "maxAuto",
       name: m.drain_cap_label(),
       description: m.drain_cap_hint(),

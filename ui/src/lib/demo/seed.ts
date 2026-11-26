@@ -1757,6 +1757,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     claudeShipStewardDefer: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
+    labelDrainAlongsideEpics: false,
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,

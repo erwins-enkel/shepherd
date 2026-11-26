@@ -141,6 +141,7 @@ export function codingCliRows(): {
         m.settings_engine_effort_label(),
         m.settings_cli_codex_auth_title(),
         m.settings_cli_codex_auth_hint(),
+        m.codex_speed_default_label(),
       ],
       [m.settings_engine_defaults_precedence()],
     ],

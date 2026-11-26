@@ -1918,10 +1918,8 @@
     } catch (error) {
       resumeFailed = true;
       resumeTranscriptMissing = isMissingTranscriptError(error);
-      resumeFailure = resumeTranscriptMissing
-        ? m.session_resume_transcript_missing()
-        : m.viewport_resume_failed();
-      toasts.info(resumeFailureMessage(error, m.viewport_resume_failed()));
+      resumeFailure = resumeFailureMessage(error, m.viewport_resume_failed());
+      toasts.info(resumeFailure);
     } finally {
       resuming = false;
     }
@@ -3484,7 +3482,7 @@
       <div id={detailsRegionId} class="vp-phone-details">
         {#if phoneDetailsOpen}
           {@render gitStrip()}
-          <SessionStatusBar {session} {usage} {activity} joined={false} />
+          <SessionStatusBar {session} {usage} {activity} editableSpeed joined={false} />
           <div class="vp-phone-recap">
             <SessionRecap
               {session}
@@ -3772,7 +3770,7 @@
        (the foldable swipe-up compose gesture starts on the bottom-most element). -->
   {#if !assistant && !mobile}
     <!-- a phone shows it in the session details under the header instead -->
-    <SessionStatusBar {session} {usage} {activity} joined={reviewActive} />
+    <SessionStatusBar {session} {usage} {activity} editableSpeed joined={reviewActive} />
   {/if}
 
   <!-- The merge decision sits right above the steer chips it competes with; the steer and ctrl

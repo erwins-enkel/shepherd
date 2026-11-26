@@ -8,6 +8,8 @@ import type {
   SandboxProfile,
   AssistantPermissions,
   Session,
+  CodexSpeed,
+  CodexSpeedOptions,
   ClearMergedPreview,
   ClearMergedResult,
   CreateInput,
@@ -955,9 +957,12 @@ export async function getSettings(): Promise<Settings> {
 // server's error message on failure, and return the parsed response. The server routes
 // by which field is present — a bare {repoRoot} is the repo-root change; any other single
 // field is its own validating patch.
-async function patchSettings<T>(patch: Record<string, unknown>): Promise<T> {
+async function patchSettings<T>(
+  patch: Record<string, unknown>,
+  method: "PUT" | "PATCH" = "PUT",
+): Promise<T> {
   const r = await fetch("/api/settings", {
-    method: "PUT",
+    method,
     headers: JSON_HEADERS,
     body: JSON.stringify(patch),
   });
@@ -1364,6 +1369,26 @@ export const putDefaultModel = (model: string): Promise<{ defaultModel: string }
 
 export const putDefaultCodexModel = (model: string): Promise<{ defaultCodexModel: string }> =>
   patchSettings<{ defaultCodexModel: string }>({ defaultCodexModel: model });
+
+export function getCodexSpeedOptions(id?: string): Promise<CodexSpeedOptions> {
+  return getJson(
+    id ? `/api/sessions/${encodeURIComponent(id)}/codex-speed` : "/api/settings/codex-speed",
+    "Codex speed",
+  );
+}
+
+export const putDefaultCodexSpeed = (speed: Exclude<CodexSpeed, "standard">) =>
+  patchSettings<{ defaultCodexSpeed: typeof speed }>({ defaultCodexSpeed: speed }, "PATCH");
+
+export async function putSessionCodexSpeed(id: string, speed: CodexSpeed): Promise<Session> {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/codex-speed`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ speed }),
+  });
+  if (!response.ok) throw await failed(response, "Codex speed");
+  return response.json();
+}
 
 export const putDefaultEffort = (effort: string): Promise<{ defaultEffort: string }> =>
   patchSettings<{ defaultEffort: string }>({ defaultEffort: effort });
@@ -1876,6 +1901,8 @@ export function isMissingTranscriptError(error: unknown): boolean {
 
 /** Translate the stable resume refusal and point to the existing fresh-agent action. */
 export function resumeFailureMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.code === "codex-standard-unavailable")
+    return m.codex_speed_standard_refused();
   return isMissingTranscriptError(error)
     ? `${m.session_resume_transcript_missing()} ${m.session_resume_transcript_missing_next()}`
     : fallback;

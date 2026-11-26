@@ -419,3 +419,28 @@ describe("CodexTranscriptLocator", () => {
     expect(h.calls).toEqual(["roll-a", "roll-b"]);
   });
 });
+
+test("Codex speed snapshots are fenced by thread and launch, and a missing tier clears speed", async () => {
+  const { codexRuntimeIdentity } = await import("../src/codex-activity");
+  const snapshot = (at: number, threadId: string, tier?: string) =>
+    JSON.stringify({
+      type: "event_msg",
+      timestamp: new Date(at).toISOString(),
+      payload: {
+        type: "thread_settings_applied",
+        thread_id: threadId,
+        thread_settings: { service_tier: tier },
+      },
+    });
+  const target = { threadId: "pinned", startedAt: 200 };
+  const records = [snapshot(100, "pinned", "priority"), snapshot(300, "different", "priority")];
+  expect(codexRuntimeIdentity(records.join("\n"), target)).toEqual({});
+  records.push(snapshot(400, "pinned", "priority"));
+  expect(codexRuntimeIdentity(records.join("\n"), target)).toMatchObject({
+    codexSpeedObserved: { tier: "priority", at: 400 },
+  });
+  records.push(snapshot(500, "pinned"));
+  expect(codexRuntimeIdentity(records.join("\n"), target)).toMatchObject({
+    codexSpeedObserved: { tier: null, at: 500 },
+  });
+});

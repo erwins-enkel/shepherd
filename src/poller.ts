@@ -707,7 +707,12 @@ export class StatusPoller {
       ((s) => {
         if (s.agentProvider === "codex") {
           const path = codexTranscripts.pathFor(s);
-          return path ? readCodexTranscriptSignals(path) : { snapshot: null, activity: null };
+          if (!path) return { snapshot: null, activity: null };
+          const speedTarget =
+            s.providerSessionId && s.codexSpeedLaunch
+              ? { threadId: s.providerSessionId, startedAt: s.codexSpeedLaunch.startedAt }
+              : undefined;
+          return readCodexTranscriptSignals(path, speedTarget);
         }
         return s.claudeSessionId
           ? readTranscriptSignals(
@@ -2190,19 +2195,26 @@ export class StatusPoller {
    * all, so a steady session doesn't touch the DB once per probe tick.
    */
   private persistRuntimeIdentity(id: string, activity: SessionActivity): void {
-    const { runtimeModel, runtimeEffort } = activity;
-    if (!runtimeModel && !runtimeEffort) return;
+    const { runtimeModel, runtimeEffort, codexSpeedObserved } = activity;
+    if (!runtimeModel && !runtimeEffort && !codexSpeedObserved) return;
     // Memo first: an unchanged signal costs nothing, not even the row read below. NUL-joined so no
     // pair of field values can collide into one key.
-    const seen = `${runtimeModel ?? ""}\u0000${runtimeEffort ?? ""}`;
+    const seen = JSON.stringify([runtimeModel, runtimeEffort, codexSpeedObserved]);
     if (this.persistedIdentity.get(id) === seen) return;
     const stored = this.store.get(id);
     if (!stored) return;
-    const patch: { runtimeModel?: string; runtimeEffort?: string } = {};
+    const patch: Parameters<typeof this.store.setRuntimeIdentity>[1] = {};
     if (runtimeModel && runtimeModel !== stored.runtimeModel) patch.runtimeModel = runtimeModel;
     if (runtimeEffort && runtimeEffort !== stored.runtimeEffort)
       patch.runtimeEffort = runtimeEffort;
-    if (patch.runtimeModel === undefined && patch.runtimeEffort === undefined) {
+    if (
+      codexSpeedObserved &&
+      codexSpeedObserved.at >= (stored.codexSpeedLaunch?.startedAt ?? Infinity) &&
+      (codexSpeedObserved.at !== stored.codexSpeedObserved?.at ||
+        codexSpeedObserved.tier !== stored.codexSpeedObserved?.tier)
+    )
+      patch.codexSpeedObserved = codexSpeedObserved;
+    if (Object.keys(patch).length === 0) {
       this.persistedIdentity.set(id, seen); // already on the row — stop re-reading it for this value
       return;
     }

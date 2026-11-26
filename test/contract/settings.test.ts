@@ -1342,6 +1342,28 @@ test("leitrechner PUT commits selection and emits the same status as GET without
   }
 });
 
+test("Codex speed settings contract exposes availability and an operator-only preference", async () => {
+  const options = "/api/settings/codex-speed";
+  const settings = "/api/settings";
+  const saved = config.defaultCodexSpeed;
+  const original = s.deps.service.codexFastAvailability;
+  s.deps.service.codexFastAvailability = async () => ({ reason: "model" });
+  try {
+    expect(await request("GET", options, 200, undefined, options, { cookie })).toEqual({
+      fastUnavailable: "model",
+    });
+    await request("GET", options, 403);
+    await request("PATCH", settings, 403, { defaultCodexSpeed: "fast" });
+    await request("PATCH", settings, 409, { defaultCodexSpeed: "fast" }, settings, { cookie });
+    expect(
+      await request("PATCH", settings, 200, { defaultCodexSpeed: "codex" }, settings, { cookie }),
+    ).toMatchObject({ defaultCodexSpeed: "codex" });
+  } finally {
+    config.defaultCodexSpeed = saved;
+    s.deps.service.codexFastAvailability = original;
+  }
+});
+
 test("settings owns a full unauthenticated sweep and its exception coverage", async () => {
   for (const op of OPS.filter((o) => o.endsWith(" 401"))) {
     const [method, path] = op.split(" ") as [string, string];

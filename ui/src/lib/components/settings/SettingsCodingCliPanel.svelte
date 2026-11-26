@@ -41,6 +41,7 @@
     codingCliRows,
     matchCount,
   } from "#lib/settings-search.js";
+  import CodexSpeedSelect from "#lib/components/CodexSpeedSelect.svelte";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
@@ -808,9 +809,9 @@
   </label>
   <div class="starts">
     <span class="starts-label">{m.settings_engine_starts_with()}</span>
-    <span class="starts-value"
-      >{engineModelLabel(provider)} · {startsWithEffortLabel(provider)}</span
-    >
+    <span class="starts-value">
+      {engineModelLabel(provider)} · {startsWithEffortLabel(provider)}
+    </span>
     <span class="starts-source">
       {engineEffort[provider] === "inherit"
         ? m.settings_engine_effort_source_inherit()
@@ -941,10 +942,16 @@
       <ModelGuidance metaChips provider="codex" model={engineModel.codex} context="default" />
     </div>
     {@render engineEffortField("codex")}
+    {#if payload?.defaultCodexSpeed !== undefined}
+      <CodexSpeedSelect
+        defaultSpeed={payload.defaultCodexSpeed}
+        modelKey={defaultCodexModelBusy ? null : defaultCodexModel}
+      />
+    {/if}
     <label class="efield">
-      <span class="elabel"
-        ><HighlightText text={m.settings_cli_codex_auth_title()} query={q} /></span
-      >
+      <span class="elabel">
+        <HighlightText text={m.settings_cli_codex_auth_title()} query={q} />
+      </span>
       <span class="set-select">
         <select
           value="local"
@@ -984,9 +991,9 @@
         <HighlightText text={providerLabel(provider)} query={q} />
       </label>
       <label class="efield">
-        <span class="elabel"
-          ><HighlightText text={m.settings_engine_model_label()} query={q} /></span
-        >
+        <span class="elabel">
+          <HighlightText text={m.settings_engine_model_label()} query={q} />
+        </span>
         <span class="set-select">
           <select
             bind:value={quickStart[provider].model}
@@ -1003,9 +1010,9 @@
         </span>
       </label>
       <label class="efield">
-        <span class="elabel"
-          ><HighlightText text={m.settings_engine_effort_label()} query={q} /></span
-        >
+        <span class="elabel">
+          <HighlightText text={m.settings_engine_effort_label()} query={q} />
+        </span>
         <span class="set-select">
           <select
             bind:value={quickStart[provider].effort}

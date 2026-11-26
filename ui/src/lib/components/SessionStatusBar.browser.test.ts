@@ -428,3 +428,27 @@ it("discloses uncertain provider delivery and specific context gaps", async () =
   await expect.element(page.getByText(m.handoff_transcript_gap())).toBeInTheDocument();
   await expect.element(page.getByText(m.handoff_waiting())).toBeInTheDocument();
 });
+
+it("only reports Codex speed observations from the current launch", async () => {
+  const s = session({
+    id: "codex-speed",
+    agentProvider: "codex",
+    codexSpeed: "fast",
+    codexSpeedLaunch: { applied: "fast", reason: null, startedAt: 20 },
+    codexSpeedObserved: { tier: "priority", at: 10 },
+  });
+  const view = await render(SessionStatusBar, { session: s, usage: null });
+  await expect.element(page.getByRole("button", { name: "Speed: Unknown" })).toBeVisible();
+  await view.rerender({
+    session: s,
+    usage: null,
+    activity: {
+      lastActivityTs: 21,
+      summary: null,
+      recentTs: [],
+      recentErrTs: [],
+      codexSpeedObserved: { tier: "priority", at: 21 },
+    },
+  });
+  await expect.element(page.getByRole("button", { name: "Speed: Fast" })).toBeVisible();
+});

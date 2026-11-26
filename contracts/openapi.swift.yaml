@@ -421,6 +421,64 @@ components:
       enum:
         - claude
         - codex
+    CodexSpeed:
+      type: string
+      enum:
+        - codex
+        - standard
+        - fast
+    DefaultCodexSpeed:
+      type: string
+      enum:
+        - codex
+        - fast
+    CodexSpeedOptions:
+      type: object
+      required:
+        - fastUnavailable
+      properties:
+        fastUnavailable:
+          type:
+            - string
+            - "null"
+          description: A normalized Fast availability reason, or null when eligible.
+        standardAvailable:
+          type: boolean
+    CodexSpeedRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - speed
+      properties:
+        speed:
+          $ref: "#/components/schemas/CodexSpeed"
+    CodexSpeedLaunch:
+      type: object
+      required:
+        - applied
+        - reason
+        - startedAt
+      properties:
+        applied:
+          $ref: "#/components/schemas/CodexSpeed"
+        reason:
+          type:
+            - string
+            - "null"
+        startedAt:
+          type: number
+    CodexSpeedObservation:
+      type: object
+      required:
+        - tier
+        - at
+      properties:
+        tier:
+          type:
+            - string
+            - "null"
+        at:
+          type: number
     Settings:
       type: object
       additionalProperties: true
@@ -447,6 +505,8 @@ components:
           type:
             - string
             - "null"
+        defaultCodexSpeed:
+          $ref: "#/components/schemas/DefaultCodexSpeed"
         defaultEffort:
           type: string
         defaultAgentProvider:
@@ -908,6 +968,14 @@ components:
           type:
             - string
             - "null"
+        codexSpeed:
+          $ref: "#/components/schemas/CodexSpeed"
+        codexSpeedLaunch:
+          $ref: "#/components/schemas/CodexSpeedLaunch"
+        codexSpeedObserved:
+          $ref: "#/components/schemas/CodexSpeedObservation"
+        codexStandardBlocked:
+          type: boolean
         contextTokens:
           type:
             - integer
@@ -2212,6 +2280,7 @@ components:
       enum:
         - session:new
         - session:status
+        - session:codex-speed
         - session:renamed
         - session:archived
         - session:block
@@ -2250,6 +2319,29 @@ components:
         status:
           $ref: "#/components/schemas/SessionStatus"
         hasScratchpadFiles:
+          type: boolean
+        codexSpeed:
+          $ref: "#/components/schemas/CodexSpeed"
+        codexSpeedLaunch:
+          $ref: "#/components/schemas/CodexSpeedLaunch"
+        codexSpeedObserved:
+          $ref: "#/components/schemas/CodexSpeedObservation"
+        codexStandardBlocked:
+          type: boolean
+    SessionCodexSpeedEvent:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        codexSpeed:
+          $ref: "#/components/schemas/CodexSpeed"
+        codexSpeedLaunch:
+          $ref: "#/components/schemas/CodexSpeedLaunch"
+        codexSpeedObserved:
+          $ref: "#/components/schemas/CodexSpeedObservation"
+        codexStandardBlocked:
           type: boolean
     SessionRenamedEvent:
       type: object
@@ -3646,6 +3738,8 @@ components:
           type: string
         runtimeEffort:
           type: string
+        codexSpeedObserved:
+          $ref: "#/components/schemas/CodexSpeedObservation"
         ciPolling:
           type: object
           additionalProperties: true
@@ -10259,6 +10353,8 @@ components:
           type: string
         defaultCodexModel:
           type: string
+        defaultCodexSpeed:
+          $ref: "#/components/schemas/DefaultCodexSpeed"
         defaultEffort:
           type: string
         defaultExecutionEffort:
@@ -10382,6 +10478,8 @@ components:
           type: string
         defaultCodexModel:
           type: string
+        defaultCodexSpeed:
+          $ref: "#/components/schemas/DefaultCodexSpeed"
         defaultEffort:
           type: string
         defaultExecutionEffort:
@@ -13372,6 +13470,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/settings/codex-speed:
+    get:
+      operationId: getDefaultCodexSpeedOptions
+      description: Read Fast availability for the local default Codex model.
+      responses:
+        "200":
+          description: Codex speed options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexSpeedOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Requires an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/settings:
     get:
       operationId: getSettings
@@ -13437,6 +13554,18 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Operator session required for the Codex speed default.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Fast is unavailable for the default Codex model.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions:
     get:
       operationId: listSessions
@@ -15260,6 +15389,78 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/codex-speed:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionCodexSpeedOptions
+      responses:
+        "200":
+          description: Codex speed options for the pinned session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexSpeedOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Requires an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No local Codex task session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: putSessionCodexSpeed
+      description: Save the selection for the next Codex process.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CodexSpeedRequest"
+      responses:
+        "200":
+          description: Updated session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Invalid speed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Requires an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No local Codex task session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Fast availability could not be established for the session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/resume:
     parameters:
       - name: id
@@ -15286,7 +15487,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: Cannot resume — unknown id, archived, no conversation to resume, or refused by the auto gate.
+          description: Cannot resume — unknown id, archived, no conversation to resume, refused by the auto gate, or Standard speed could not be guaranteed.
           content:
             application/json:
               schema:
@@ -20461,6 +20662,10 @@ x-shepherd-events:
     description: A project's emoji was set or cleared. Carries the whole current map, not a delta.
     schema:
       $ref: "#/components/schemas/ProjectIcons"
+  session:codex-speed:
+    description: The local Codex speed choice or its launch application changed.
+    schema:
+      $ref: "#/components/schemas/SessionCodexSpeedEvent"
   session:recap:
     description: A session's recap was created, regenerated or changed state. Carries the summary without blocks; open detail views re-read GET /api/sessions/{id}/recap.
     schema:

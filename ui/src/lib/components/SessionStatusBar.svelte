@@ -10,6 +10,7 @@
   import { placementReason } from "#lib/placement.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { placementExplanation } from "#lib/tooltips/explanations.js";
+  import CodexSpeedSelect from "./CodexSpeedSelect.svelte";
   import ProviderHandoffStatus from "./ProviderHandoffStatus.svelte";
   import GlossaryText from "./GlossaryText.svelte";
 
@@ -22,12 +23,14 @@
     usage,
     activity,
     joined = false,
+    editableSpeed,
   }: {
     session: Session;
     usage: SessionUsage | null;
     activity?: SessionActivity;
     /** A review banner sits right above: drop the hairline so the two read as one strip. */
     joined?: boolean;
+    editableSpeed?: boolean;
   } = $props();
 
   // Identity shows what the agent ACTUALLY ran wherever that is known (#1823): the model/effort a
@@ -58,6 +61,35 @@
       activity,
     ),
   );
+  let speedOpen = $state(false);
+  const speedVisible = $derived(provider === "codex" && session.codexSpeed !== undefined);
+  const speedObservation = $derived.by(() => {
+    const launch = session.codexSpeedLaunch;
+    if (!launch) return null;
+    const live = activity?.codexSpeedObserved;
+    const stored = session.codexSpeedObserved;
+    const latest = live && live.at >= (stored?.at ?? 0) ? live : stored;
+    return latest && latest.at >= launch.startedAt ? latest : null;
+  });
+  const speedLabel = $derived.by(() => {
+    const tier = speedObservation?.tier;
+    if (tier === "priority" || tier === "fast") return m.codex_speed_fast();
+    if (tier === "default") return m.codex_speed_standard();
+    if (tier === "ultrafast") return m.codex_speed_ultrafast();
+    if (tier) return tier;
+    return m.codex_speed_unknown();
+  });
+  const speedSummary = $derived(m.codex_speed_effective({ speed: speedLabel }));
+  const speedLaunch = $derived.by(() => {
+    switch (session.codexSpeedLaunch?.applied) {
+      case "fast":
+        return m.codex_speed_fast();
+      case "standard":
+        return m.codex_speed_standard();
+      default:
+        return m.codex_speed_inherit();
+    }
+  });
   const identity = $derived([providerLabel(provider), ...environment.segments].join(" · "));
   // Why the task runs on this machine (#2772) — only when a machine choice was made.
   const placement = $derived(launch?.placement ?? null);
@@ -119,14 +151,32 @@
 <div class="ssb" data-joined={joined} role="group" aria-label={m.statusbar_aria()}>
   <span class="ssb-identity" title={identityTitle} aria-label={identityTitle}>{identity}</span>
   <span class="ssb-sep" aria-hidden="true">·</span>
+  {#if speedVisible}
+    <button
+      type="button"
+      class="ssb-placement"
+      use:statusTip={{
+        text: {
+          title: m.codex_speed_session_label(),
+          summary: speedSummary,
+          sections: [{ label: m.codex_speed_at_launch(), text: speedLaunch }],
+        },
+      }}
+    >
+      {speedSummary}
+    </button>
+    <span class="ssb-sep" aria-hidden="true">·</span>
+  {/if}
   {#if tokensKnown}
     <span class="ssb-tokens">{tokensText}</span>
   {:else}
     <span
       class="ssb-tokens ssb-unavailable"
       title={tokensUnavailableTitle}
-      aria-label={tokensUnavailableTitle}>—</span
+      aria-label={tokensUnavailableTitle}
     >
+      —
+    </span>
   {/if}
   {#if cold}
     <span class="ssb-sep" aria-hidden="true">·</span>
@@ -141,16 +191,34 @@
       type="button"
       class="ssb-placement"
       use:statusTip={{ text: placementExplanation(placement), wide: true }}
-      >{placementReason(placement)}</button
     >
+      {placementReason(placement)}
+    </button>
   {/if}
   <span class="ssb-sep" aria-hidden="true">·</span>
   <span class="ssb-elapsed" title={elapsedTitle}>{elapsedText}</span>
 </div>
 
+{#if speedVisible && (editableSpeed ?? archived)}
+  <details class="ssb-speed" bind:open={speedOpen}>
+    <summary>{m.codex_speed_session_label()}</summary>
+    {#if speedOpen}<CodexSpeedSelect {session} />{/if}
+  </details>
+{/if}
+
 {#if session.providerHandoff}<ProviderHandoffStatus handoff={session.providerHandoff} />{/if}
 
 <style>
+  .ssb-speed {
+    padding: 4px 12px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    background: var(--color-head);
+  }
+  .ssb-speed summary {
+    cursor: pointer;
+  }
+
   /* Same chrome recipe as .vp-foot: head wash, hairline top border, meta type. */
   .ssb {
     display: flex;

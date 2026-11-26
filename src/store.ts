@@ -962,7 +962,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
   plain, operatorAssistant, baseCommit, assistantRepo, incrementalEpicParent,
-  homeIssueRepoPath, homeIssueNumber, misroutedTarget, executionEffort, activeEffort`;
+  homeIssueRepoPath, homeIssueNumber, misroutedTarget, executionEffort, activeEffort, codexSpeed, codexSpeedLaunchJson`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -971,10 +971,37 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * fresh row starts NULL ("not observed yet" / "never parked") on its own. Keeping them out of
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
-const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
+const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, codexSpeedObservedJson, codexStandardBlocked, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
   claudeAiConnectors, ingressStamp, shelved, usagePauseJson, ghGrantsJson, scheduleId, goalCondition, goalState,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+
+function codexSpeedLaunchJson(launch: Session["codexSpeedLaunch"]): string | null {
+  return launch ? JSON.stringify(launch) : null;
+}
+
+function hydrateCodexSpeed(
+  row: Pick<
+    SessionRow,
+    | "agentProvider"
+    | "operatorAssistant"
+    | "codexSpeed"
+    | "codexSpeedLaunchJson"
+    | "codexSpeedObservedJson"
+    | "codexStandardBlocked"
+  >,
+): Partial<Session> {
+  if (row.agentProvider !== "codex" || row.operatorAssistant) return {};
+  return {
+    codexSpeed: row.codexSpeed ?? "codex",
+    codexSpeedLaunch: safeJsonParse<Session["codexSpeedLaunch"]>(row.codexSpeedLaunchJson, null),
+    codexSpeedObserved: safeJsonParse<Session["codexSpeedObserved"]>(
+      row.codexSpeedObservedJson,
+      null,
+    ),
+    codexStandardBlocked: !!row.codexStandardBlocked,
+  };
+}
 
 /** A stored goal state (#2596); anything unknown reads as no goal. */
 function goalStateOf(v: string | null): GoalState | null {
@@ -1031,6 +1058,10 @@ type SessionRow = {
   activeEffort: string | null;
   runtimeModel: string | null;
   runtimeEffort: string | null;
+  codexSpeed: NonNullable<Session["codexSpeed"]> | null;
+  codexSpeedLaunchJson: string | null;
+  codexSpeedObservedJson: string | null;
+  codexStandardBlocked: number;
   contextTokens: number | null;
   coldResumeAt: number | null;
   goalCondition: string | null;
@@ -4706,7 +4737,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -4780,6 +4811,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrNull(s.misroutedTarget), // #3245: issue targets another repo but session runs here
           strOrNull(s.executionEffort), // #3434: execution-phase effort; null = inherit (no switch)
           strOrNull(s.activeEffort), // #3434: the tier in force — the spawn effort at create
+          strOrNull(s.codexSpeed),
+          codexSpeedLaunchJson(s.codexSpeedLaunch),
         ],
       );
       this.setBootstrap(s.id, input);
@@ -6764,6 +6797,28 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  setCodexSpeed(id: string, speed: Session["codexSpeed"]): void {
+    this.db.run(`UPDATE sessions SET codexSpeed = ?, codexStandardBlocked = 0 WHERE id = ?`, [
+      speed ?? null,
+      id,
+    ]);
+  }
+
+  setCodexSpeedLaunch(id: string, launch: Session["codexSpeedLaunch"]): void {
+    this.db.run(
+      `UPDATE sessions SET codexSpeedLaunchJson = ?, codexSpeedObservedJson = NULL,
+       codexStandardBlocked = 0 WHERE id = ?`,
+      [codexSpeedLaunchJson(launch), id],
+    );
+  }
+
+  setCodexStandardBlocked(id: string, blocked: boolean): void {
+    this.db.run(
+      `UPDATE sessions SET codexStandardBlocked = ? WHERE id = ? AND codexSpeed = 'standard'`,
+      [Number(blocked), id],
+    );
+  }
+
   /**
    * Persist the OBSERVED runtime identity — what the agent actually ran, read out of its
    * transcript/rollout (#1823).
@@ -6781,10 +6836,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    */
   setRuntimeIdentity(
     id: string,
-    identity: { runtimeModel?: string | null; runtimeEffort?: string | null },
+    identity: {
+      runtimeModel?: string | null;
+      runtimeEffort?: string | null;
+      codexSpeedObserved?: NonNullable<Session["codexSpeedObserved"]>;
+    },
   ): void {
     const model = identity.runtimeModel ?? null;
     const effort = identity.runtimeEffort ?? null;
+    const observed = identity.codexSpeedObserved;
+    if (observed) {
+      this.db.run(
+        `UPDATE sessions SET codexSpeedObservedJson = ?
+         WHERE id = ? AND agentProvider = 'codex'
+         AND json_extract(codexSpeedLaunchJson, '$.startedAt') <= ?
+         AND COALESCE(json_extract(codexSpeedObservedJson, '$.at'), 0) <= ?`,
+        [JSON.stringify(observed), id, observed.at, observed.at],
+      );
+    }
     if (model === null && effort === null) return; // nothing observed → nothing to write
     this.db.run(
       `UPDATE sessions
@@ -8034,6 +8103,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // — nothing is known at insert time.
     add("runtimeModel", `runtimeModel TEXT`);
     add("runtimeEffort", `runtimeEffort TEXT`);
+    add("codexSpeed", `codexSpeed TEXT`);
+    add("codexSpeedLaunchJson", `codexSpeedLaunchJson TEXT`);
+    add("codexSpeedObservedJson", `codexSpeedObservedJson TEXT`);
+    add("codexStandardBlocked", `codexStandardBlocked INTEGER NOT NULL DEFAULT 0`);
     // Claude Code `/goal` (#2596): held until Go / active in the transcript. Written after create.
     add("goalCondition", `goalCondition TEXT`);
     add("goalState", `goalState TEXT`);
@@ -9119,7 +9192,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   private hydrate(r: SessionRow): Session {
-    const { manualStepsJson, launchMetadataJson, usagePauseJson, ghGrantsJson, ...session } = r;
+    const {
+      manualStepsJson,
+      launchMetadataJson,
+      usagePauseJson,
+      ghGrantsJson,
+      codexSpeed,
+      codexSpeedLaunchJson,
+      codexSpeedObservedJson,
+      codexStandardBlocked,
+      ...session
+    } = r;
     return {
       ...session,
       isolated: !!r.isolated,
@@ -9128,6 +9211,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       providerSessionId: strOrEmpty(r.providerSessionId),
       codexLaunchId: strOrEmpty(r.codexLaunchId),
       agentProvider: r.agentProvider === "codex" ? "codex" : "claude",
+      ...hydrateCodexSpeed({
+        agentProvider: r.agentProvider,
+        operatorAssistant: r.operatorAssistant,
+        codexSpeed,
+        codexSpeedLaunchJson,
+        codexSpeedObservedJson,
+        codexStandardBlocked,
+      }),
       // runtimeModel/runtimeEffort need no line here: `migrateSessionColumns()` runs inside the
       // constructor's open transaction, so every read has the columns and SQLite yields null for an
       // unobserved row — exactly the wire value — which the spread above already carries.

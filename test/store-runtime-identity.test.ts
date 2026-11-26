@@ -124,3 +124,21 @@ test("rows with no usable session id are not candidates", () => {
   expect(ids.has(claudeNoId.id)).toBe(false);
   expect(ids.has(resolvable.id)).toBe(true);
 });
+
+test("old Codex speed observations cannot reappear after a fresh launch", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...base, agentProvider: "codex" });
+  expect(store.get(s.id)?.codexSpeed).toBe("codex");
+  store.setCodexSpeed(s.id, "fast");
+  store.setCodexSpeedLaunch(s.id, { applied: "fast", reason: null, startedAt: 10 });
+  store.setRuntimeIdentity(s.id, { codexSpeedObserved: { tier: "priority", at: 15 } });
+  expect(store.get(s.id)?.codexSpeedObserved?.tier).toBe("priority");
+  store.setCodexSpeed(s.id, "standard");
+  store.setCodexSpeedLaunch(s.id, { applied: "standard", reason: null, startedAt: 20 });
+  store.setRuntimeIdentity(s.id, { codexSpeedObserved: { tier: "priority", at: 15 } });
+  expect(store.get(s.id)?.codexSpeedObserved).toBeNull();
+  store.setRuntimeIdentity(s.id, { codexSpeedObserved: { tier: "default", at: 22 } });
+  store.setRuntimeIdentity(s.id, { codexSpeedObserved: { tier: null, at: 23 } });
+  expect(store.get(s.id)?.codexSpeedObserved).toEqual({ tier: null, at: 23 });
+  expect(store.get(s.id)?.codexSpeed).toBe("standard");
+});

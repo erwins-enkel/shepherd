@@ -47,7 +47,12 @@ function liveAgent(): HerdrAgent {
   };
 }
 
-function makePoller(store: SessionStore, agents: HerdrAgent[], now: () => number) {
+function makePoller(
+  store: SessionStore,
+  agents: HerdrAgent[],
+  now: () => number,
+  probe?: ConstructorParameters<typeof StatusPoller>[8],
+) {
   return new StatusPoller(
     store,
     withListAsync({ list: () => agents, readAsync: async () => "" } as never),
@@ -57,6 +62,7 @@ function makePoller(store: SessionStore, agents: HerdrAgent[], now: () => number
     3000,
     (() => null) as never,
     now,
+    probe,
   );
 }
 
@@ -130,4 +136,38 @@ test("tick() never throws when the capture hook throws (fire-and-forget)", async
   };
 
   await expect(poller.tick()).resolves.toBeUndefined();
+});
+
+test("Codex activity persists only speed observations from the current launch", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    ...codexSession,
+    codexSpeed: "standard",
+    codexSpeedLaunch: { applied: "standard", reason: null, startedAt: 100 },
+  });
+  let clock = 1_000_000;
+  let observation = { tier: "priority", at: 80 };
+  const poller = makePoller(
+    store,
+    [liveAgent()],
+    () => clock,
+    () => ({
+      snapshot: null,
+      activity: {
+        lastActivityTs: clock,
+        summary: null,
+        recentTs: [],
+        recentErrTs: [],
+        codexSpeedObserved: observation,
+      },
+    }),
+  );
+
+  await poller.tick();
+  expect(store.get(s.id)?.codexSpeedObserved).toBeNull();
+  clock += 8000;
+  observation = { tier: "priority", at: 120 };
+  await poller.tick();
+  expect(store.get(s.id)?.codexSpeedObserved).toEqual(observation);
+  expect(store.get(s.id)?.codexSpeed).toBe("standard");
 });

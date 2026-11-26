@@ -1,3 +1,4 @@
+import type { CodexSpeed } from "./codex-speed";
 import { WARM_REPO_DAYS_DEFAULT } from "./repo-warmth";
 import { normalizeStoredAssistantRuntime } from "./operator-assistant-settings";
 import { dirname, join } from "node:path";
@@ -1055,6 +1056,7 @@ export const config = {
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
   // Provider-specific Codex default. Persisted operator choices override this seed;
   // "default" means no --model flag and lets Codex choose.
+  defaultCodexSpeed: "codex" as Exclude<CodexSpeed, "standard">,
   defaultCodexModel:
     normalizeDefaultCodexModelSetting(process.env.SHEPHERD_DEFAULT_CODEX_MODEL) ?? "gpt-5.6-sol",
   // Global default reasoning-effort setting ("default" | <tier>). "default" = emit no effort flag.

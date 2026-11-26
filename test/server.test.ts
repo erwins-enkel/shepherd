@@ -3654,3 +3654,56 @@ for (const invalid of [null, "ci-gate-rot", 42, {}, [""], ["  "], [1], ["ci-gate
     expect(deps.store.getRepoConfig(validRepo)).toEqual({ ...cfg, priorityLabels: ["existing"] });
   });
 }
+
+test("Codex speed edits are local operator-only and never start or change a live process", async () => {
+  const deps = makeDeps();
+  const s = deps.store.create({
+    name: "speed",
+    prompt: "p",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "speed",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "local",
+    herdrAgentId: "live",
+    agentProvider: "codex",
+    codexSpeedLaunch: { applied: "fast", reason: null, startedAt: 1 },
+  });
+  const emitted: string[] = [];
+  deps.events.subscribe((event) => emitted.push(event));
+  const app = makeApp(deps);
+  const putSpeed = (speed: string, token?: string) =>
+    app.fetch(
+      new Request(`http://localhost:7330/api/sessions/${s.id}/codex-speed`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ speed }),
+      }),
+    );
+  expect((await putSpeed("ultrafast")).status).toBe(400);
+  expect((await putSpeed("fast")).status).toBe(409);
+  expect((await putSpeed("standard")).status).toBe(200);
+  expect(emitted).toContain("session:codex-speed");
+  expect(emitted).not.toContain("session:status");
+  expect(deps.store.get(s.id)).toMatchObject({
+    codexSpeed: "standard",
+    herdrAgentId: "live",
+    codexSpeedLaunch: { applied: "fast" },
+  });
+
+  const oldToken = config.token;
+  try {
+    config.token = "codex-speed-test";
+    expect((await putSpeed("codex")).status).toBe(401);
+    expect((await putSpeed("codex", config.token)).status).toBe(403);
+  } finally {
+    config.token = oldToken;
+  }
+
+  deps.store.update(s.id, { agentProvider: "claude" });
+  expect((await putSpeed("standard")).status).toBe(404);
+});

@@ -92,7 +92,8 @@ opens the login page in the Shared Browser and waits. The session shows up as
 needing you (_"Wants you to log in at …"_) with an **Open browser** button that
 takes you straight to its Browser tab, and a **Pop out** button that opens it
 in its own browser tab. Log in, then press **Done**, or
-**Cancel** if you won't. Only you can answer a Login Request; an agent cannot
+**Cancel** if you won't. The same prompt shows on the session's Terminal and
+Chat tabs, so you can answer from either. Only you can answer a Login Request; an agent cannot
 mark its own request done. Autonomous sessions can't make one: log in before
 they start (see [Autonomous sessions](#autonomous-sessions)). **Plain** sessions
 (started with no Shepherd directives) can't either: they get no `shepherd` tools

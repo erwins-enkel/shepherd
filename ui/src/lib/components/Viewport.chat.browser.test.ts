@@ -312,6 +312,30 @@ describe("Viewport Chat tab", () => {
     await expect.element(page.getByRole("button", { name: "No", exact: true })).toBeDisabled();
   });
 
+  it("shows open gh permission + login requests in the chat, answerable in place", async () => {
+    await mount({
+      session: session({ id: "s1", status: "running" }),
+      ghPermissionRequest: {
+        id: "gr1",
+        permission: "workflows",
+        reason: "Push the CI change",
+        files: [".github/workflows/ci.yml"],
+        createdAt: 1,
+      },
+      loginRequest: { id: "lr1", url: "https://login.example/", reason: "dash", createdAt: 1 },
+    });
+    clients[0].receive("$ ");
+    await open(m.viewport_chat_tab());
+    const thread = page.getByRole("log");
+    await expect.element(thread.getByText("Push the CI change")).toBeVisible();
+    await expect.element(thread.getByRole("button", { name: m.gh_request_grant() })).toBeVisible();
+    await expect.element(thread.getByText("https://login.example/")).toBeVisible();
+    await expect
+      .element(thread.getByRole("button", { name: m.viewport_browser_login_done() }))
+      .toBeVisible();
+    expect(page.getByText(m.assistant_chat_open_terminal()).query()).toBeNull();
+  });
+
   it("a session switch returns to the device default", async () => {
     const { view, props } = await mount();
     await open(m.viewport_chat_tab());

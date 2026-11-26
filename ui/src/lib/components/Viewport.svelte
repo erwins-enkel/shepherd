@@ -73,6 +73,7 @@
   import { onPageReturn, pollWhileVisible } from "#lib/visibility.js";
   import TodoPanel from "#lib/components/TodoPanel.svelte";
   import ChatView from "#lib/components/chat/ChatView.svelte";
+  import PendingRequestCards from "#lib/components/chat/PendingRequestCards.svelte";
   import SubagentFanout from "#lib/components/SubagentFanout.svelte";
   import FilesTab from "./viewport/FilesTab.svelte";
   import AutomationPanel from "./viewport/AutomationPanel.svelte";
@@ -3681,7 +3682,17 @@
             composerLead={mobile ? steerToggle : undefined}
             resolveLocalPath={hasFiles ? resolveLocalPath : undefined}
             onopenfile={openFileInFiles}
-          />
+          >
+            {#snippet notices()}
+              <!-- Login + gh permission requests answered from the Chat too, not only the terminal strips. -->
+              <PendingRequestCards
+                sessionId={session.id}
+                {loginRequest}
+                {ghPermissionRequest}
+                openBrowser={hasBrowser ? () => (tab = "browser") : null}
+              />
+            {/snippet}
+          </ChatView>
         {/key}
       </div>
     {/if}

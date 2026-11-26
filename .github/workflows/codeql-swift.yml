@@ -1,24 +1,24 @@
 name: CodeQL (Swift)
 
 # Swift analysis, split from codeql.yml because it needs a macOS runner and a full build
-# (16-48 min), so a PR that doesn't touch native/ must not pay for it. Safe to path-filter
-# because CodeQL is not a required check. Default setup must stay off: see codeql.yml.
+# (16-48 min), so only Swift source or dependency changes pay for it. String catalogs,
+# openapi.yaml (generated client), docs and scripts don't trigger it; the weekly scan covers
+# them. Safe to path-filter because CodeQL is not a required check. Default setup must stay
+# off: see codeql.yml.
 
 on:
   push:
     branches: [main]
     paths:
-      - "native/**"
+      - "native/**/*.swift"
+      - "native/Package.resolved"
       - ".github/workflows/codeql-swift.yml"
-      - "!native/docs/**"
-      - "!native/**/*.md"
   pull_request:
     branches: [main]
     paths:
-      - "native/**"
+      - "native/**/*.swift"
+      - "native/Package.resolved"
       - ".github/workflows/codeql-swift.yml"
-      - "!native/docs/**"
-      - "!native/**/*.md"
   schedule:
     # Weekly, as in codeql.yml.
     - cron: "27 3 * * 1"

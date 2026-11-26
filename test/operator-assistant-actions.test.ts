@@ -552,6 +552,17 @@ test("herd_retry targets a repeated desig once", async () => {
   expect(requests[0]!.body).toMatchObject({ ids: [worker.id] });
 });
 
+test("herd_retry targets one session once however its desig is written", async () => {
+  const { store, worker, requests, run } = setup();
+  store.setHaltReason(worker.id, "usage_limit", 1);
+  const bare = String(Number(worker.desig.replace(/^TASK-/, "")));
+  const desigs = [worker.desig, worker.desig.toLowerCase(), bare];
+  const res = await run("herd_retry", { desigs });
+  expect(res.ok && res.data).toMatchObject({ target: worker.desig });
+  expect(requests).toHaveLength(1);
+  expect(requests[0]!.body).toMatchObject({ ids: [worker.id] });
+});
+
 test("herd_retry needs the steer group as well as automation", async () => {
   const steerOff = setup({ permissions: { automation: "allow", steer: "off" } });
   steerOff.store.setHaltReason(steerOff.worker.id, "usage_limit", 1);

@@ -253,6 +253,36 @@ Binary files /dev/null and b/x b/README.md differ
   expect(f.status).toBe("added");
 });
 
+const BLANK_CONTEXT = `diff --git a/notes.txt b/notes.txt
+index 1111111..2222222 100644
+--- a/notes.txt
++++ b/notes.txt
+@@ -1,3 +1,3 @@
+ one
+
+-two
++TWO
+@@ -10,3 +10,4 @@
+ ten
++++ b/README.md
+ eleven
+ twelve
+`;
+
+test("an empty line inside a hunk counts as a blank context line", () => {
+  const files = parseUnifiedDiff(BLANK_CONTEXT);
+  expect(files).toHaveLength(1);
+  expect(files[0]!.path).toBe("notes.txt");
+  expect(files[0]!.hunks).toHaveLength(2);
+  expect(files[0]!.additions).toBe(2);
+});
+
+test("an empty line in the first hunk does not merge it into the next", () => {
+  const text = BLANK_CONTEXT.replace("+++ b/README.md\n", "");
+  const files = parseUnifiedDiff(text);
+  expect(files[0]!.hunks).toHaveLength(2);
+});
+
 test("displayRef: strips one leading refs/remotes/ or refs/heads/", () => {
   expect(displayRef("refs/remotes/origin/main")).toBe("origin/main");
   expect(displayRef("refs/heads/main")).toBe("main");
@@ -532,6 +562,29 @@ test("computeDiff: worktree mode adds uncommitted edits; default stays committed
     const wt = await computeDiff(repo, "main", "feature", undefined, { worktree: true });
     expect(wt.files).toHaveLength(1);
     expect(wt.files[0]!.additions).toBe(2);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("computeDiff: blank context lines are not collapsed when diff.suppressBlankEmpty is set", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-diff-blank-"));
+  try {
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "diff.suppressBlankEmpty", "true");
+    const lines = (a: string, b: string) =>
+      [a, "", "x", ...Array(20).fill("m"), b, "", "y"].join("\n") + "\n";
+    writeFileSync(join(repo, "a.txt"), lines("p", "q"));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    git(repo, "checkout", "-q", "-b", "feature");
+    writeFileSync(join(repo, "a.txt"), lines("P", "Q"));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "change");
+
+    const r = await computeDiff(repo, "main", "feature");
+    expect(r.files).toHaveLength(1);
+    expect(r.files[0]!.hunks).toHaveLength(2);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

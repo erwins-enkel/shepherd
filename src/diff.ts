@@ -159,7 +159,8 @@ function finishFile(state: ParseState): void {
 
 /** Account for one body line against the lines the open hunk still owes. */
 function consumeHunkLine(left: { old: number; new: number }, marker: string | undefined): void {
-  if (marker === " ") {
+  // An empty line is a blank context line (as `git apply` reads it).
+  if (marker === " " || marker === undefined) {
     left.old--;
     left.new--;
   } else if (marker === "-") {
@@ -368,7 +369,10 @@ export async function hasCommittedChanges(
 
   try {
     await timedAsync("git diff --quiet", () =>
-      execGit(["diff", "--quiet", "--end-of-options", `${ref}...HEAD`], { cwd: worktreePath, pin }),
+      execGit(["diff", "--quiet", "--end-of-options", `${ref}...HEAD`, "--"], {
+        cwd: worktreePath,
+        pin,
+      }),
     );
     return false; // exit 0 → no diff
   } catch (err) {
@@ -414,10 +418,11 @@ export async function computeDiff(
   const { ref, fetchFailed } = await resolveBaseRef(worktreePath, base, pin);
   const range = await diffRange(worktreePath, ref, pin, opts.worktree === true);
   const { stdout } = await timedAsync("git diff", () =>
-    execGit(["diff", "--no-color", "--end-of-options", range], {
+    execGit(["diff", "--no-color", "--end-of-options", range, "--"], {
       cwd: worktreePath,
       maxBuffer: MAX_BUFFER,
       pin,
+      config: [["diff.suppressBlankEmpty", "false"]],
     }),
   );
   const files = parseUnifiedDiff(stdout);

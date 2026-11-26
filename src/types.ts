@@ -730,7 +730,7 @@ export interface DiffFile {
 
 export interface DiffResult {
   base: string; // logical base branch, e.g. "main"
-  baseRef: string; // ref actually diffed against, e.g. "origin/main" or "main"
+  baseRef: string; // full ref diffed against, e.g. "refs/remotes/origin/main"; short form on the wire via toSessionDiff
   head: string | null; // session branch; null for non-isolated sessions
   fetchFailed: boolean; // true when `git fetch` failed and we fell back to local base
   truncated: boolean; // true when any file was truncated

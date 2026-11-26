@@ -242,14 +242,20 @@ function herdRow(deps: DiagDeps, s: Session, holds: Record<string, HoldReason>, 
   };
 }
 
+/** Ids short and plain enough to hand back verbatim; `plan_answer` takes them as written. */
+const PLAIN_PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
+
 /** The plan gate's question-form questions, addressed the way `plan_answer` takes them. Prompts and
- *  options are the planning agent's text, so fenced; options carry their index. */
+ *  options are the planning agent's text, so fenced; options carry their index. Only questions
+ *  whose block and question ids are plain are listed (the operator answers the rest in the HUD). */
 function planQuestions(gate: PlanGate, fence: Fence) {
   const answered = new Set(gate.answeredQuestionKeys ?? []);
   const out = [];
   for (const b of gate.blocks ?? []) {
     if (b.type !== "question-form") continue;
+    if (!PLAIN_PLAN_ID.test(b.id)) continue;
     for (const q of b.questions) {
+      if (!PLAIN_PLAN_ID.test(q.id)) continue;
       out.push({
         blockId: b.id,
         questionId: q.id,

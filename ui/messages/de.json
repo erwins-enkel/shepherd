@@ -6449,7 +6449,7 @@
   "settings_assistant_approve_title": "Freigaben & Merge",
   "settings_assistant_approve_hint": "Freigegebenen Plan starten, Build-Queue freigeben, PR auf ready setzen, PR mergen. Übernimmt nie einen Merge, für den jemand anderes zuständig ist.",
   "settings_assistant_automation_title": "Automatik bearbeiten",
-  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten, Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben, Repo-Zeitpläne anlegen, bearbeiten, löschen und sofort ausführen sowie Issues anlegen.",
+  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten (erneut starten braucht auch Steering & Antworten), Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben, Repo-Zeitpläne anlegen, bearbeiten, löschen und sofort ausführen sowie Issues anlegen.",
   "settings_assistant_save_failed": "Die Rechte des Assistenten konnten nicht gespeichert werden.",
   "operator_assistant_mode_asks": "Fragt nach",
   "operator_assistant_mode_acts": "Handelt selbst",

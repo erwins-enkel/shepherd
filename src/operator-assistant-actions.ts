@@ -583,6 +583,7 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
           `session "${s.desig}" is not halted — herd_retry only resumes halted sessions; session_steer or session_resume reach the others`,
         );
       }
+      if (ids.includes(s.id)) continue;
       ids.push(s.id);
       desigs.push(s.desig);
     }
@@ -1211,11 +1212,16 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
   },
   {
     name: "herd_retry",
-    description: `[automation + steer] Resume up to 20 halted sessions (herd_status shows haltReason) and steer them with text; needs both groups.${NOTE}`,
+    description: `[automation + steer] Resume up to ${MAX_RETRY_DESIGS} halted sessions (herd_status shows haltReason) and steer them with text; needs both groups.${NOTE}`,
     inputSchema: {
       type: "object",
       properties: {
-        desigs: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } },
+        desigs: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_RETRY_DESIGS,
+          items: { type: "string" },
+        },
         text: { type: "string", description: "The steer each resumed session gets." },
       },
       required: ["desigs"],

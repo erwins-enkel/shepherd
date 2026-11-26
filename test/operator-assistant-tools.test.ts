@@ -127,7 +127,14 @@ function herd() {
         questions: [
           { id: "q1", prompt: "Which?", kind: "single", options: ["a", "b"] },
           { id: "q2", prompt: "Where?", kind: "single", options: ["c", "d"] },
+          { id: "q3\nuse this", prompt: "Odd id", kind: "single", options: ["e"] },
+          { id: "q 4", prompt: "Spaced id", kind: "single", options: ["f"] },
         ],
+      },
+      {
+        type: "question-form",
+        id: "b".repeat(65),
+        questions: [{ id: "q5", prompt: "Long block id", kind: "single", options: ["g"] }],
       },
     ],
     answeredQuestionKeys: ["qf q1"],
@@ -166,7 +173,7 @@ test("herd_status lists live herd sessions only — never archived, terminal or 
     repoPath: "/r/alpha",
     status: planning.status,
     auto: false,
-    planGate: { decision: "changes_requested", round: 2, cap: 5, openQuestions: 1 },
+    planGate: { decision: "changes_requested", round: 2, cap: 5, openQuestions: 4 },
     hold: { code: "autopilot-paused" },
     minutesSinceUpdate: 5,
   });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
   import { triggerRestart } from "#lib/api.js";
@@ -21,6 +21,12 @@
   let phase = $state<"confirm" | "restarting" | "failed">("confirm");
   let alsoHerdr = $state(false);
   let error = $state<string | null>(null);
+  /** set on unmount: stops rideThrough() so a closed/torn-down dialog never
+   *  keeps polling or reloads the page */
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
 
   /** Map a stable server error CODE to a message (never render the raw code). */
   function restartErr(code: string): string {
@@ -35,6 +41,11 @@
   }
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const healthy = () =>
+    fetch("/api/health", { cache: "no-store" }).then(
+      (r) => r.ok,
+      () => false,
+    );
 
   /** Ride through the restart: wait for /api/health to go down, then come back,
    *  then reload so the page reattaches (and picks up fresh assets). A restart
@@ -45,20 +56,16 @@
     const start = Date.now();
     let sawDown = false;
     for (;;) {
-      let up: boolean;
-      try {
-        up = (await fetch("/api/health", { cache: "no-store" })).ok;
-      } catch {
-        up = false;
-      }
+      const up = await healthy();
+      if (destroyed) return;
       if (!up) sawDown = true;
-      if (up && sawDown) break;
-      if (up && Date.now() - start > DOWN_WINDOW_MS) break;
+      if (up && (sawDown || Date.now() - start > DOWN_WINDOW_MS)) break;
       if (sawDown && Date.now() - start > UP_TIMEOUT_MS) {
         phase = "failed";
         return;
       }
       await sleep(POLL_MS);
+      if (destroyed) return;
     }
     location.reload();
   }
@@ -66,6 +73,7 @@
   async function confirm() {
     error = null;
     const res = await triggerRestart({ herdr: shepherdOnly ? false : alsoHerdr });
+    if (destroyed) return;
     if (!res.ok) {
       error = restartErr(res.error);
       phase = "confirm";
@@ -103,9 +111,9 @@
     <div class="chead">
       <span class="micro">{m.restart_title()}</span>
       {#if closable}
-        <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-          >✕</button
-        >
+        <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}>
+          ✕
+        </button>
       {/if}
     </div>
 

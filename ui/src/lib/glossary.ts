@@ -235,16 +235,6 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_satellite_pass_def",
   },
   {
-    id: "telemetry",
-    kind: "external",
-    termKey: "gloss_telemetry_term",
-    bodyKey: "gloss_telemetry_def",
-    wikipedia: {
-      en: "Telemetry#Software",
-      de: "Telemetrie_(Software)",
-    },
-  },
-  {
     id: "host-capacity",
     kind: "internal",
     termKey: "gloss_host_capacity_term",

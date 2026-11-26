@@ -192,7 +192,6 @@ import {
   writeBrowserConfig,
 } from "./browser-attach-config";
 import type { PreviewService } from "./preview";
-import type { TelemetryService } from "./telemetry";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { planEditGoText } from "./plan-gate";
@@ -616,9 +615,6 @@ export interface ServiceDeps {
    *  thread into the prompt (see composePromptArg). Absent (tests) or a host without
    *  listIssueComments → the spawn prompt stays body-only. */
   resolveForge?: (repoPath: string) => GitForge | null;
-  /** Anonymous product telemetry. `event()` no-ops unless consent is granted (see src/telemetry.ts),
-   *  so no call-site gating is needed. Absent in tests that don't assert emission. */
-  telemetry?: Pick<TelemetryService, "event">;
 }
 
 /**
@@ -5792,14 +5788,6 @@ export class SessionService {
       }
       this.scheduleRefine(session, herdSlug);
       this.#maybeRegisterTrain(session, input);
-      this.deps.telemetry?.event("session_created", {
-        agentProvider,
-        autopilot: spawnInput.autopilotEnabled ?? false,
-        research: session.research,
-        landingRepair: session.landingRepair,
-        planGate: planGateOn,
-        fromIssue: session.issueNumber != null,
-      });
       return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error

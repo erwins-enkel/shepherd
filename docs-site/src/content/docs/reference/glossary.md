@@ -366,14 +366,6 @@ into a branch. ([Wikipedia](https://en.wikipedia.org/wiki/Distributed_version_co
 Continuous integration — automatically building and testing every change so
 problems surface early. ([Wikipedia](https://en.wikipedia.org/wiki/Continuous_integration))
 
-### Telemetry
-
-Automatic collection of anonymous usage and diagnostic data from software, sent
-back to its developers to guide improvements. In Shepherd it is off until you opt
-in, respects `DO_NOT_TRACK`, and never includes code or personal data — see
-[Configuration](/reference/configuration/#anonymous-usage-telemetry).
-([Wikipedia](https://en.wikipedia.org/wiki/Telemetry#Software))
-
 ### Lead time
 
 How long a task took end to end: from the moment the session was created to the

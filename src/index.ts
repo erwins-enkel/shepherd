@@ -151,9 +151,6 @@ import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from 
 import { homedir } from "node:os";
 import { detectBackend, resolveProfile, safeRealpath } from "./sandbox";
 import { readMembraneLaunchFacts } from "./membrane-launch";
-import { TelemetryService, normalizeTelemetryHealth } from "./telemetry";
-import { normalizeTelemetryConsent } from "./telemetry-consent";
-import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
 import { StarPromptService } from "./star-prompt";
 import {
   PushService,
@@ -659,12 +656,6 @@ store.setSetting("assistantRuntime", JSON.stringify(config.assistantRuntime));
 config.assistantPermissions = normalizeStoredAssistantPermissions(
   store.getSetting("assistantPermissions"),
 );
-// a UI-set telemetry consent (persisted) overrides the env seed; absent or unrecognised → keep default.
-const savedTc = store.getSetting("telemetryConsent");
-if (savedTc !== null) {
-  const v = normalizeTelemetryConsent(savedTc);
-  if (v !== null) config.telemetryConsent = v;
-}
 // restore the apiKeyHelper path if the file still exists on disk; self-heal if it was deleted.
 const savedHelperPath = store.getSetting("authApiKeyHelperPath");
 if (savedHelperPath !== null && savedHelperPath !== "") {
@@ -1090,28 +1081,6 @@ function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
   return env;
 }
 
-// Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
-// granted consent (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set.
-// Send health is persisted (not just in-memory) so it survives the deploy restarts that
-// punctuate normal operation: an in-memory-only record would read "never sent" after every
-// `bun run update`, which is the exact ambiguity that hid a month of silence.
-const TELEMETRY_HEALTH_KEY = "telemetryHealth";
-const telemetry = new TelemetryService({
-  appKey: config.aptabaseAppKey,
-  hostOverride: config.aptabaseHostOverride,
-  enabled: () => config.telemetryConsent === "granted" && !config.doNotTrack,
-  restore: () => {
-    const raw = store.getSetting(TELEMETRY_HEALTH_KEY);
-    if (!raw) return null;
-    try {
-      return normalizeTelemetryHealth(JSON.parse(raw));
-    } catch {
-      return null; // hand-edited or truncated row must never block boot
-    }
-  },
-  persist: (h) => store.setSetting(TELEMETRY_HEALTH_KEY, JSON.stringify(h)),
-});
-
 config.codexResetAutoEnabled = store.getSetting("codexResetAutoEnabled") === "true";
 const codexAccount = new CodexAccountClient();
 // Shared Browser (ADR 0001): per-repo Chromium launched on demand; stopped sync on exit below.
@@ -1293,7 +1262,6 @@ const service = new SessionService({
     const recap = reason === "noop" ? null : recapService.considerForArchive(s);
     return Promise.all([recap, snapshotSessionUsage(s, store)]).then(() => {});
   },
-  telemetry,
 });
 // A live assistant spawned by an older build re-reads this file mid-session: bring its rules up to
 // date before any of its tool calls reach this server.
@@ -2198,10 +2166,6 @@ onSessionGit(({ id, git }) => {
   manualStepsHeadSeen.set(id, headSha);
   void detectAndPersistManualSteps(id, git.number);
 });
-
-// Anonymous product telemetry: emit `pr_opened` the first time a session's tracked PR
-// transitions to open (see src/pr-opened-telemetry.ts for the transition/dedup design).
-wirePrOpenedTelemetry({ events, store, telemetry });
 
 // Drive tailscale serve mappings: register when a preview port binds, unregister
 // on teardown. Listens on session:preview (NOT session:preview-serve to avoid
@@ -3464,7 +3428,6 @@ const drain = new DrainService({
     });
     events.emit("repo:target-repo-unregistered", { repoPath, issue, slug });
   },
-  telemetry,
   // #1071: wire rebase cap + real rebaseLandingBranch (mirrors autopilot/automerge wiring).
   rebaseCap: config.autoMergeRebaseCap,
   // #1838: surface a genuine-conflict landing pause to the operator via push.
@@ -4770,7 +4733,6 @@ const appDeps: AppDeps = {
   warmth: repoWarmth,
   readCodexAuthMode,
   mythosAvailable: accountMythosAvailable,
-  telemetry,
   repoConfig: repoConfigSvc,
   repoLeitrechner,
   accessTokens: accessTokenSvc,
@@ -5070,9 +5032,6 @@ console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
 // First-run gate: on an already-onboarded boot, start every deferred background subsystem now.
 // On a fresh install (firstRun.pending) stay inert — the server serves only the onboarding UI —
 // and register startBackground to fire off-thread when server.ts resolves the first root-pick.
-deferredStarts.push(() => {
-  telemetry.event("app_launched");
-});
 if (firstRun.pending)
   firstRun.onResolve(() => {
     void startBackground();

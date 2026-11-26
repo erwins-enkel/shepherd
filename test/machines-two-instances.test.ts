@@ -148,7 +148,6 @@ function spawnNode(
     SHEPHERD_COOKIE_SECRET: spec.secret,
     SHEPHERD_HOOKS_INGEST: "0",
     SHEPHERD_HOOKS_SIGNALS: "0",
-    DO_NOT_TRACK: "1",
     MACHINE_NODE_ROOT: spec.root,
     MACHINE_NODE_NAME: spec.name,
     MACHINE_NODE_PORT: String(port),

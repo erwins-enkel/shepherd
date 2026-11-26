@@ -2323,7 +2323,6 @@ export const KEYS_SETTINGS: readonly string[] = [
   "native_settings_field_reducedpushmode",
   "native_settings_field_remotecontrolatstartup",
   "native_settings_field_sessionhousekeepingenabled",
-  "native_settings_field_telemetryconsent",
   "native_settings_field_tuidisablemouse",
   "native_settings_field_tuifullscreen",
   "native_settings_field_upnextreadiness",
@@ -2789,10 +2788,6 @@ export const KEYS_ISSUE_FILTER: readonly string[] = [
   "upnext_filter_title",
 ];
 
-/**
- * PRs in Up Next on iOS: the PR groups, the card status line, the PR sheet and the
- * Dependabot merge train. Keep alphabetical.
- */
 /** iOS: updating the connected server from the mismatch banner (#2987). Reuses the web update
  * modal's copy wherever the wording already fits. */
 export const KEYS_IOS_SERVER_UPDATE: readonly string[] = [
@@ -2821,6 +2816,10 @@ export const KEYS_IOS_SERVER_UPDATE: readonly string[] = [
   "updatemodal_updating",
 ];
 
+/**
+ * PRs in Up Next on iOS: the PR groups, the card status line, the PR sheet and the
+ * Dependabot merge train. Keep alphabetical.
+ */
 export const KEYS_IOS_UPNEXT_PRS: readonly string[] = [
   "mergetrain_confirm_action",
   "mergetrain_confirm_other_repos",

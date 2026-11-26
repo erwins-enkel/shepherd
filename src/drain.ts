@@ -7,7 +7,6 @@ import type { EpicStructure, GitForge, GitState, Issue, PrStatus } from "./forge
 import type { AgentProvider, CreateSessionInput, Session, SessionArchiveReason } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
-import type { TelemetryService } from "./telemetry";
 import {
   recordEpicIntegrationIfChild,
   recordIncrementalStackLanding,
@@ -563,9 +562,6 @@ export interface DrainDeps {
   /** #3245: a ticket names a `Target repo:` no registered repo matches, so the drain refuses to
    *  start it. Called once per (repo, issue) per process. Absent in tests that don't assert it. */
   onTargetRepoUnregistered?: (e: { repoPath: string; issue: number; slug: string }) => void;
-  /** Anonymous product telemetry. `event()` no-ops unless consent is granted (src/telemetry.ts),
-   *  so no call-site gating is needed. Absent in tests that don't assert emission. */
-  telemetry?: Pick<TelemetryService, "event">;
   now?: () => number;
   /** Short cache for listIssues (default 10s). */
   issuesTtlMs?: number;
@@ -2780,7 +2776,6 @@ export class DrainService {
     // the next buildState sees idle and stops emitting epicParent — re-timed, so it carries
     // the stopped clock and the landing start the completion just recorded.
     this.emitEpicIfChanged(repoPath, this.timeEpic(repoPath, { ...epic, run: completedRun }));
-    this.deps.telemetry?.event("epic_drained", { childCount: epic.children.length });
     this.promoteQueuedEpic(repoPath);
     return true;
   }

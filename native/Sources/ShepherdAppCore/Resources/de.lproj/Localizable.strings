@@ -1639,7 +1639,6 @@
 "native_settings_field_reducedpushmode" = "Reduzierte Benachrichtigungen";
 "native_settings_field_remotecontrolatstartup" = "Fernsteuerung beim Start";
 "native_settings_field_sessionhousekeepingenabled" = "Sitzungsbereinigung";
-"native_settings_field_telemetryconsent" = "Telemetrie-Zustimmung";
 "native_settings_field_tuidisablemouse" = "TUI-Mauserfassung deaktivieren";
 "native_settings_field_tuifullscreen" = "Vollbild-TUI";
 "native_settings_field_upnextreadiness" = "Als Nächstes nach Agent-Tauglichkeit ordnen";

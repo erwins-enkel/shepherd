@@ -184,7 +184,6 @@ above as one of the 4 sticky / 2 promoted sites.
 | 850  | "Couldn't change the fullscreen renderer setting."       | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 867  | "Couldn't change the mouse-capture setting."             | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 884  | "Couldn't save reduced notifications setting."           | duration:null, alert, key | persist(null) | 12s or sticky* |
-| 902  | "Couldn't save the telemetry setting."                   | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 924  | "Couldn't change the usage hold threshold. Retry."       | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 942  | "Couldn't change the usage downgrade setting. Retry."    | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 964  | "Couldn't change the usage downgrade threshold. Retry."  | duration:null, alert, key | persist(null) | 12s or sticky* |

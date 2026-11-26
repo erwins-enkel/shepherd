@@ -181,7 +181,6 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
     [m.settings_egress_standard_title(), m.settings_egress_standard_hint()],
     [m.settings_egress_standard_default_title(), m.settings_egress_standard_default_hint()],
     [m.settings_egress_muted_title(), m.settings_egress_muted_hint()],
-    [m.settings_telemetry_title(), m.settings_telemetry_hint()],
     [
       m.settings_pr_review_cycles_title(),
       m.settings_pr_review_cycles_hint({

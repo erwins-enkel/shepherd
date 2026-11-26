@@ -28184,23 +28184,6 @@
         }
       }
     },
-    "native_settings_field_telemetryconsent": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Telemetrie-Zustimmung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Telemetry consent"
-          }
-        }
-      }
-    },
     "native_settings_field_tuidisablemouse": {
       "extractionState": "manual",
       "localizations": {

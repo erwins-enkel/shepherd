@@ -22,6 +22,7 @@ import {
   POSTGRES_LABEL_MANAGED,
   POSTGRES_LABEL_PORT,
   POSTGRES_SETTING,
+  adoptScript,
   baseScript,
   cloneScript,
   connectionFor,
@@ -426,7 +427,11 @@ export class PostgresService {
     this.store.upsertPostgresLease({ sessionId, repoPath, db, role: repoRole(repoPath) });
     await this.admin(async () => {
       await this.psql(baseScript(repoPath));
-      const exists = (await this.psql(roleScript(sessionId, password))).trim().split("\n").pop();
+      await this.adoptNow(this.activeLeases());
+      const exists = (await this.psql(roleScript(sessionId, password, repoPath)))
+        .trim()
+        .split("\n")
+        .pop();
       if (exists === "0") await this.psql(cloneScript(repoPath, sessionId));
     });
     this.lastBusyAt = this.now();
@@ -438,6 +443,23 @@ export class PostgresService {
     return this.store.getPostgresLease(sessionId)?.state === "active";
   }
 
+  // ── app roles ──────────────────────────────────────────────────────────────
+
+  private activeLeases(): PostgresLease[] {
+    return this.store.listPostgresLeases().filter((l) => l.state === "active");
+  }
+
+  /** Hand roles the sessions created to their repo roles (`adoptScript`). Callers already hold the
+   *  admin queue. Never fails its caller: a missed adoption is retried by the next tick. */
+  private async adoptNow(leases: readonly PostgresLease[]): Promise<void> {
+    try {
+      const sql = adoptScript(leases.filter((l) => isSessionDbName(l.db)));
+      if (sql) await this.psql(sql);
+    } catch (e) {
+      this.log(`adopting app roles failed: ${(e as Error).message}`);
+    }
+  }
+
   // ── release / reconcile ────────────────────────────────────────────────────
 
   private async drop(lease: PostgresLease): Promise<void> {
@@ -445,7 +467,11 @@ export class PostgresService {
       this.store.deletePostgresLease(lease.sessionId);
       return;
     }
-    await this.admin(() => this.psql(dropScript(lease.db)));
+    await this.admin(async () => {
+      // Adopt first: roles this session created would otherwise lose their only admin holder.
+      await this.adoptNow([lease]);
+      await this.psql(dropScript(lease.db));
+    });
     this.store.deletePostgresLease(lease.sessionId);
   }
 
@@ -483,6 +509,7 @@ export class PostgresService {
       await this.drainDropping();
       const claimed = new Set(this.store.listPostgresLeases().map((l) => l.db));
       await this.admin(async () => {
+        await this.adoptNow(this.activeLeases());
         const names = (await this.psql(LIST_SESSION_OBJECTS_SQL)).split("\n").map((n) => n.trim());
         for (const name of names)
           if (isSessionDbName(name) && !claimed.has(name)) await this.psql(dropScript(name));
@@ -522,6 +549,8 @@ export class PostgresService {
       this.disarmIdle(); // container gone or stopped elsewhere; the next ensure re-arms
       return;
     }
+    // Bounds how long a running session waits for a role a sibling just created.
+    await this.admin(() => this.adoptNow(this.activeLeases()));
     if (count > 0) this.lastBusyAt = this.now();
     else if (shouldIdleStop(this.now(), this.lastBusyAt, this.settings().idleMinutes))
       await this.stop("idle");

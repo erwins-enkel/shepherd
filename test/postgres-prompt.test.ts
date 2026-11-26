@@ -82,6 +82,9 @@ test("Claude spawn carries the notice on every profile", async () => {
     await svc.create(base);
     expect(prompt(captured.argv!)).toContain(NOTICE);
     expect(prompt(captured.argv!)).toContain("`git check-ignore -q .env`");
+    expect(prompt(captured.argv!)).toContain(
+      'If granting such a role fails with "ADMIN option", wait a minute and re-run the migrations.',
+    );
   }
 });
 

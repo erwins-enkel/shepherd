@@ -59,7 +59,9 @@ export function postgresSessionNotice(mode: PostgresNoticeMode): string {
     `persist between commands: ${keepIt}. Never commit the DSN or hardcode credentials. On ` +
     "`starting`, or a later connection refused, call `postgres_request` again. The database is " +
     "this session's own copy of the repo's template (it may be empty), dropped when the session " +
-    "is archived: run the repo's migrations before use."
+    "is archived: run the repo's migrations before use. Migrations may create roles; a role is " +
+    "shared by every session of this repo on the server. If granting such a role fails with " +
+    '"ADMIN option", wait a minute and re-run the migrations.'
   );
 }
 

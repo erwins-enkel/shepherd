@@ -124,6 +124,8 @@ export interface PreviewWiring {
     /** Ms since last proxy activity for a bound session, null if unbound.
      *  Optional so existing fake `service` literals in tests still compile. */
     idleSince?(sessionId: string, now: number): number | null;
+    /** True for ports the preview proxy must never target (own listeners, slot range). */
+    isReservedPort?(port: number): boolean;
   };
   sweepMs: number;
   /** Refresh the probe snapshot cell before a sweep reads it (darwin; no-op on
@@ -2767,7 +2769,9 @@ export class StatusPoller {
     s: Session,
     listeners: WorktreeListeners | undefined,
   ): Promise<number | null> {
-    return this.previewWiring.pick(listeners?.ports ?? [], [
+    const isReserved = this.previewWiring.service.isReservedPort?.bind(this.previewWiring.service);
+    const ports = listeners?.ports ?? [];
+    return this.previewWiring.pick(isReserved ? ports.filter((p) => !isReserved(p)) : ports, [
       s.worktreePath,
       ...(listeners?.hintDirs ?? []),
     ]);

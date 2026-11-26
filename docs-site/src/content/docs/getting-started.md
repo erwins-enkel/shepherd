@@ -124,7 +124,7 @@ bun run start
 # → shepherd core on http://localhost:7330
 ```
 
-Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
+Open <http://127.0.0.1:7330>. To expose it (e.g. via Tailscale), set
 `SHEPHERD_ALLOWED_HOSTS` to include the public hostname — see
 [Configuration](/reference/configuration/).
 

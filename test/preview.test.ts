@@ -4,10 +4,14 @@ import {
   sanitizeCloseCode,
   rewriteLoopbackLocation,
   resolveDevPort,
+  readPreviewHint,
   detectDevCommand,
   makeRelayHandlers,
   parsePortRange,
   previewReach,
+  previewRequestAllowed,
+  loopbackV6Available,
+  needsLoopbackV6,
   type FsAccessors,
   type PreviewReachInput,
 } from "../src/preview";
@@ -16,7 +20,7 @@ import {
   type ListenerScanTarget,
   type ReaperProbes,
 } from "../src/process-reaper";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -123,6 +127,40 @@ const rejectReadFile = async (): Promise<string> => {
   throw new Error("ENOENT: no such file");
 };
 const makeReadFile = (content: string) => async (): Promise<string> => content;
+
+test("readPreviewHint: a FIFO hint returns null without blocking", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hint-fifo-"));
+  try {
+    const mk = Bun.spawn(["mkfifo", join(dir, ".shepherd-preview")]);
+    expect(await mk.exited).toBe(0);
+    const t0 = performance.now();
+    expect(await readPreviewHint(dir)).toBeNull();
+    expect(performance.now() - t0).toBeLessThan(100);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readPreviewHint: a symlinked hint returns null", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hint-link-"));
+  try {
+    writeFileSync(join(dir, "real"), "5173");
+    symlinkSync(join(dir, "real"), join(dir, ".shepherd-preview"));
+    expect(await readPreviewHint(dir)).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readPreviewHint: a regular hint file is read by the default reader", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hint-reg-"));
+  try {
+    writeFileSync(join(dir, ".shepherd-preview"), "5173\n");
+    expect(await readPreviewHint(dir)).toBe(5173);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 // These tests exercise readPreviewHint behaviour indirectly via resolveDevPort.
 test("resolveDevPort: an explicit hint cannot point the preview at a debugger", async () => {
@@ -747,7 +785,9 @@ test("scanListeningPortsByWorktree: two sessions sharing a worktree path do not 
 // Every test stops its upstream(s) AND the service in cleanup.
 
 import { afterEach, beforeEach } from "bun:test";
-import { PreviewService } from "../src/preview";
+import { createHash } from "node:crypto";
+import { createServer, type AddressInfo, type Socket } from "node:net";
+import { PreviewService, type PreviewServiceOptions } from "../src/preview";
 
 // Per-process random base avoids cross-process port collision: a fixed base (e.g. 39000)
 // collides when a concurrent or leftover `bun test` process is binding the same range.
@@ -761,6 +801,8 @@ type Upstream = ReturnType<typeof Bun.serve>;
 
 const upstreams: Upstream[] = [];
 let service: PreviewService | null = null;
+/** Resolvers for upstream handlers parked mid-request; afterEach resolves them all. */
+const parked: Array<() => void> = [];
 
 /** The real listen port of a started upstream (`Server.port` is typed optional). */
 function portOf(s: Upstream): number {
@@ -775,6 +817,8 @@ function httpUpstream(opts: {
   echoPath?: boolean;
   /** Receives each request's headers as the upstream saw them. */
   seen?: Headers[];
+  /** Receives each request's pathname as the upstream saw it. */
+  paths?: string[];
 }): Upstream {
   const s = Bun.serve({
     port: 0,
@@ -782,6 +826,7 @@ function httpUpstream(opts: {
     fetch(req) {
       opts.seen?.push(req.headers);
       const url = new URL(req.url);
+      opts.paths?.push(url.pathname);
       const body = opts.echoPath ? url.pathname + url.search : (opts.body ?? "ok");
       return new Response(body, {
         status: opts.status ?? 200,
@@ -881,6 +926,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const resolve of parked.splice(0)) resolve();
   try {
     service?.stopAll();
   } catch {
@@ -1186,6 +1232,234 @@ test("PreviewService: WS relay does not forward the client's shepherd_session to
   expect(seen[0]!.get("cookie") ?? "").not.toContain("SECRET");
 });
 
+// ── Host/Origin check ─────────────────────────────────────────────────────────
+
+const TAILNET = "node.tailnet.ts.net";
+
+/** `previewRequestAllowed` over a plain header record. */
+function allowed(h: Record<string, string>, extra: readonly (string | null | undefined)[] = []) {
+  return previewRequestAllowed(new Headers(h), extra);
+}
+
+test("previewRequestAllowed: loopback Host without Origin passes", () => {
+  expect(allowed({ host: "127.0.0.1:8001" })).toBe(true);
+  expect(allowed({ host: "localhost:8001" })).toBe(true);
+  expect(allowed({ host: "[::1]:8001" })).toBe(true);
+});
+
+test("previewRequestAllowed: foreign or missing Host fails", () => {
+  expect(allowed({ host: "evil.example:8001" })).toBe(false);
+  expect(allowed({})).toBe(false);
+});
+
+test("previewRequestAllowed: an extra host with its same-origin https Origin passes", () => {
+  const h = { host: `${TAILNET}:8001`, origin: `https://${TAILNET}:8001` };
+  expect(allowed(h, [TAILNET])).toBe(true);
+  expect(allowed(h)).toBe(false);
+});
+
+test("previewRequestAllowed: Origin must be same-origin with Host", () => {
+  const host = "127.0.0.1:8001";
+  expect(allowed({ host, origin: "http://127.0.0.1:8001" })).toBe(true);
+  expect(allowed({ host, origin: "https://evil.example" })).toBe(false);
+  expect(allowed({ host, origin: "http://127.0.0.1:8002" })).toBe(false); // another slot
+  expect(allowed({ host, origin: "" })).toBe(false);
+  expect(allowed({ host, origin: "chrome-extension://abc" })).toBe(false);
+});
+
+test("previewRequestAllowed: Origin null passes only with Sec-Fetch-Site same-origin", () => {
+  const host = "127.0.0.1:8001";
+  expect(allowed({ host, origin: "null", "sec-fetch-site": "same-origin" })).toBe(true);
+  expect(allowed({ host, origin: "null", "sec-fetch-site": "Same-Origin" })).toBe(true);
+  expect(allowed({ host, origin: "null" })).toBe(false);
+  expect(allowed({ host, origin: "null", "sec-fetch-site": "cross-site" })).toBe(false);
+  expect(allowed({ host, origin: "null", "sec-fetch-site": "same-site" })).toBe(false);
+  expect(allowed({ host, origin: "null", "sec-fetch-site": "none" })).toBe(false);
+  // Sec-Fetch-Site never overrides the Host rule or a non-null cross-origin Origin.
+  const sameOrigin = { origin: "null", "sec-fetch-site": "same-origin" };
+  expect(allowed({ host: "evil.example:8001", ...sameOrigin })).toBe(false);
+  expect(allowed({ host, origin: "https://evil.example", "sec-fetch-site": "same-origin" })).toBe(
+    false,
+  );
+});
+
+test("previewRequestAllowed: an elided port is the Origin scheme's default on both sides", () => {
+  const extra = ["host.example"];
+  expect(allowed({ host: "host.example", origin: "https://host.example" }, extra)).toBe(true);
+  expect(allowed({ host: "host.example:443", origin: "https://host.example" }, extra)).toBe(true);
+  expect(allowed({ host: "host.example", origin: "http://host.example:80" }, extra)).toBe(true);
+  expect(allowed({ host: "host.example:80", origin: "https://host.example" }, extra)).toBe(false);
+});
+
+test("previewRequestAllowed: hostnames compare ignoring case, a trailing dot and IPv6 spelling", () => {
+  expect(allowed({ host: "LOCALHOST.:8001" })).toBe(true);
+  expect(allowed({ host: "[0:0:0:0:0:0:0:1]:8001" })).toBe(true);
+  expect(allowed({ host: `${TAILNET.toUpperCase()}:8001` }, [`${TAILNET}.`])).toBe(true);
+  expect(allowed({ host: `${TAILNET}.:8001`, origin: `https://${TAILNET}:8001` }, [TAILNET])).toBe(
+    true,
+  );
+});
+
+test("previewRequestAllowed: a bare IPv6 allowlist entry matches its bracketed Host", () => {
+  const h = { host: "[fd7a:115c:a1e0::1]:8001" };
+  expect(allowed(h, ["fd7a:115c:a1e0::1"])).toBe(true);
+  expect(allowed(h, ["[fd7a:115c:a1e0::1]"])).toBe(true);
+  expect(allowed(h, [null, undefined, "", "  "])).toBe(false);
+});
+
+test("previewRequestAllowed: a Host that is not a bare host[:port] fails", () => {
+  expect(allowed({ host: "evil.example@127.0.0.1:8001" })).toBe(false);
+  expect(allowed({ host: "127.0.0.1:8001/x" })).toBe(false);
+  expect(allowed({ host: "127.0.0.1:8001, evil.example" })).toBe(false);
+  expect(allowed({ host: "127.0.0.1:99999" })).toBe(false);
+  expect(allowed({ host: "" })).toBe(false);
+});
+
+test("PreviewService: a cross-origin request gets 403 and never reaches the upstream", async () => {
+  const paths: string[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ paths })));
+  const res = await fetch(`http://127.0.0.1:${port}/t4-cross-origin`, {
+    headers: { origin: "https://evil.example" },
+  });
+  expect(res.status).toBe(403);
+  expect(res.headers.get("content-type")).toStartWith("text/plain");
+  expect(await res.text()).toBe("Forbidden");
+  expect(paths).not.toContain("/t4-cross-origin");
+});
+
+test("PreviewService: a request with a foreign Host gets 403 and never reaches the upstream", async () => {
+  const paths: string[] = [];
+  const port = service!.ensure("s1", portOf(httpUpstream({ paths })));
+  const res = await fetch(`http://127.0.0.1:${port}/t4-foreign-host`, {
+    headers: { host: `evil.example:${port}` },
+  });
+  expect(res.status).toBe(403);
+  expect(paths).not.toContain("/t4-foreign-host");
+  // The same request under a loopback Host proxies.
+  expect((await fetch(`http://127.0.0.1:${port}/t4-foreign-host`)).status).toBe(200);
+  expect(paths).toContain("/t4-foreign-host");
+});
+
+test("PreviewService: an allowed host with its own Origin is proxied", async () => {
+  service?.stopAll();
+  service = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    allowedHosts: () => ["node.tailnet.example"],
+  });
+  const paths: string[] = [];
+  const port = service.ensure("s1", portOf(httpUpstream({ paths, body: "allowed-host-body" })));
+  const res = await fetch(`http://127.0.0.1:${port}/t-allowed-host`, {
+    headers: {
+      host: `node.tailnet.example:${port}`,
+      origin: `https://node.tailnet.example:${port}`,
+    },
+  });
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("allowed-host-body");
+  expect(paths).toContain("/t-allowed-host");
+});
+
+/** What a recording WS upstream saw on one request. */
+type SeenUpgrade = { path: string; origin: string | null; protocol: string | null };
+
+/** WS upstream that pushes "hi" on open and records each request's path, Origin and
+ *  offered subprotocols. */
+function recordingWsUpstream(seen: SeenUpgrade[]): Upstream {
+  const s = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req, srv) {
+      seen.push({
+        path: new URL(req.url).pathname,
+        origin: req.headers.get("origin"),
+        protocol: req.headers.get("sec-websocket-protocol"),
+      });
+      if (srv.upgrade(req)) return undefined;
+      return new Response("not a ws", { status: 426 });
+    },
+    websocket: {
+      open(ws) {
+        ws.send("hi");
+      },
+      message() {},
+    },
+  });
+  upstreams.push(s);
+  return s;
+}
+
+/** Connect a client WS (sending `origin` and offering `protocols` when given); settle on its
+ *  first frame or failure. */
+function wsFirstFrame(
+  url: string,
+  origin?: string,
+  protocols?: string[],
+): Promise<{ opened: boolean; frame: string | null }> {
+  return new Promise((resolve) => {
+    const options = { headers: origin ? { Origin: origin } : undefined, protocols };
+    // The DOM constructor type lacks Bun's options form (headers).
+    const ws = new WebSocket(url, options as never);
+    let opened = false;
+    const done = (frame: string | null) => {
+      clearTimeout(timer);
+      resolve({ opened, frame });
+      try {
+        ws.close();
+      } catch {
+        /* peer gone */
+      }
+    };
+    const timer = setTimeout(() => done(null), 3000);
+    ws.onopen = () => {
+      opened = true;
+    };
+    ws.onmessage = (e) => done(String(e.data));
+    ws.onerror = () => done(null);
+    ws.onclose = () => done(null);
+  });
+}
+
+test("PreviewService: a cross-origin WS upgrade fails and never reaches the upstream", async () => {
+  const seen: SeenUpgrade[] = [];
+  const port = service!.ensure("s1", portOf(recordingWsUpstream(seen)));
+  const out = await wsFirstFrame(`ws://127.0.0.1:${port}/t4-ws-cross`, "https://evil.example");
+  expect(out).toEqual({ opened: false, frame: null });
+  expect(seen.map((s) => s.path)).not.toContain("/t4-ws-cross");
+}, 10_000);
+
+test("PreviewService: WS relay sends the dev server's own origin upstream only when the client sent one", async () => {
+  const seen: SeenUpgrade[] = [];
+  // devPort (5173) differs from the dialled upstream port: the Origin names the dev port.
+  const port = service!.ensure("s1", 5173, portOf(recordingWsUpstream(seen)));
+  const withOrigin = `ws://127.0.0.1:${port}/t4-with-origin`;
+  expect((await wsFirstFrame(withOrigin, `http://127.0.0.1:${port}`)).frame).toBe("hi");
+  expect((await wsFirstFrame(`ws://127.0.0.1:${port}/t4-no-origin`)).frame).toBe("hi");
+  const originAt = (path: string) => seen.find((s) => s.path === path)?.origin;
+  expect(originAt("/t4-with-origin")).toBe("http://localhost:5173");
+  expect(originAt("/t4-no-origin")).toBeNull();
+}, 10_000);
+
+test("PreviewService: WS relay still offers the client's subprotocols upstream", async () => {
+  const seen: SeenUpgrade[] = [];
+  const port = service!.ensure("s1", portOf(recordingWsUpstream(seen)));
+  const url = `ws://127.0.0.1:${port}/t4-protocols`;
+  expect((await wsFirstFrame(url, undefined, ["vite-hmr", "x"])).frame).toBe("hi");
+  expect(seen.find((s) => s.path === "/t4-protocols")?.protocol ?? "").toContain("vite-hmr");
+}, 10_000);
+
+test("PreviewService: upstream Clear-Site-Data never passes; a new owner's navigation gets only the proxy's", async () => {
+  const headers = new Headers({ "clear-site-data": '"cookies"' });
+  headers.append("set-cookie", "shepherd_session=x; Path=/");
+  const port = service!.ensure("s1", portOf(httpUpstream({ headers })));
+  const plain = await fetch(`http://127.0.0.1:${port}/`);
+  expect(plain.headers.get("clear-site-data")).toBeNull();
+  expect(plain.headers.getSetCookie()).toEqual([]);
+  const nav = await fetch(`http://127.0.0.1:${port}/`, { headers: NAV });
+  expect(nav.headers.get("clear-site-data")).toBe('"cache", "storage"');
+  expect(nav.headers.getSetCookie().some((c) => c.startsWith("shepherd_session="))).toBe(false);
+});
+
 test("PreviewService: HTTP proxy strips content-encoding/content-length (Bun decodes the body)", async () => {
   // A real compressing dev server: send a genuinely gzipped body with the matching
   // content-encoding/content-length. Bun's fetch in the proxy DECODES the body but
@@ -1233,6 +1507,287 @@ test("PreviewService: fail-closed — upstream dead → 502/503, not a hang or e
   const res = await fetch(`http://127.0.0.1:${port}/`);
   expect([502, 503]).toContain(res.status);
 });
+
+// ── PreviewService: per-slot proxy limits ─────────────────────────────────────
+
+/** A promise an upstream handler awaits until `release()` (or test cleanup) resolves it. */
+function park(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  parked.push(release);
+  return { promise, release };
+}
+
+/** Swap the shared service for one with `proxyLimits` (afterEach stops it); returns the slot
+ *  URL proxying to `up`. */
+function limitedProxy(proxyLimits: PreviewServiceOptions["proxyLimits"], up: Upstream): string {
+  service?.stopAll();
+  service = new PreviewService({ base: TEST_BASE, count: TEST_COUNT, proxyLimits });
+  return `http://127.0.0.1:${service.ensure("s1", portOf(up))}/`;
+}
+
+/** Poll `cond` every 10 ms until it holds or `ms` elapses; returns its final value. */
+async function waitFor(cond: () => boolean, ms = 2000): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (!cond() && Date.now() < end) await Bun.sleep(10);
+  return cond();
+}
+
+/** HTTP upstream whose first request waits on `first`; later ones answer at once. */
+function firstHeldUpstream(first: Promise<void>): { up: Upstream; hits: () => number } {
+  let hits = 0;
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch() {
+      const n = ++hits;
+      if (n === 1) await first;
+      return new Response(`hit${n}`);
+    },
+  });
+  upstreams.push(up);
+  return { up, hits: () => hits };
+}
+
+/** Upstream serving `chunks` slow chunks at /stream (endless when null) and "ok" elsewhere. */
+function streamingUpstream(chunks: number | null): Upstream {
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(req) {
+      if (new URL(req.url).pathname !== "/stream") return new Response("ok");
+      let i = 0;
+      return new Response(
+        new ReadableStream({
+          async pull(c) {
+            await Bun.sleep(20);
+            if (chunks === null || i < chunks) c.enqueue(new TextEncoder().encode(`chunk${++i};`));
+            else c.close();
+          },
+        }),
+      );
+    },
+  });
+  upstreams.push(up);
+  return up;
+}
+
+test("PreviewService: a stalled upstream gets 504 after the headers deadline", async () => {
+  const stall = park();
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch() {
+      await stall.promise;
+      return new Response("late");
+    },
+  });
+  upstreams.push(up);
+  const url = limitedProxy({ headersTimeoutMs: 200 }, up);
+  const started = Date.now();
+  const res = await fetch(url);
+  expect(res.status).toBe(504);
+  expect(await res.text()).toBe("Preview upstream timed out");
+  expect(Date.now() - started).toBeLessThan(1000);
+});
+
+test("PreviewService: a body still streaming past the headers deadline completes", async () => {
+  const enc = new TextEncoder();
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch() {
+      let sent = 0;
+      // Headers + first chunk go out at once; the body ends ~550 ms later.
+      return new Response(
+        new ReadableStream({
+          async pull(c) {
+            if (sent++ === 0) return c.enqueue(enc.encode("head;"));
+            await Bun.sleep(550);
+            c.enqueue(enc.encode("tail"));
+            c.close();
+          },
+        }),
+      );
+    },
+  });
+  upstreams.push(up);
+  const url = limitedProxy({ headersTimeoutMs: 300 }, up);
+  const started = Date.now();
+  const res = await fetch(`${url}t-slow-body`);
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("head;tail");
+  expect(Date.now() - started).toBeGreaterThan(300); // the body did outlive the deadline
+});
+
+test("PreviewService: a client abort cancels the upstream request", async () => {
+  const stall = park();
+  let upstreamAborted = false;
+  const up = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      req.signal.addEventListener("abort", () => {
+        upstreamAborted = true;
+      });
+      await stall.promise;
+      return new Response("late");
+    },
+  });
+  upstreams.push(up);
+  const port = service!.ensure("s1", portOf(up));
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 100);
+  await expect(fetch(`http://127.0.0.1:${port}/`, { signal: ctl.signal })).rejects.toThrow();
+  expect(await waitFor(() => upstreamAborted)).toBe(true);
+});
+
+test("PreviewService: requests past the slot concurrency wait FIFO for a permit", async () => {
+  const first = park();
+  const { up, hits } = firstHeldUpstream(first.promise);
+  const url = limitedProxy({ concurrency: 1 }, up);
+  const a = fetch(url);
+  expect(await waitFor(() => hits() === 1)).toBe(true);
+  const b = fetch(url);
+  await Bun.sleep(150);
+  expect(hits()).toBe(1); // queued behind the held permit, not yet sent upstream
+  first.release();
+  const [resA, resB] = await Promise.all([a, b]);
+  expect([resA.status, resB.status]).toEqual([200, 200]);
+  expect([await resA.text(), await resB.text()]).toEqual(["hit1", "hit2"]);
+});
+
+test("PreviewService: a full slot queue answers 503", async () => {
+  const first = park();
+  const { up, hits } = firstHeldUpstream(first.promise);
+  const url = limitedProxy({ concurrency: 1, queue: 0 }, up);
+  const a = fetch(url);
+  expect(await waitFor(() => hits() === 1)).toBe(true);
+  const busy = await fetch(url);
+  expect(busy.status).toBe(503);
+  expect(await busy.text()).toBe("Preview busy");
+  first.release();
+  const resA = await a;
+  expect(resA.status).toBe(200);
+  expect(await resA.text()).toBe("hit1");
+  expect(hits()).toBe(1);
+});
+
+test("PreviewService: a slot permit frees once the response body completes", async () => {
+  // A leaked permit would queue the next request until the deadline: 504, not a hang.
+  const url = limitedProxy({ concurrency: 1, headersTimeoutMs: 1000 }, streamingUpstream(5));
+  for (let i = 0; i < 2; i++) {
+    const res = await fetch(url);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
+  }
+  const streamed = await fetch(`${url}stream`);
+  expect(await streamed.text()).toBe("chunk1;chunk2;chunk3;chunk4;chunk5;");
+  const after = await fetch(url);
+  expect(after.status).toBe(200);
+  expect(await after.text()).toBe("ok");
+});
+
+test("PreviewService: a slot permit frees when the client drops a streaming response", async () => {
+  const url = limitedProxy({ concurrency: 1, headersTimeoutMs: 1000 }, streamingUpstream(null));
+  const ctl = new AbortController();
+  const streamed = await fetch(`${url}stream`, { signal: ctl.signal });
+  await streamed.body!.getReader().read();
+  ctl.abort();
+  const after = await fetch(url);
+  expect(after.status).toBe(200);
+  expect(await after.text()).toBe("ok");
+});
+
+/**
+ * Raw TCP WS upstream: completes the 101 handshake, then never reads its socket again. It
+ * writes an unmasked ping every 50 ms instead: a write is how a non-reading peer notices
+ * the other end is gone, so `closed()` turns true once the relay drops this connection.
+ */
+async function stalledWsUpstream(): Promise<{
+  port: number;
+  handshaken: Promise<void>;
+  closed: () => boolean;
+  close: () => void;
+}> {
+  const sockets = new Set<Socket>();
+  const pingers = new Set<ReturnType<typeof setInterval>>();
+  let closed = false;
+  let handshake!: () => void;
+  const handshaken = new Promise<void>((resolve) => {
+    handshake = resolve;
+  });
+  const srv = createServer((sock) => {
+    sockets.add(sock);
+    sock.on("error", () => {});
+    sock.once("data", (buf) => {
+      const key = /sec-websocket-key:\s*(\S+)/i.exec(buf.toString("latin1"))?.[1];
+      // Only the relay's WS connection counts; drop any other caller (e.g. a port probe).
+      if (key === undefined) return void sock.destroy();
+      sock.on("close", () => {
+        closed = true;
+      });
+      const accept = createHash("sha1")
+        .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+        .digest("base64");
+      sock.write(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+          `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+      sock.pause();
+      handshake();
+      const pinger = setInterval(() => {
+        if (sock.destroyed) clearInterval(pinger);
+        else sock.write(Buffer.from([0x89, 0x00]));
+      }, 50);
+      pingers.add(pinger);
+    });
+  });
+  await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+  return {
+    port: (srv.address() as AddressInfo).port,
+    handshaken,
+    closed: () => closed,
+    close: () => {
+      for (const pinger of pingers) clearInterval(pinger);
+      for (const sock of sockets) sock.destroy();
+      srv.close();
+    },
+  };
+}
+
+test("PreviewService: WS relay drops both sides when the upstream stops reading", async () => {
+  const up = await stalledWsUpstream();
+  let ws: WebSocket | null = null;
+  try {
+    const port = service!.ensure("s1", up.port);
+    let sent = false;
+    const closedAfterFlood = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 4000);
+      ws = new WebSocket(`ws://127.0.0.1:${port}/`);
+      ws.onclose = () => {
+        clearTimeout(timer);
+        resolve(sent); // a close before the flood went out is not the cap's doing
+      };
+      ws.onopen = async () => {
+        await up.handshaken;
+        await Bun.sleep(100); // let the relay see the upstream open (past the pre-open buffer)
+        // 32 MiB: kernel socket buffers absorb a few MiB before `bufferedAmount` grows.
+        const mib = new Uint8Array(1024 * 1024);
+        for (let i = 0; i < 32; i++) ws?.send(mib);
+        sent = true;
+      };
+    });
+    expect(closedAfterFlood).toBe(true);
+    // The upstream still isn't reading: its connection closing proves the relay dropped it.
+    expect(await waitFor(up.closed)).toBe(true);
+  } finally {
+    (ws as WebSocket | null)?.close();
+    up.close();
+  }
+}, 10_000);
 
 test("PreviewService: slot allocation bounded by count — (count+1)th session → null", () => {
   for (let i = 0; i < TEST_COUNT; i++) {
@@ -1354,6 +1909,113 @@ test("PreviewService: onChange fires on first bind and on release", () => {
   } finally {
     svc.stopAll();
   }
+});
+
+test("PreviewService: slot-range port is not accepted as a dev port", () => {
+  const svc = new PreviewService({ base: TEST_BASE, count: TEST_COUNT });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    expect(svc.ensure("s1", TEST_BASE + 1)).toBeNull();
+    expect(svc.snapshot()).toEqual({});
+  } finally {
+    console.warn = warn;
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: reserved dev or upstream port is refused", () => {
+  const reserved = 41234;
+  const svc = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    reservedPorts: () => [reserved, null, undefined, 0],
+  });
+  const warn = console.warn;
+  const warns: string[] = [];
+  console.warn = (m: string) => warns.push(m);
+  try {
+    expect(svc.ensure("s1", reserved)).toBeNull();
+    expect(svc.ensure("s1", reserved)).toBeNull();
+    expect(svc.ensure("s1", 41235, reserved)).toBeNull();
+    expect(svc.snapshot()).toEqual({});
+    expect(warns.length).toBe(1); // once per session+port
+  } finally {
+    console.warn = warn;
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: an in-netns dev port in the slot range binds when its dialled port is free", async () => {
+  // Only the dialled upstream port is checked: the dev port lives in the session's netns.
+  const port = service!.ensure("s1", TEST_BASE + 1, portOf(httpUpstream({ body: "netns-dev" })));
+  expect(port).not.toBeNull();
+  const res = await fetch(`http://127.0.0.1:${port}/t-netns-dev`);
+  expect(await res.text()).toBe("netns-dev");
+});
+
+test("PreviewService: converge drops warn state for sessions it no longer lists", () => {
+  const reserved = 41239;
+  const svc = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    reservedPorts: () => [reserved],
+  });
+  const warn = console.warn;
+  const warns: string[] = [];
+  console.warn = (m: string) => warns.push(m);
+  try {
+    svc.converge([{ sessionId: "s1", devPort: reserved }]);
+    svc.converge([{ sessionId: "s1", devPort: reserved }]);
+    expect(warns.length).toBe(1); // still listed: warned once
+    svc.converge([]); // no longer listed: its warn state goes with it
+    svc.ensure("s1", reserved);
+    expect(warns.length).toBe(2);
+  } finally {
+    console.warn = warn;
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: bound session re-ensured with a reserved port is released", async () => {
+  const reserved = 41236;
+  const changes: Array<[string, number | null]> = [];
+  const svc = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    reservedPorts: () => [reserved],
+    onChange: (id, port) => changes.push([id, port]),
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const port = svc.ensure("s1", 40000);
+    expect(port).not.toBeNull();
+    expect(svc.ensure("s1", reserved)).toBeNull();
+    expect(svc.snapshot()).toEqual({});
+    expect(changes).toEqual([
+      ["s1", port],
+      ["s1", null],
+    ]);
+    await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toBeDefined();
+  } finally {
+    console.warn = warn;
+    svc.stopAll();
+  }
+});
+
+test("PreviewService: isReservedPort covers slot range and reserved list only", () => {
+  const svc = new PreviewService({
+    base: TEST_BASE,
+    count: TEST_COUNT,
+    reservedPorts: () => [41237, null],
+  });
+  expect(svc.isReservedPort(TEST_BASE)).toBe(true);
+  expect(svc.isReservedPort(TEST_BASE + TEST_COUNT - 1)).toBe(true);
+  expect(svc.isReservedPort(TEST_BASE + TEST_COUNT)).toBe(false);
+  expect(svc.isReservedPort(TEST_BASE - 1)).toBe(false);
+  expect(svc.isReservedPort(41237)).toBe(true);
+  expect(svc.isReservedPort(41238)).toBe(false);
 });
 
 test("PreviewService: range exhaustion logs a warning and never crashes", () => {
@@ -1750,23 +2412,27 @@ test("detectDevCommand: workspaces object form { packages: [...] } is handled", 
 // the socket, so reusing TEST_BASE here races earlier tests' listeners and fails to bind.
 const GUARD_BASE = 31000 + Math.floor(Math.random() * 3000);
 
-/** Swap a bound listener's server for one whose `stop()` throws SYNCHRONOUSLY (a non-promise
+/** Swap a bound listener's servers for one whose `stop()` throws SYNCHRONOUSLY (a non-promise
  *  return would fail the same way, since `.catch` would then throw). */
 function breakServer(svc: PreviewService, sessionId: string): { stopReal: () => void } {
   const listener = (svc as any).listeners.get(sessionId);
-  const real = listener.server;
-  listener.server = {
-    stop() {
-      throw new Error("boom: server already gone");
+  const real: Upstream[] = listener.servers;
+  listener.servers = [
+    {
+      stop() {
+        throw new Error("boom: server already gone");
+      },
     },
-  };
-  // The service can no longer reach the REAL server (we just swapped it out), so `stopAll`/`release`
-  // will never close its socket. The test must, or it leaks a listening port for the rest of the run.
+  ];
+  // The service can no longer reach the REAL servers (we just swapped them out), so `stopAll`/`release`
+  // will never close their sockets. The test must, or it leaks a listening port for the rest of the run.
   return {
-    stopReal: () =>
-      void Promise.resolve(real?.stop(true)).catch(() => {
-        /* already gone */
-      }),
+    stopReal: () => {
+      for (const server of real)
+        void Promise.resolve(server.stop(true)).catch(() => {
+          /* already gone */
+        });
+    },
   };
 }
 
@@ -1801,6 +2467,93 @@ test("PreviewService: stopAll() clears its maps even when one server.stop() thro
   expect((svc as any).listeners.size).toBe(0);
   expect((svc as any).slotOwner.size).toBe(0);
 });
+
+// ── IPv6 loopback companions ──────────────────────────────────────────────────
+
+/** Whether `node:net` can listen on `::1` — an independent check of `loopbackV6Available`. */
+function netListensOnLoopbackV6(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.once("error", () => resolve(false));
+    srv.listen({ host: "::1", port: 0 }, () => srv.close(() => resolve(true)));
+  });
+}
+
+test("loopbackV6Available: agrees with a node:net listen on ::1", async () => {
+  expect(loopbackV6Available()).toBe(await netListensOnLoopbackV6());
+});
+
+test("needsLoopbackV6: IPv4 loopback and wildcard binds need [::1], other hosts don't", () => {
+  for (const host of ["127.0.0.1", "localhost", "0.0.0.0"])
+    expect(needsLoopbackV6(host)).toBe(true);
+  for (const host of ["::", "::1", "[::1]", "127.0.0.2", "100.64.0.7", "box.example.ts.net", ""])
+    expect(needsLoopbackV6(host)).toBe(false);
+});
+
+/** Status + body of a GET, or null when the connection fails. */
+async function getOrNull(url: string): Promise<{ status: number; body: string } | null> {
+  try {
+    const res = await fetch(url);
+    return { status: res.status, body: await res.text() };
+  } catch {
+    return null;
+  }
+}
+
+test("PreviewService loopbackV6: 127.0.0.1 proxies; [::1] proxies iff the host has IPv6 loopback", async () => {
+  const up = httpUpstream({ body: "v6-companion-body" });
+  const svc = new PreviewService({ base: TEST_BASE + 100, count: TEST_COUNT, loopbackV6: true });
+  try {
+    const port = svc.ensure("s1", portOf(up));
+    expect(port).not.toBeNull();
+    expect(await getOrNull(`http://127.0.0.1:${port}/`)).toEqual({
+      status: 200,
+      body: "v6-companion-body",
+    });
+    const v6 = await getOrNull(`http://[::1]:${port}/`);
+    expect(v6).toEqual(loopbackV6Available() ? { status: 200, body: "v6-companion-body" } : null);
+  } finally {
+    svc.stopAll();
+  }
+});
+
+test.skipIf(!loopbackV6Available())(
+  "PreviewService loopbackV6: release frees the slot's [::1] port",
+  async () => {
+    const up = httpUpstream({ body: "v6-release-body" });
+    const svc = new PreviewService({ base: TEST_BASE + 200, count: TEST_COUNT, loopbackV6: true });
+    try {
+      const port = svc.ensure("s1", portOf(up));
+      expect(port).not.toBeNull();
+      expect((await getOrNull(`http://[::1]:${port}/`))?.body).toBe("v6-release-body");
+      svc.release("s1");
+      // Throws EADDRINUSE if the [::1] server were still bound.
+      const probe = Bun.serve({ hostname: "::1", port: port!, fetch: () => new Response("free") });
+      probe.stop(true);
+    } finally {
+      svc.stopAll();
+    }
+  },
+);
+
+test.skipIf(!loopbackV6Available())(
+  "PreviewService loopbackV6: a slot whose [::1] port is taken is skipped, its 127.0.0.1 bind undone",
+  () => {
+    const base = TEST_BASE + 300;
+    const holder = Bun.serve({ hostname: "::1", port: base, fetch: () => new Response("held") });
+    const up = httpUpstream({});
+    const svc = new PreviewService({ base, count: TEST_COUNT, loopbackV6: true });
+    try {
+      expect(svc.ensure("s1", portOf(up))).toBe(base + 1);
+      // Throws EADDRINUSE if the slot's 127.0.0.1 server were left bound.
+      const probe = Bun.serve({ hostname: "127.0.0.1", port: base, fetch: () => new Response("") });
+      probe.stop(true);
+    } finally {
+      svc.stopAll();
+      holder.stop(true);
+    }
+  },
+);
 
 // ── previewReach (#2767) ──────────────────────────────────────────────────────
 

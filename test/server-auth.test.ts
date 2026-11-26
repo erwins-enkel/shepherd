@@ -9,6 +9,7 @@ import { signCookie, hashPassword, SESSION_COOKIE, SESSION_TTL_MS } from "../src
 import type { TokenScope } from "../src/token-scopes";
 import { BrowserTokenSigner } from "../src/browser-token";
 import { ASSISTANT_INGRESS_HEADER } from "../src/assistant-ingress";
+import { loopbackV6Available } from "../src/preview";
 
 const SECRET = "test-cookie-signing-secret";
 const PASSWORD = "operator-password";
@@ -440,6 +441,88 @@ async function withServer(fn: (port: number) => Promise<void>, deps: AppDeps = m
     server.stop(true);
   }
 }
+
+// ── [::1] beside the IPv4 loopback bind ─────────────────────────────────────
+
+/** `serve` with `[::1]` requested, under the default `127.0.0.1` bind host. */
+function serveWithLoopbackV6(port: number) {
+  const prevHost = config.host;
+  config.host = "127.0.0.1";
+  try {
+    return serve(makeDeps(), port, { loopbackV6: true });
+  } finally {
+    config.host = prevHost;
+  }
+}
+
+/** Status of a GET to `url`, or null when the connection fails. */
+async function statusOrNull(url: string, headers: Record<string, string> = {}) {
+  try {
+    return (await fetch(url, { headers })).status;
+  } catch {
+    return null;
+  }
+}
+
+test("serve loopbackV6: 127.0.0.1 answers; [::1] answers iff the host has IPv6 loopback", async () => {
+  const server = serveWithLoopbackV6(0);
+  try {
+    const auth = cookieHeader(signCookie(SECRET));
+    expect(await statusOrNull(`http://127.0.0.1:${server.port}/api/me`, auth)).toBe(200);
+    expect(await statusOrNull(`http://[::1]:${server.port}/api/me`, auth)).toBe(
+      loopbackV6Available() ? 200 : null,
+    );
+  } finally {
+    server.stop(true);
+  }
+});
+
+test.skipIf(!loopbackV6Available())(
+  "serve loopbackV6: a [::1] request without a cookie → 401",
+  async () => {
+    const server = serveWithLoopbackV6(0);
+    try {
+      expect(await statusOrNull(`http://[::1]:${server.port}/api/me`)).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  },
+);
+
+test.skipIf(!loopbackV6Available())(
+  "serve loopbackV6: stopping the server frees its [::1] port",
+  async () => {
+    const server = serveWithLoopbackV6(0);
+    const port = server.port!;
+    let stopped = false;
+    try {
+      expect(await statusOrNull(`http://[::1]:${port}/api/me`)).toBe(401);
+      server.stop(true);
+      stopped = true;
+      // Throws EADDRINUSE if the [::1] server were still bound.
+      const probe = Bun.serve({ hostname: "::1", port, fetch: () => new Response("free") });
+      probe.stop(true);
+    } finally {
+      if (!stopped) server.stop(true);
+    }
+  },
+);
+
+test.skipIf(!loopbackV6Available())(
+  "serve loopbackV6: a taken [::1] port fails startup and frees the 127.0.0.1 bind",
+  () => {
+    const holder = Bun.serve({ hostname: "::1", port: 0, fetch: () => new Response("held") });
+    const port = holder.port!;
+    try {
+      expect(() => serveWithLoopbackV6(port)).toThrow(`Failed to listen on [::1]:${port}`);
+      // Throws EADDRINUSE if the 127.0.0.1 server were left bound.
+      const probe = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("free") });
+      probe.stop(true);
+    } finally {
+      holder.stop(true);
+    }
+  },
+);
 
 test("WS /events: rejected (401) without a credential", async () => {
   await withServer(async (port) => {

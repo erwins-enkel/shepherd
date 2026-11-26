@@ -866,6 +866,10 @@ const onSessionGit = (listener: (input: { id: string; git: GitState }) => void):
 const previewService = new PreviewService({
   base: config.previewPortBase,
   count: config.previewPortCount,
+  // Live thunk: `agentIngressState` is declared below; this only runs at ensure-time, after init.
+  reservedPorts: () => [config.port, agentIngressState.port ?? config.agentIngressPort],
+  allowedHosts: () => [...config.allowedOriginHosts, config.previewHost],
+  loopbackV6: true,
   onChange: (id, previewPort) =>
     events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
 });
@@ -5027,7 +5031,7 @@ if (loadedPlugins.length > 0) {
   console.log(`[plugins] ${ok} plugin(s) loaded${failed > 0 ? `, ${failed} failed/skipped` : ""}`);
 }
 
-const server = serve(appDeps, config.port);
+const server = serve(appDeps, config.port, { loopbackV6: true });
 console.log(`shepherd core on http://localhost:${server.port}`);
 
 // One-time gap-fill of pre-existing archived sessions into session_usage (#965).
@@ -5102,5 +5106,5 @@ process.on("SIGTERM", () => {
 // password (no SHEPHERD_PASSWORD and no persisted hash); shows it exactly once.
 if (credentialBanner) {
   console.log(credentialBanner);
-  console.log(`  Open Shepherd at  http://localhost:${config.port}\n`);
+  console.log(`  Open Shepherd at  http://127.0.0.1:${config.port}\n`);
 }

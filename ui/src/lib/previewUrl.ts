@@ -4,9 +4,14 @@
  * Three branches, evaluated in order:
  *
  * 1. **Loopback** — `loc.hostname` is localhost / 127.0.0.1 / ::1 / [::1]:
- *    Use `loc.protocol//loc.hostname:port/`. Preserves http on local dev;
- *    previewHost (if any) is intentionally ignored so the developer stays on
- *    the machine they're actually running.
+ *    Use `loc.protocol//<host>:port/`, mirroring the HUD host: `localhost`
+ *    stays `localhost`, `127.0.0.1` stays `127.0.0.1`, and `::1` / `[::1]`
+ *    use `127.0.0.1`. A `localhost` HUD keeps `localhost` so the preview stays
+ *    same-site with the HUD (owner-marker/Lax cookies work); a browser that
+ *    resolves it to `[::1]` still reaches the slot, because Shepherd's `[::1]`
+ *    listener holds `[::1]:<slot>` whenever IPv6 loopback exists. Preserves
+ *    http on local dev; previewHost (if any) is intentionally ignored so the
+ *    developer stays on the machine they're actually running.
  *
  * 2. **previewHost set** (non-loopback):
  *    Return `https://previewHost:port/`. HTTPS is hardcoded here because
@@ -21,16 +26,22 @@
  *    Use `loc.protocol//loc.hostname:port/`. Equivalent to today's single-host
  *    case where the HUD host == the agent node.
  */
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOOPBACK_PREVIEW_HOSTS = new Map([
+  ["localhost", "localhost"],
+  ["127.0.0.1", "127.0.0.1"],
+  ["::1", "127.0.0.1"],
+  ["[::1]", "127.0.0.1"],
+]);
 
 export function buildPreviewUrl(
   previewHost: string | null,
   loc: { protocol: string; hostname: string },
   port: number,
 ): string {
-  if (LOOPBACK_HOSTS.has(loc.hostname)) {
+  const loopbackHost = LOOPBACK_PREVIEW_HOSTS.get(loc.hostname);
+  if (loopbackHost) {
     // Branch 1: loopback — dev stays on local host regardless of previewHost.
-    return `${loc.protocol}//${loc.hostname}:${port}/`;
+    return `${loc.protocol}//${loopbackHost}:${port}/`;
   }
 
   if (previewHost) {

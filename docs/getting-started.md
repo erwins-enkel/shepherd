@@ -157,7 +157,7 @@ bun run start
 # → shepherd core on http://localhost:7330
 ```
 
-Open <http://localhost:7330>. The first load shows the single-operator password
+Open <http://127.0.0.1:7330>. The first load shows the single-operator password
 screen; set `SHEPHERD_PASSWORD`, or use the auto-generated password printed once
 in the server log. To expose it (e.g. via Tailscale), set
 `SHEPHERD_ALLOWED_HOSTS` to include the public hostname (see [Configuration](configuration.md#configuration)).

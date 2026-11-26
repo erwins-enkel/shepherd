@@ -24,6 +24,7 @@
   let options = $state<CodexSpeedOptions | null>(null);
   let busy = $state(false);
   let failure = $state<string | null>(null);
+  const sandboxed = $derived(options?.fastUnavailable === "sandboxed");
   const value = $derived(saved ?? configured);
   const launch = $derived(session?.codexSpeedLaunch);
   const pending = $derived(!!session && (launch?.applied ?? "codex") !== value);
@@ -83,7 +84,11 @@
     <span>{session ? m.codex_speed_session_label() : m.codex_speed_default_label()}</span>
     <select {value} disabled={busy} onchange={(event) => void save(event.currentTarget)}>
       <option value="codex">{m.codex_speed_inherit()}</option>
-      {#if session}<option value="standard">{m.codex_speed_standard()}</option>{/if}
+      {#if session}
+        <option value="standard" disabled={!options || sandboxed}>
+          {m.codex_speed_standard()}
+        </option>
+      {/if}
       <option value="fast" disabled={options === null || options.fastUnavailable !== null}>
         {m.codex_speed_fast()}
       </option>
@@ -111,9 +116,9 @@
   {:else if options === null}
     <p>{m.codex_speed_checking()}</p>
   {/if}
-  {#if value === "standard" && (session?.codexStandardBlocked || options?.standardAvailable === false)}
+  {#if !sandboxed && value === "standard" && (session?.codexStandardBlocked || options?.standardAvailable === false)}
     <p role="status">{m.codex_speed_standard_refused()}</p>
-  {:else if pending}
+  {:else if pending && !sandboxed}
     <p role="status">
       {session?.status === "archived" ? m.codex_speed_pending_archived() : m.codex_speed_pending()}
     </p>

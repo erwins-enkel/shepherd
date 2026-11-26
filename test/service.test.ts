@@ -11988,12 +11988,17 @@ test("handoff lifecycle: backend restart recovers a pre-delivery generation with
   expect(store.getProviderHandoff(s.id)?.packet.goal).toBe(s.prompt);
 });
 
-test.each(["veto", "conflict", "standard"] as const)(
+test.each(["veto", "conflict", "sandboxed", "standard"] as const)(
   "Codex forced resume distinguishes %s from a Standard refusal",
   async (behavior) => {
     const { PluginSpawnAborted } = await import("../src/plugins/types");
     const store = new SessionStore(":memory:");
-    const s = resumable(store, { agentProvider: "codex", codexSpeed: "standard" });
+    const sandboxed = behavior === "sandboxed";
+    const s = resumable(store, {
+      agentProvider: "codex",
+      codexSpeed: "standard",
+      sandboxApplied: sandboxed ? "standard" : "trusted",
+    });
     const stopped: string[] = [];
     const starts: string[][] = [];
     let hooks = 0;
@@ -12001,6 +12006,7 @@ test.each(["veto", "conflict", "standard"] as const)(
       store,
       namer: () => "x",
       worktree: {} as any,
+      detectBackend: () => "bwrap",
       readCodexHelp: () => "      --no-daemon\n",
       codexSpeedBinary: () => "/test/codex",
       codexStandardSupported: () => true,
@@ -12023,11 +12029,19 @@ test.each(["veto", "conflict", "standard"] as const)(
         },
       } as any,
     });
+    if (sandboxed) {
+      expect(await svc.sessionCodexFastAvailability(s)).toEqual({ reason: "sandboxed" });
+      expect(svc.codexStandardAvailable(s)).toBe(false);
+    }
     await svc.resume(s.id, { force: true });
     expect(hooks).toBe(1);
-    expect(stopped).toEqual(behavior === "conflict" ? [] : [s.herdrAgentId]);
+    expect(stopped).toEqual(behavior === "conflict" || sandboxed ? [] : [s.herdrAgentId]);
     expect(svc.resumeRefusalCode(s.id)).toBe(
-      behavior === "conflict" ? "codex-standard-unavailable" : null,
+      sandboxed
+        ? "codex-standard-sandboxed"
+        : behavior === "conflict"
+          ? "codex-standard-unavailable"
+          : null,
     );
     if (behavior === "standard") {
       expect(starts[0]).toContain('service_tier="default"');
@@ -12104,12 +12118,14 @@ test("new Codex sessions snapshot the Fast default without rewriting existing ch
   const cwd = "/wt/repo-codex";
   const targets: unknown[] = [];
   const { store, service, calls } = codexHarness(true, "unknown", undefined, {
+    detectBackend: () => "bwrap",
     codexSpeedBinary: () => "/test/codex",
     probeCodexFast: async (_binary: string, target: unknown) => {
       targets.push(target);
       return { tier: "priority" };
     },
   });
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), sandboxProfile: "standard" });
   const old = resumable(store, { agentProvider: "codex" });
   try {
     config.defaultCodexSpeed = "fast";

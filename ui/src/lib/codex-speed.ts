@@ -8,6 +8,8 @@ export function codexSpeedReason(reason: string | undefined): string {
       return m.codex_speed_unavailable_login();
     case "disabled":
       return m.codex_speed_unavailable_policy();
+    case "sandboxed":
+      return m.codex_speed_sandboxed();
     case "model":
       return m.codex_speed_unavailable_model();
     default:

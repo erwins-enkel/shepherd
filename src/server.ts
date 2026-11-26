@@ -8268,7 +8268,7 @@ async function handleSessionCodexSpeed(ctx: Ctx): Promise<Response | null> {
     return json(
       {
         fastUnavailable: "reason" in fast ? fast.reason : null,
-        standardAvailable: deps.service.codexStandardAvailable(s.worktreePath),
+        standardAvailable: deps.service.codexStandardAvailable(s),
       },
       200,
       NO_STORE,
@@ -8298,6 +8298,8 @@ async function putSessionCodexSpeed(
   }
   const current = deps.store.get(id);
   if (!localCodexTask(current)) return json({ error: "not found" }, 404);
+  if (body.speed === "standard" && deps.service.sessionCodexSpeedSandboxed(current))
+    return json({ error: "Standard unavailable in the sandbox", code: "sandboxed" }, 409);
   deps.store.setCodexSpeed(id, body.speed);
   const updated = deps.store.get(id)!;
   deps.events.emit("session:codex-speed", {
@@ -9215,8 +9217,10 @@ async function handleSessionRestore({ req, parts, deps }: Ctx): Promise<Response
     }
     if (!s) {
       if (!deps.store.get(id)) return json({ error: "not found" }, 404);
-      if (deps.store.get(id)?.codexStandardBlocked)
-        return json({ error: CODEX_STANDARD_UNAVAILABLE, code: CODEX_STANDARD_UNAVAILABLE }, 409);
+      if (deps.store.get(id)?.codexStandardBlocked) {
+        const code = deps.service.resumeRefusalCode(id) ?? CODEX_STANDARD_UNAVAILABLE;
+        return json({ error: code, code }, 409);
+      }
       return json({ error: "could not restore", code: "spawn_refused" }, 409);
     }
     deps.events.emit("session:new", s);
@@ -12300,6 +12304,7 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
 }
 
 function defaultCodexFastAvailability(deps: Ctx["deps"]) {
+  // resolveCreateLaunch forces fresh Codex tasks to trusted, regardless of the repo default.
   const model = resolvedCodexSetting(config.defaultCodexModel, deps);
   return deps.service.codexFastAvailability(config.repoRoot, model === "default" ? null : model);
 }

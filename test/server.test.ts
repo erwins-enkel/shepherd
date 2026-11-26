@@ -3684,6 +3684,24 @@ test("Codex speed edits are local operator-only and never start or change a live
         body: JSON.stringify({ speed }),
       }),
     );
+  const sandbox = spyOn(deps.service, "sessionCodexSpeedSandboxed").mockReturnValue(true);
+  try {
+    const options = await app.fetch(
+      new Request(`http://localhost:7330/api/sessions/${s.id}/codex-speed`),
+    );
+    expect(await options.json()).toEqual({
+      fastUnavailable: "sandboxed",
+      standardAvailable: false,
+    });
+    for (const speed of ["fast", "standard"]) {
+      const unavailable = await putSpeed(speed);
+      expect(unavailable.status).toBe(409);
+      expect(await unavailable.json()).toMatchObject({ code: "sandboxed" });
+    }
+    expect(deps.store.get(s.id)?.codexSpeed).toBe("codex");
+  } finally {
+    sandbox.mockRestore();
+  }
   expect((await putSpeed("ultrafast")).status).toBe(400);
   expect((await putSpeed("fast")).status).toBe(409);
   expect((await putSpeed("standard")).status).toBe(200);

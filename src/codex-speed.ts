@@ -1,7 +1,7 @@
 import { execFileSync } from "./instrument";
 
 export type CodexSpeed = "codex" | "standard" | "fast";
-export type CodexSpeedReason = "version" | "login" | "disabled" | "model" | "unknown";
+export type CodexSpeedReason = "version" | "login" | "disabled" | "model" | "sandboxed" | "unknown";
 export type CodexFastAvailability = { tier: string } | { reason: CodexSpeedReason };
 
 export interface CodexSpeedTarget {
@@ -42,3 +42,4 @@ export function codexStandardSupported(binary: string, cwd: string): boolean {
 }
 
 export const CODEX_STANDARD_UNAVAILABLE = "codex-standard-unavailable";
+export const CODEX_STANDARD_SANDBOXED = "codex-standard-sandboxed";

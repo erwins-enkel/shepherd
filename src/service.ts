@@ -18,6 +18,7 @@ import { findCodexRolloutById } from "./codex-session-id";
 import { readCodexResumeIdentity } from "./codex-activity";
 import { codexHome } from "./codex-usage";
 import {
+  CODEX_STANDARD_SANDBOXED,
   CODEX_STANDARD_UNAVAILABLE,
   codexStandardSupported,
   type CodexFastAvailability,
@@ -3900,19 +3901,31 @@ export class SessionService {
     );
   }
 
+  sessionCodexSpeedSandboxed(s: Session): boolean {
+    // Match prepareResumeSpawn's stored override and prepareSpawn's wrapping predicate.
+    const profile = resolveProfile(
+      s.sandboxApplied,
+      this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
+      this.defaultProfile,
+    );
+    return profile !== "trusted" && this.detectBackend() !== null;
+  }
+
   sessionCodexFastAvailability(s: Session): Promise<CodexFastAvailability> {
+    if (this.sessionCodexSpeedSandboxed(s)) return Promise.resolve({ reason: "sandboxed" });
     const threadId = s.providerSessionId;
     if (!threadId || !s.codexLaunchId) return Promise.resolve({ reason: "unknown" });
     const model = clampCodexModelForAuth(s.model, "codex", this.codexAuthMode());
     return this.codexFastAvailability(s.worktreePath, model, threadId);
   }
 
-  codexStandardAvailable(cwd: string): boolean {
+  codexStandardAvailable(s: Session): boolean {
+    if (this.sessionCodexSpeedSandboxed(s)) return false;
     const binary = this.speedBinary();
     return (
       !!binary &&
       codexNoDaemonArgs(this.deps.readCodexHelp).length > 0 &&
-      (this.deps.codexStandardSupported ?? codexStandardSupported)(binary, cwd)
+      (this.deps.codexStandardSupported ?? codexStandardSupported)(binary, s.worktreePath)
     );
   }
 
@@ -3927,14 +3940,18 @@ export class SessionService {
     if (speed === undefined) return { argv: finalInnerArgv };
     const launch: CodexSpeedLaunch = { applied: "codex", reason: null, startedAt: 0 };
     if (speed === "codex") return { argv: finalInnerArgv, launch };
+    if (willWrap) {
+      if (speed === "standard")
+        return { ok: false, holdReason: CODEX_STANDARD_SANDBOXED, standardRefused: true };
+      return { argv: finalInnerArgv, launch: { ...launch, reason: "sandboxed" } };
+    }
 
     // Reuse the probe only when we can match the local process and its launch context.
     const unchangedArgv =
       finalInnerArgv.length === innerArgv.length &&
       finalInnerArgv.every((arg, index) => arg === innerArgv[index]);
     const changedEnv = [...Object.keys(patchEnv), ...secrets.names];
-    const binary =
-      !willWrap && unchangedArgv && innerArgv.includes("--no-daemon") ? this.speedBinary() : null;
+    const binary = unchangedArgv && innerArgv.includes("--no-daemon") ? this.speedBinary() : null;
     if (speed === "standard") {
       const affectsStartup = changedEnv.some((key) =>
         /^(?:PATH$|HOME$|XDG_|CODEX_|LD_|DYLD_)/i.test(key),
@@ -5129,9 +5146,18 @@ export class SessionService {
   }
 
   /** Stable manual-API refusal; autonomous callers keep resume()'s null/no-spawn contract. */
-  resumeRefusalCode(id: string): "transcript-missing" | typeof CODEX_STANDARD_UNAVAILABLE | null {
+  resumeRefusalCode(
+    id: string,
+  ):
+    | "transcript-missing"
+    | typeof CODEX_STANDARD_UNAVAILABLE
+    | typeof CODEX_STANDARD_SANDBOXED
+    | null {
     const s = this.deps.store.get(id);
-    if (s?.codexStandardBlocked) return CODEX_STANDARD_UNAVAILABLE;
+    if (s?.codexStandardBlocked)
+      return this.sessionCodexSpeedSandboxed(s)
+        ? CODEX_STANDARD_SANDBOXED
+        : CODEX_STANDARD_UNAVAILABLE;
     return s &&
       s.status !== "archived" &&
       (s.agentProvider ?? "claude") === "claude" &&

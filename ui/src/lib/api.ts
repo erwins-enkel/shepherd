@@ -1901,6 +1901,8 @@ export function isMissingTranscriptError(error: unknown): boolean {
 
 /** Translate the stable resume refusal and point to the existing fresh-agent action. */
 export function resumeFailureMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.code === "codex-standard-sandboxed")
+    return m.codex_speed_sandboxed();
   if (error instanceof ApiError && error.code === "codex-standard-unavailable")
     return m.codex_speed_standard_refused();
   return isMissingTranscriptError(error)

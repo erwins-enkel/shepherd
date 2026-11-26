@@ -1,5 +1,5 @@
 export type CodexSpeed = "codex" | "standard" | "fast";
-export type CodexSpeedReason = "version" | "login" | "disabled" | "model" | "unknown";
+export type CodexSpeedReason = "version" | "login" | "disabled" | "model" | "sandboxed" | "unknown";
 export interface CodexSpeedOptions {
   fastUnavailable: CodexSpeedReason | null;
   standardAvailable?: boolean;

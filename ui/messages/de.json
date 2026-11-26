@@ -9498,6 +9498,7 @@
   "codex_speed_unavailable_policy": "Fast ist durch die Codex-Konfiguration oder eine Workspace-Richtlinie deaktiviert.",
   "codex_speed_unavailable_model": "Fast ist für dieses Modell oder Konto nicht verfügbar.",
   "codex_speed_unavailable_unknown": "Shepherd konnte Fast für diesen Start nicht bestätigen.",
+  "codex_speed_sandboxed": "Shepherd kann Fast oder Standard für diese Codex-Sitzung in der Sandbox nicht anwenden. Wähle „Codex-Einstellung übernehmen“.",
   "codex_speed_standard_refused": "Shepherd kann Standard für diesen Start nicht garantieren. Aktualisiere Codex oder wähle „Codex-Einstellung übernehmen“, um das von Codex gewählte Tempo zuzulassen.",
   "codex_speed_save_failed": "Das Codex-Tempo konnte nicht gespeichert werden.",
   "feat_codex_fast_mode_title": "Codex Fast-Modus in Shepherd",

@@ -12406,25 +12406,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-  /api/settings/codex-speed:
-    get:
-      operationId: getDefaultCodexSpeedOptions
-      description: Read Fast availability for the local default Codex model.
-      responses:
-        "200":
-          description: Codex speed options.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CodexSpeedOptions"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          description: Requires an operator session.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
   /api/settings:
     get:
       operationId: getSettings
@@ -14416,7 +14397,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Fast availability could not be established for the session.
+          description: The requested speed is unavailable for the session.
           content:
             application/json:
               schema:
@@ -17629,6 +17610,25 @@ paths:
           description: Missing or invalid credential.
         "404":
           description: Plugin or route absent; Apple recognition remains usable.
+  /api/settings/codex-speed:
+    get:
+      operationId: getDefaultCodexSpeedOptions
+      description: Read Fast availability for the local default Codex model.
+      responses:
+        "200":
+          description: Codex speed options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodexSpeedOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Requires an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repo-config:
     get:
       operationId: getRepoConfig

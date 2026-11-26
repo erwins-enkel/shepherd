@@ -3330,3 +3330,30 @@ it("shows the saved Codex speed as pending while the live session still reports 
     .element(page.getByRole("button", { name: m.codex_speed_effective({ speed: "Standard" }) }))
     .toBeVisible();
 });
+
+it("explains sandboxed Codex speed and leaves Codex settings selectable", async () => {
+  const { getCodexSpeedOptions } = await import("#lib/api.js");
+  vi.mocked(getCodexSpeedOptions).mockResolvedValueOnce({
+    fastUnavailable: "sandboxed",
+    standardAvailable: false,
+  });
+  render(Viewport, {
+    props: {
+      session: session({
+        id: "sandboxed-codex-speed",
+        agentProvider: "codex",
+        codexSpeed: "standard",
+        codexStandardBlocked: true,
+      }),
+    },
+  });
+  await page.getByText(m.codex_speed_session_label(), { exact: true }).click();
+  await expect.element(page.getByText(m.codex_speed_sandboxed())).toBeVisible();
+  const select = page.getByRole("combobox", { name: m.codex_speed_session_label() });
+  await expect
+    .element(select.getByRole("option", { name: m.codex_speed_standard() }))
+    .toBeDisabled();
+  await expect.element(select.getByRole("option", { name: m.codex_speed_fast() })).toBeDisabled();
+  await select.selectOptions("codex");
+  await expect.element(select).toHaveValue("codex");
+});

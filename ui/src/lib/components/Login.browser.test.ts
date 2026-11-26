@@ -48,4 +48,13 @@ describe("Login", () => {
     await submit();
     await expect.element(page.getByRole("alert")).toHaveTextContent(m.login_error());
   });
+
+  it("an origin-host rejection (403) names the allowlist, not a wrong password (#4216)", async () => {
+    respond(403, { error: "forbidden: origin host not allowed" });
+    render(Login);
+    await submit();
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent(m.error_origin_host_not_allowed());
+  });
 });

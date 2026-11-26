@@ -47,6 +47,74 @@ export async function resolveNodeHost(run: TailscaleRunner = defaultRun): Promis
   }
 }
 
+// ── readServeStatus ───────────────────────────────────────────────────────────
+
+/** Raw `tailscale serve status --json` stdout, or `""` on any failure (binary absent,
+ *  tailscaled not ready). Never throws; callers parse it with `findServedPort`/`findServedHosts`. */
+export async function readServeStatus(run: TailscaleRunner = defaultRun): Promise<string> {
+  try {
+    return (await run(["serve", "status", "--json"])).stdout;
+  } catch {
+    return "";
+  }
+}
+
+// ── retryTailnetDiscovery ─────────────────────────────────────────────────────
+
+/** Schedules `fn` after `ms`; returns a cancel function. Injectable for tests. */
+export type RetrySchedule = (fn: () => void, ms: number) => () => void;
+
+const defaultSchedule: RetrySchedule = (fn, ms) => {
+  const t = setTimeout(fn, ms);
+  t.unref?.();
+  return () => clearTimeout(t);
+};
+
+/** Backoff between discovery attempts; the last value repeats indefinitely. */
+const RETRY_DELAYS_MS = [2000, 5000, 10000, 30000, 60000];
+
+export interface TailnetRetryOpts {
+  resolveNodeHost: () => Promise<string | null>;
+  readServeStatus: () => Promise<string>;
+  /** Called exactly once, when the node host first resolves. */
+  onResolved: (nodeHost: string, serveStatusJson: string) => void;
+  schedule?: RetrySchedule;
+}
+
+/**
+ * Re-runs tailnet discovery in the background until the node host resolves (issue #4216).
+ * WHY: boot discovery runs once; when tailscaled isn't ready yet (reboot race) both lookups come
+ * back empty and the ts.net front stayed out of the origin allowlist for the process lifetime —
+ * every login via `tailscale serve` 403'd. Retries forever with backoff (cheap: one exec/min at
+ * worst) and stops after the first success.
+ */
+export function retryTailnetDiscovery(opts: TailnetRetryOpts): { stop(): void } {
+  const schedule = opts.schedule ?? defaultSchedule;
+  let stopped = false;
+  let cancel: () => void = () => {};
+  let attempt = 0;
+  const next = () => {
+    const ms = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)] ?? 60000;
+    attempt++;
+    cancel = schedule(() => {
+      run().catch((err) => console.warn("[tailscale] tailnet discovery retry failed:", err));
+    }, ms);
+  };
+  const run = async () => {
+    const [host, json] = await Promise.all([opts.resolveNodeHost(), opts.readServeStatus()]);
+    if (stopped) return;
+    if (host) opts.onResolved(host, json);
+    else next();
+  };
+  next();
+  return {
+    stop() {
+      stopped = true;
+      cancel();
+    },
+  };
+}
+
 // ── TailscaleServeService ─────────────────────────────────────────────────────
 
 export type ServeState = "ok" | "failed";

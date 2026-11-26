@@ -1,18 +1,22 @@
 <script lang="ts">
   // Single-operator login (issue #1079). Full-view takeover shown by the root layout while the
   // session is unauthenticated. Tokens-only per the design system; reuses the .gbtn + field recipes.
-  import { login } from "#lib/api.js";
+  import { ApiError, login } from "#lib/api.js";
   import { m } from "#lib/paraglide/messages.js";
 
   let password = $state("");
   let busy = $state(false);
   let error = $state<"invalid" | "rate_limited" | null>(null);
+  // Server-authored failure text (e.g. the translated origin-host 403, #4216) — shown verbatim
+  // instead of reading as a wrong password.
+  let serverError = $state<string | null>(null);
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (busy || password === "") return;
     busy = true;
     error = null;
+    serverError = null;
     try {
       const result = await login(password);
       if (result === "ok") {
@@ -21,8 +25,9 @@
       } else {
         error = result;
       }
-    } catch {
-      error = "invalid";
+    } catch (e) {
+      if (e instanceof ApiError && e.serverAuthored) serverError = e.message;
+      else error = "invalid";
     } finally {
       busy = false;
     }
@@ -47,7 +52,9 @@
         autofocus
       />
     </label>
-    {#if error}
+    {#if serverError}
+      <p class="error" role="alert">{serverError}</p>
+    {:else if error}
       <p class="error" role="alert">
         {error === "rate_limited" ? m.login_rate_limited() : m.login_error()}
       </p>

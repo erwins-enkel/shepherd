@@ -265,12 +265,7 @@ import { CodexQuestionTracker } from "./codex-questions";
 import { codexQuestionHint, readCodexQuestionScreen } from "./codex-question-screen";
 import { CodexQuestionAnswerService } from "./codex-question-answer";
 import { maintenance } from "./maintenance";
-import {
-  startLoopLagSampler,
-  logRemainingOnLoopBlockers,
-  execFileSync,
-  execFileAsync,
-} from "./instrument";
+import { startLoopLagSampler, logRemainingOnLoopBlockers, execFileSync } from "./instrument";
 import { startLoopWatchdog, opStart } from "./loop-watchdog";
 import { firstRun } from "./first-run";
 import { preflightHerdr } from "./preflight";
@@ -281,7 +276,12 @@ import {
   parseHerdrVersion,
   setDetectedHerdrVersion,
 } from "./herdr-capabilities";
-import { resolveNodeHost, TailscaleServeService } from "./tailscale";
+import {
+  readServeStatus,
+  resolveNodeHost,
+  retryTailnetDiscovery,
+  TailscaleServeService,
+} from "./tailscale";
 import {
   drainSpawnModel,
   resolveProviderDefaultModelSetting,
@@ -746,16 +746,10 @@ let credentialBanner: string | null = null;
 // Also resolve this node's tailnet hostname for split-front preview URL construction.
 {
   let servedPort = 443;
-  let stdout = "";
-  try {
-    ({ stdout } = await execFileAsync("tailscale", ["serve", "status", "--json"], {
-      timeout: 5000,
-    }));
-    const parsed = findServedPort(stdout, config.port);
-    if (parsed !== null) servedPort = parsed;
-  } catch {
-    // best-effort: tailscale not available or not set up — default to 443, no served hosts
-  }
+  // best-effort: "" when tailscale is not available or not set up — default to 443, no served hosts
+  const stdout = await readServeStatus();
+  const parsedPort = stdout ? findServedPort(stdout, config.port) : null;
+  if (parsedPort !== null) servedPort = parsedPort;
   // Resolve the node's own tailnet hostname (null when tailscale is absent).
   config.previewHost = await resolveNodeHost();
   // Fold the node's own tailnet host into the CSRF origin allowlist so a same-node HUD
@@ -785,6 +779,23 @@ let credentialBanner: string | null = null;
     previewPortCount: config.previewPortCount,
     servedPort,
   });
+  // tailscaled not ready yet (reboot race, issue #4216): keep retrying discovery in the
+  // background so the ts.net front self-heals instead of 403ing every login until a restart.
+  // Allowlist only — previewHost / auto-serve stay as resolved at boot.
+  if (!config.previewHost && Bun.which("tailscale")) {
+    console.warn(
+      "[tailscale] tailnet host unresolved at boot (tailscaled not ready?); retrying in background — requests via the ts.net front get 403 until it resolves",
+    );
+    retryTailnetDiscovery({
+      resolveNodeHost: () => resolveNodeHost(),
+      readServeStatus: () => readServeStatus(),
+      onResolved: (host, json) => {
+        addOwnHostToAllowlist(config.allowedOriginHosts, host);
+        addServedHostsToAllowlist(config.allowedOriginHosts, json, config.port);
+        console.log(`[tailscale] tailnet host ${host} resolved; added to origin allowlist`);
+      },
+    });
+  }
   if (config.previewAutoServe && !config.previewHost) {
     console.warn(
       "[preview] dynamic tailscale serve registration is enabled but the node's tailnet host could not be resolved (is tailscale running?); previews won't be tailnet-reachable.",

@@ -157,7 +157,23 @@ deepsec produced **80 findings** on the 19 positive files. Each was checked agai
 | **Net-new security issue, filed privately**                                | **18** |
 
 The net-new issues were filed as private advisories. Per `SECURITY.md`, nothing more about them is
-published until fixes ship. Severity and impact will be added here once the advisories are public.
+published until fixes ship. The 18 net-new issues were grouped into 12 advisories (1 high, 4
+medium, 7 low), all fixed in 2.9.0 and published on 2026-11-26.
+
+| ID    | Advisory                                                                                                | Severity | Title                                                                                                        | Fix PR |
+| ----- | ------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ | ------ |
+| DS-01 | [GHSA-xhhf-8wgh-wch3](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-xhhf-8wgh-wch3) | high     | Doc-agent marker and sentinel follow PR-head symlinks, letting a confined agent overwrite host files         | #4200  |
+| DS-02 | [GHSA-cwr5-2r8g-86wm](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-cwr5-2r8g-86wm) | medium   | Egress membrane resolves any name via host systemd-resolved varlink, bypassing the dnsmasq allowlist         | #4203  |
+| DS-03 | [GHSA-8w5x-x4q5-6wgh](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-8w5x-x4q5-6wgh) | medium   | IPv6 loopback squatting of preview slots and HUD port can capture operator cookie or password                | #4209  |
+| DS-04 | [GHSA-4px4-52pf-3425](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-4px4-52pf-3425) | medium   | Another local user can fail the bwrap self-test and silently switch the default profile to trusted           | #4203  |
+| DS-05 | [GHSA-cjfv-3fvc-7hfv](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-cjfv-3fvc-7hfv) | medium   | Read- and submit-scope tokens receive full verdicts, plans, drafts and amendments over `/events`             | #4201  |
+| DS-06 | [GHSA-9c3h-fhv6-w4fj](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-9c3h-fhv6-w4fj) | low      | Every membrane can read all of `~/.claude`: other repos' transcripts, history, IDE lock tokens               | #4203  |
+| DS-07 | [GHSA-22cq-mhqf-j722](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-22cq-mhqf-j722) | low      | Agent-controlled preview content can stall the preview sweep, deadlock the fetch pool, bloat WS relay        | #4209  |
+| DS-08 | [GHSA-m7wh-6q3m-vgw5](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-m7wh-6q3m-vgw5) | low      | Preview listener strips Origin, rewrites Host and passes upstream Clear-Site-Data                            | #4209  |
+| DS-09 | [GHSA-87j4-r88r-w4pr](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-87j4-r88r-w4pr) | low      | Sandboxed agent can falsify the Diff tab: hunk lines as file headers, refs shadowing `origin/<base>`         | #4206  |
+| DS-10 | [GHSA-p7hm-896p-54f3](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-p7hm-896p-54f3) | low      | "Continue with…" provider swap drops the per-task sandbox profile, persists weaker repo default              | #4203  |
+| DS-11 | [GHSA-pxjm-8v4w-4p24](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-pxjm-8v4w-4p24) | low      | Doc agent trusts unverified PR identity: boot re-adopt to marker-named branch, roll-up adopts fork PRs       | #4204  |
+| DS-12 | [GHSA-r24j-rrvw-w396](https://github.com/erwins-enkel/shepherd/security/advisories/GHSA-r24j-rrvw-w396) | low      | Cross-agent injection: unfenced branch/check names in `sessions_list`/`show`; `herd_retry` skips steer group | #4206  |
 
 - **The tail is long but useful.** About 1 in 4 findings was a real non-security bug. Triage judged
   none of the 80 wrong on the merits. The one finding the revalidator called a false positive is a

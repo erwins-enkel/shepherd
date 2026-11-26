@@ -129,6 +129,7 @@ export const shapeRound = {
       { id: "detail", kind: "freeform", prompt: "Any detail?" },
     ],
   },
+  verdict: { style: "prescribing", missing: ["symptom", "acceptance"] },
 } satisfies Exclude<import("../../src/task-shape").ShapeResult, { error: string }>;
 
 export const steers = [

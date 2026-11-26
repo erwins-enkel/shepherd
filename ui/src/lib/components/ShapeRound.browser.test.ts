@@ -147,6 +147,69 @@ const button = (name: string) =>
     (b) => b.textContent?.trim() === name || b.getAttribute("aria-label") === name,
   );
 
+describe("ShapeRound verdict", () => {
+  it("heads the round with the prompt's style and what it is missing", async () => {
+    await render(ShapeRound, {
+      status: "ready",
+      round: { ...round, verdict: { style: "prescribing", missing: ["acceptance", "symptom"] } },
+      onuse: vi.fn(),
+      ondismiss: vi.fn(),
+      ...chrome(),
+    });
+    await expect.element(page.getByText(m.shape_verdict_prescribing())).toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(
+          m.shape_verdict_missing({
+            items: `${m.shape_verdict_missing_symptom()} · ${m.shape_verdict_missing_acceptance()}`,
+          }),
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("says so when the prompt states everything", async () => {
+    await render(ShapeRound, {
+      status: "ready",
+      round: { ...round, verdict: { style: "describing", missing: [] } },
+      onuse: vi.fn(),
+      ondismiss: vi.fn(),
+      ...chrome(),
+    });
+    await expect.element(page.getByText(m.shape_verdict_describing())).toBeInTheDocument();
+    await expect.element(page.getByText(m.shape_verdict_complete())).toBeInTheDocument();
+  });
+
+  it("never claims completeness for missing entries it does not know", async () => {
+    const { container } = await render(ShapeRound, {
+      status: "ready",
+      round: { ...round, verdict: { style: "describing", missing: ["context"] } },
+      onuse: vi.fn(),
+      ondismiss: vi.fn(),
+      ...chrome(),
+    });
+    await expect.element(page.getByText(m.shape_verdict_describing())).toBeInTheDocument();
+    expect(container.querySelector(".shape-verdict-missing")).toBeNull();
+  });
+
+  it("shows no header without a verdict, or with a style it does not know", async () => {
+    for (const r of [round, { ...round, verdict: { style: "vague", missing: ["symptom"] } }]) {
+      const { container, unmount } = await render(ShapeRound, {
+        status: "ready",
+        round: r,
+        onuse: vi.fn(),
+        ondismiss: vi.fn(),
+        ...chrome(),
+      });
+      await expect
+        .element(page.getByText("The reaper leaks tabs across a restart."))
+        .toBeInTheDocument();
+      expect(container.querySelector(".shape-verdict")).toBeNull();
+      unmount();
+    }
+  });
+});
+
 describe("ShapeRound while running", () => {
   it("names the engine the round runs on and shows the elapsed clock", async () => {
     await render(ShapeRound, { props: props({ elapsedMs: 23_000 }) });

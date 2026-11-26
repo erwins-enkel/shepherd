@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  hintApplies,
   shapeBlocker,
+  verdictMissing,
+  verdictStyle,
+  HINT_MIN_CHARS,
   shapeErrorKey,
   shapeRemainingMs,
   shapeTipIndex,
@@ -86,5 +90,42 @@ describe("shapeTipIndex", () => {
     expect(shapeTipIndex(0, 1)).toBe(1);
     expect(shapeTipIndex(0, -1)).toBe(SHAPE_TIP_COUNT - 1);
     expect(shapeTipIndex(7_000, -1)).toBe(0);
+  });
+});
+
+describe("hintApplies", () => {
+  const base = {
+    prompt: "x".repeat(HINT_MIN_CHARS),
+    repoResolved: true,
+    mode: "code" as const,
+    shapeIdle: true,
+    mobile: false,
+  };
+  it("asks for a long enough prompt where Shape could run", () => {
+    expect(hintApplies(base)).toBe(true);
+  });
+  it("skips short prompts, measured trimmed", () => {
+    expect(hintApplies({ ...base, prompt: `  ${"x".repeat(HINT_MIN_CHARS - 1)}  ` })).toBe(false);
+  });
+  it("skips outside code mode, without a repo, and while Shape owns the slot", () => {
+    expect(hintApplies({ ...base, mode: "research" })).toBe(false);
+    expect(hintApplies({ ...base, repoResolved: false })).toBe(false);
+    expect(hintApplies({ ...base, shapeIdle: false })).toBe(false);
+    expect(hintApplies({ ...base, mobile: true })).toBe(false);
+  });
+});
+
+describe("verdict helpers", () => {
+  it("keeps known styles only", () => {
+    expect(verdictStyle("prescribing")).toBe("prescribing");
+    expect(verdictStyle("describing")).toBe("describing");
+    expect(verdictStyle("vague")).toBeNull();
+  });
+  it("orders known missing entries and drops unknown ones", () => {
+    expect(verdictMissing(["acceptance", "new-thing", "symptom"])).toEqual([
+      "symptom",
+      "acceptance",
+    ]);
+    expect(verdictMissing([])).toEqual([]);
   });
 });

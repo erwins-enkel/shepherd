@@ -18,6 +18,7 @@
   import GearIdent from "./GearIdent.svelte";
   import GearHaltHero from "./GearHaltHero.svelte";
   import GearGroupHead from "./GearGroupHead.svelte";
+  import type { HerdStatus } from "../herd-status";
   import GearRow from "./GearRow.svelte";
   import GearAttentionRows from "./GearAttentionRows.svelte";
   import { REPO_URL, DOCS_URL, MAC_APP_DOWNLOAD_URL } from "#lib/build-info.js";
@@ -81,6 +82,7 @@
     working,
     idle,
     blocked,
+    merge = 0,
     statusFilter = null,
     clickStatus,
     autoMerge = {},
@@ -127,8 +129,9 @@
     working: number;
     idle: number;
     blocked: number;
-    statusFilter?: "running" | "idle" | "blocked" | null;
-    clickStatus: (s: "running" | "idle" | "blocked") => void;
+    merge?: number;
+    statusFilter?: HerdStatus | null;
+    clickStatus: (s: HerdStatus) => void;
     /** Per-repo merge-train state; one row per active train (the folded QueueStrip). */
     autoMerge?: Record<string, AutoMergeStatus>;
     onselectsession?: (id: string) => void;
@@ -142,6 +145,7 @@
     { s: "running" as const, glyph: "●", label: m.topbar_working_label(), n: working },
     { s: "idle" as const, glyph: "◌", label: m.topbar_idle_label(), n: idle },
     { s: "blocked" as const, glyph: "!", label: m.topbar_blocked_label(), n: blocked },
+    { s: "merge" as const, glyph: "●", label: m.topbar_merge_label(), n: merge },
   ]);
 
   let showMacApp = $state(false);
@@ -251,8 +255,10 @@
           type="button"
           class="sheet-close"
           onclick={() => closeMenu()}
-          aria-label={m.common_close()}>✕</button
+          aria-label={m.common_close()}
         >
+          ✕
+        </button>
       </GearIdent>
     </div>
 
@@ -374,8 +380,10 @@
               class:on={theme.resolved === t.pref}
               aria-pressed={theme.resolved === t.pref}
               aria-label={m.actionbar_theme_option({ label: t.label() })}
-              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+              onclick={() => theme.setPref(t.pref)}
             >
+              <ThemeIcon icon={t.icon} />
+            </button>
           {/each}
         </div>
         <button
@@ -384,8 +392,10 @@
           class:on={theme.contrast}
           aria-pressed={theme.contrast}
           aria-label={m.actionbar_contrast_toggle()}
-          onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+          onclick={() => theme.toggleContrast()}
         >
+          <ThemeIcon icon="contrast" />
+        </button>
       </div>
     </div>
 

@@ -239,6 +239,20 @@ function stageOf(
   return greenIdle ? handoffStage(g) : "active";
 }
 
+/** True when the session's stage is a green PR waiting on the operator's merge: auto-detected
+ *  (`awaitingMerge`) or operator-flagged (`ready`). The stage half of the global Merge status
+ *  (herd-status.ts adds the resting-status half). */
+export function isMergeStage(
+  s: Session,
+  g: GitState | undefined,
+  isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
+  now: number,
+): boolean {
+  const stage = stageOf(s, g, isReviewing, isReworkRunning, now);
+  return stage === "awaitingMerge" || stage === "ready";
+}
+
 /** The canonical top→bottom lifecycle stage order of Herd.svelte's template (active
  *  first, merged last). Single source of truth for stage ordering: `flattenByStage`
  *  here (used by both the render and herd-keynav's `railOrder`) derives from it, so the

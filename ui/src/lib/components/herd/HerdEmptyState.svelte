@@ -2,6 +2,7 @@
   import EmptyHerd from "../EmptyHerd.svelte";
   import { m } from "#lib/paraglide/messages.js";
   import type { SessionOrigin } from "#lib/session-origin.js";
+  import type { HerdStatus } from "#lib/components/herd-status.js";
 
   let {
     mode,
@@ -19,7 +20,7 @@
     mode: "sessions" | "shown" | "machine";
     // the picked machine's name, for "machine"
     machine?: string | null;
-    statusFilter: "running" | "idle" | "blocked" | null;
+    statusFilter: HerdStatus | null;
     statusLabel: string;
     // the herd's origin filter (#3999) and its display label; outranks the status/repo copy
     originFilter?: SessionOrigin | null;

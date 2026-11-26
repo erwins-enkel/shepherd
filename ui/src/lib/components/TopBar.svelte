@@ -14,8 +14,11 @@
     DrainStatus,
     ProviderFailoverStatus,
     AutoMergeStatus,
+    GitState,
   } from "#lib/types.js";
-  import { displayStatus } from "#lib/display-status.js";
+  import { countHerdStatuses, type HerdStatus } from "./herd-status";
+  import { isReworkRunning as isReworkRunningSession } from "./rework-running";
+  import { reviews, planGates } from "#lib/reviews.svelte.js";
   import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
   import { updateBadge } from "#lib/machine-updates.js";
   import {
@@ -64,11 +67,10 @@
   import { diagnosticsPip, withSteeringPip, type GearPipTier } from "./top-bar/gear-pip";
   import { steeringReport } from "#lib/steering-report.svelte.js";
 
-  type TallyStatus = "running" | "idle" | "blocked";
-
   let {
     sessions,
     nowMs,
+    git = {},
     connected = false,
     offline = false,
     unreachable = false,
@@ -123,6 +125,8 @@
   }: {
     sessions: Session[];
     nowMs: number;
+    /** This Shepherd's PR state (store.git): the Merge tally needs each session's stage. */
+    git?: Record<string, GitState>;
     connected?: boolean;
     /** Down past the reconnect grace (store.offline): the dot becomes a labelled RECONNECTING chip. */
     offline?: boolean;
@@ -161,8 +165,8 @@
     whatsNew?: boolean;
     onwhatsnew?: () => void;
     // page-level session-status filter the tallies toggle; null = no filter
-    statusFilter?: TallyStatus | null;
-    onstatusfilter?: (status: TallyStatus | null) => void;
+    statusFilter?: HerdStatus | null;
+    onstatusfilter?: (status: HerdStatus | null) => void;
     // herd origin filter (#3999): desktop/touch-wide only — the HERD total opens its popover
     originFilter?: SessionOrigin | null;
     originCounts?: OriginCounts | null;
@@ -213,7 +217,7 @@
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
-  const clickStatus = (s: TallyStatus) => onstatusfilter?.(statusFilter === s ? null : s);
+  const clickStatus = (s: HerdStatus) => onstatusfilter?.(statusFilter === s ? null : s);
   // Every machine's sessions: the slot chip names holders and waiters on every machine, and the
   // tallies count them all (below).
   const everySession = $derived(
@@ -231,12 +235,28 @@
   // itself reports working, which the latched-"blocked" session is not.
   //
   // They count every machine's sessions, as the herd lists them and the status filter they set
-  // narrows them; a mirrored id is in neither display map, so its status reads as reported. The
+  // narrows them; a mirrored session reads its own status and PR state (herdStatusOf). The
   // halt e-stop counts this machine's only: haltAll never reaches another machine's agents.
-  const working = $derived(
-    everySession.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running")
-      .length,
+  // Four non-overlapping statuses: Merge (a resting session on a green PR waiting for the
+  // operator's merge) is carved out of Idle; shelved sessions count only while working.
+  const tally = $derived(
+    countHerdStatuses(everySession, {
+      git,
+      isReviewing: (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      isReworkRunning: (session) =>
+        isReworkRunningSession(
+          session,
+          { planGate: planGates.map[session.id], review: reviews.map[session.id] },
+          workingBlocked,
+          nowMs,
+          backgroundBusy,
+        ),
+      workingBlocked,
+      backgroundBusy,
+      now: nowMs,
+    }),
   );
+  const working = $derived(tally.running);
   const haltable = $derived(sessions.filter((s) => s.status === "running").length);
   // "touch-desktop" = a coarse-pointer device wider than 768px (an unfolded foldable, a
   // tablet) — a VARIABLE-width class, not the fixed ~1000px the old #247/#322 count rule
@@ -411,16 +431,9 @@
   const foldBadges = $derived(compactBadges && measuredFold);
 
   // Shelved sessions are out of play: they never count toward the attention tallies.
-  const idle = $derived(
-    everySession.filter(
-      (s) => !s.shelved && displayStatus(s, workingBlocked, backgroundBusy) === "idle",
-    ).length,
-  );
-  const blocked = $derived(
-    everySession.filter(
-      (s) => !s.shelved && displayStatus(s, workingBlocked, backgroundBusy) === "blocked",
-    ).length,
-  );
+  const idle = $derived(tally.idle);
+  const blocked = $derived(tally.blocked);
+  const merge = $derived(tally.merge);
   const live = $derived(connected && !offline);
   const connText = $derived(
     live
@@ -996,6 +1009,7 @@
       {working}
       {idle}
       {blocked}
+      {merge}
       {statusFilter}
       {heavySlot}
       {autoMerge}
@@ -1019,6 +1033,7 @@
       {working}
       {idle}
       {blocked}
+      {merge}
       {statusFilter}
       {onstatusfilter}
       {clickStatus}
@@ -1232,6 +1247,7 @@
     {working}
     {idle}
     {blocked}
+    {merge}
     {statusFilter}
     {clickStatus}
     {autoMerge}

@@ -13,7 +13,6 @@ import type { UpNextPr } from "#lib/types.js";
 const base = {
   filter: "all" as const,
   statusFilter: null,
-  statusLabel: "",
   collapsible: false,
 };
 
@@ -153,17 +152,6 @@ describe("HerdLensStrip header bits", () => {
     for (const lb of frame.querySelectorAll<HTMLElement>(".lens .lb")) {
       expect(lb.scrollWidth).toBeLessThanOrEqual(lb.clientWidth);
     }
-  });
-
-  it("renders the status chip only when a status filter is active", async () => {
-    const frame = document.createElement("div");
-    frame.style.width = "300px";
-    document.body.appendChild(frame);
-    render(HerdLensStrip, {
-      props: { ...base, statusFilter: "running", statusLabel: "Busy" },
-      target: frame,
-    });
-    expect(frame.querySelector(".statchip")).not.toBeNull();
   });
 });
 

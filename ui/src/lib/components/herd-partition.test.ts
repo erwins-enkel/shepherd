@@ -7,6 +7,7 @@ import {
   mirroredGit,
   flattenByStage,
   GROUP_KEY_BY_STAGE,
+  isMergeStage,
 } from "./herd-partition";
 import type { Session, GitState, SessionStatus } from "#lib/types.js";
 
@@ -822,4 +823,13 @@ test("shelved wins over every other stage, renders last, and the Ready lens drop
     "b",
   ]);
   expect(shownSessions(list, "ready", () => false, {}, g).map((s) => s.id)).toEqual(["b"]);
+});
+
+test("isMergeStage: awaitingMerge and ready are the Merge stages, nothing else", () => {
+  const at = (s: Session, g?: GitState) => isMergeStage(s, g, notReviewing, notReworking, 0);
+  expect(at(session("am", false, "idle"), git("open", "success"))).toBe(true);
+  expect(at(session("rdy", true, "idle"))).toBe(true);
+  expect(at(session("ci", false, "idle"), git("open", "pending"))).toBe(false);
+  expect(at(session("mrg", false, "idle"), git("merged", "success"))).toBe(false);
+  expect(at(session("act", false, "running"), git("open", "success"))).toBe(false);
 });

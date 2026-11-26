@@ -4,8 +4,7 @@
   import { chipModel, slotActive } from "../heavy-slot/heavy-slot";
   import { activeMergeTrain, mergeTrainIsAttention } from "../queue-strip";
   import { gaugeColor, type HottestCapacityWindow } from "../usage-gauges";
-
-  type TallyStatus = "running" | "idle" | "blocked";
+  import type { HerdStatus } from "../herd-status";
 
   // The phone's whole top bar (docs/design/mobile-herd, variant E): a READ-ONLY status
   // line. Every action lives in the thumb zone (bottom bar, FABs, Menu sheet), so nothing
@@ -15,6 +14,7 @@
     working,
     idle,
     blocked,
+    merge = 0,
     statusFilter = null,
     heavySlot = null,
     autoMerge = {},
@@ -26,8 +26,10 @@
     working: number;
     idle: number;
     blocked: number;
+    /** Resting sessions on a green PR waiting for the operator's merge. */
+    merge?: number;
     /** The active status filter, underlined on its tally (display only). */
-    statusFilter?: TallyStatus | null;
+    statusFilter?: HerdStatus | null;
     heavySlot?: HeavySlotSnapshot | null;
     autoMerge?: Record<string, AutoMergeStatus>;
     heldCount?: number;
@@ -51,49 +53,57 @@
 <div class="status-line" role="group" aria-label={m.topbar_status_line_label()}>
   <div class="row">
     <span class="seg"><span class="sr-only">{m.topbar_herd_label()}</span>{total}</span>
-    <span class="seg" class:on={statusFilter === "running"}
-      ><span class="g amber" aria-hidden="true">●</span><span class="sr-only"
-        >{m.topbar_working_label()}</span
-      >{working}</span
-    >
-    <span class="seg" class:on={statusFilter === "idle"} class:zero={idle === 0}
-      ><span class="g" aria-hidden="true">◌</span><span class="sr-only"
-        >{m.topbar_idle_label()}</span
-      >{idle}</span
-    >
-    <span class="seg" class:on={statusFilter === "blocked"} class:zero={blocked === 0}
-      ><span class="g red" aria-hidden="true">!</span><span class="sr-only"
-        >{m.topbar_blocked_label()}</span
-      >{blocked}</span
-    >
+    <span class="seg" class:on={statusFilter === "running"}>
+      <span class="g amber" aria-hidden="true">●</span><span class="sr-only">
+        {m.topbar_working_label()}
+      </span>{working}
+    </span>
+    <span class="seg" class:on={statusFilter === "idle"} class:zero={idle === 0}>
+      <span class="g" aria-hidden="true">◌</span><span class="sr-only">
+        {m.topbar_idle_label()}
+      </span>{idle}
+    </span>
+    <span class="seg" class:on={statusFilter === "blocked"} class:zero={blocked === 0}>
+      <span class="g red" aria-hidden="true">!</span><span class="sr-only">
+        {m.topbar_blocked_label()}
+      </span>{blocked}
+    </span>
+    <span class="seg" class:on={statusFilter === "merge"} class:zero={merge === 0}>
+      <span class="g green" aria-hidden="true">●</span><span class="sr-only">
+        {m.topbar_merge_label()}
+      </span>{merge}
+    </span>
     {#if slot}
-      <span class="seg meta" class:warm={slot.braking}
-        >{#if slot.held > 0}<span class="live" aria-hidden="true"></span>{/if}<span
-          aria-hidden="true">▤</span
-        ><span class="sr-only">{m.heavyslot_label()}</span
-        >{slot.held}/{slot.capacity}{#if slot.waiting > 0}
-          <span aria-hidden="true">◔</span>{slot.waiting}{/if}</span
-      >
+      <span class="seg meta" class:warm={slot.braking}>
+        {#if slot.held > 0}<span class="live" aria-hidden="true"></span>{/if}<span
+          aria-hidden="true"
+        >
+          ▤
+        </span><span class="sr-only">
+          {m.heavyslot_label()}
+        </span>{slot.held}/{slot.capacity}{#if slot.waiting > 0}
+          <span aria-hidden="true">◔</span>{slot.waiting}{/if}
+      </span>
     {/if}
     {#if trains.length > 0}
-      <span class="seg meta" class:warm={trainAttention}
-        ><span aria-hidden="true">↣</span><span class="sr-only"
-          >{m.automation_automerge_name()}</span
-        >{trains.length}</span
-      >
+      <span class="seg meta" class:warm={trainAttention}>
+        <span aria-hidden="true">↣</span><span class="sr-only">
+          {m.automation_automerge_name()}
+        </span>{trains.length}
+      </span>
     {/if}
     {#if heldCount > 0}
-      <span class="seg meta held"
-        ><span aria-hidden="true">⏸</span><span class="sr-only"
-          >{m.topbar_held_badge({ count: heldCount })}</span
-        ><span aria-hidden="true">{heldCount}</span></span
-      >
+      <span class="seg meta held">
+        <span aria-hidden="true">⏸</span><span class="sr-only">
+          {m.topbar_held_badge({ count: heldCount })}
+        </span><span aria-hidden="true">{heldCount}</span>
+      </span>
     {/if}
     {#if pct !== null}
-      <span class="seg usage"
-        ><span class="period">{period}</span>
-        <b style:color={pct > 50 ? gaugeColor(pct) : undefined}>{pct}%</b></span
-      >
+      <span class="seg usage">
+        <span class="period">{period}</span>
+        <b style:color={pct > 50 ? gaugeColor(pct) : undefined}>{pct}%</b>
+      </span>
     {/if}
   </div>
   {#if pct !== null}
@@ -145,6 +155,9 @@
   }
   .g.red {
     color: var(--color-red);
+  }
+  .g.green {
+    color: var(--color-green);
   }
   .meta {
     color: var(--color-muted);

@@ -11,6 +11,7 @@ import {
 } from "./herd-partition";
 import { groupSessionsByEpic } from "./epic-grouping";
 import { groupSessionsByExperiment, type ExperimentGroup } from "./experiment-grouping";
+import { groupByRepo, repoKeyFn } from "./herd-repo-groups";
 
 /** Pure ordering/cycling logic for the herd's keyboard navigation (j/k, g, 1-9).
  *  Sibling of herd-partition.ts: the page-level shortcut handler computes the
@@ -20,6 +21,19 @@ import { groupSessionsByExperiment, type ExperimentGroup } from "./experiment-gr
  *  (variants first, then the comparison run). Shared by railOrder and railLocationsOf. */
 function experimentMembers(g: ExperimentGroup): Session[] {
   return g.comparison ? [...g.variants, g.comparison] : g.variants;
+}
+
+/** The rest's lifecycle rows in the Repo layout (#4228): repo sections alphabetically, each in
+ *  stage order, a collapsed repo contributing nothing — exactly as Herd.svelte renders them.
+ *  `local` is the listed local set the section keys come from (repoKeyFn), as in the render. */
+function repoOrderedRest(
+  partition: ReturnType<typeof partitionSessions>,
+  local: Session[],
+  collapsedRepoKeys: ReadonlySet<string>,
+): Session[] {
+  return groupByRepo(flattenByStage(partition), repoKeyFn(local)).flatMap((g) =>
+    collapsedRepoKeys.has(g.key) ? [] : g.sessions,
+  );
 }
 
 /** Session ids in the exact order the herd rail renders them. Mirrors Herd.svelte's
@@ -54,6 +68,9 @@ export function railOrder(
   collapsedStageKeys: ReadonlySet<string> = new Set(),
   backgroundBusy: Record<string, boolean> = {},
   mirrored: Session[] = [],
+  /** Repo layout (#4228): the collapsed repo section keys; null = the Stage layout. In the Repo
+   *  layout `collapsedStageKeys` is ignored — no stage heading renders there. */
+  collapsedRepoKeys: ReadonlySet<string> | null = null,
 ): string[] {
   const shown = shownSessions(
     sessions,
@@ -82,11 +99,11 @@ export function railOrder(
     experimentMembers(g).map((s) => s.id),
   );
   const rest = joinMirrored(grouped.rest, git, grouped.mirroredRest);
-  const restIds = flattenByStage(
-    partitionSessions(rest.sessions, rest.git, isReviewing, isReworkRunning, now),
-    collapsedStageKeys,
-  ).map((s) => s.id);
-  return [...groupIds, ...experimentIds, ...restIds];
+  const partition = partitionSessions(rest.sessions, rest.git, isReviewing, isReworkRunning, now);
+  const restRows = collapsedRepoKeys
+    ? repoOrderedRest(partition, shown, collapsedRepoKeys)
+    : flattenByStage(partition, collapsedStageKeys);
+  return [...groupIds, ...experimentIds, ...restRows.map((s) => s.id)];
 }
 
 /** Where a session renders in the herd rail: inside an experiment group (never
@@ -94,7 +111,10 @@ export function railOrder(
  *  section of the rest (collapsed via the desktop stage set, keyed by
  *  GROUP_KEY_BY_STAGE). Sessions not in the input list have no location. */
 export type RailLocation =
-  { kind: "experiment" } | { kind: "epic"; key: string } | { kind: "stage"; key: string };
+  | { kind: "experiment" }
+  | { kind: "epic"; key: string }
+  | { kind: "stage"; key: string }
+  | { kind: "repo"; key: string };
 
 /** Classify every session by where it renders, in ONE pass of the exact grouping
  *  pipeline the template (and railOrder) uses: experiments first, epics over the
@@ -112,6 +132,10 @@ export function railLocationsOf(
   epics: Record<string, Epic> = {},
   activeEpicKeys: Set<string> = new Set(),
   mirrored: Session[] = [],
+  /** Repo layout (#4228): the rest's sessions sit in repo sections, not lifecycle stages. Keys
+   *  come from `sessions`, the render's from the listed (lens-filtered) set — they differ only
+   *  for a mirrored session whose same-name local sessions the lens hides. */
+  repoLayout = false,
 ): Map<string, RailLocation> {
   const experimentGrouped = groupSessionsByExperiment(sessions);
   const grouped = groupSessionsByEpic(
@@ -126,6 +150,11 @@ export function railLocationsOf(
   );
   const rest = joinMirrored(grouped.rest, git, grouped.mirroredRest);
   const partition = partitionSessions(rest.sessions, rest.git, isReviewing, isReworkRunning, now);
+  const repoKeyOf = repoKeyFn(sessions);
+  const restLocation = (stage: keyof typeof GROUP_KEY_BY_STAGE, s: Session): RailLocation =>
+    repoLayout
+      ? { kind: "repo", key: repoKeyOf(s) }
+      : { kind: "stage", key: GROUP_KEY_BY_STAGE[stage] };
   // Entries array (not .set in a loop) so callers get a plain non-reactive lookup,
   // matching the page's previous epicGroupOf pattern.
   const entries: [string, RailLocation][] = [
@@ -136,10 +165,7 @@ export function railLocationsOf(
       g.sessions.map((s): [string, RailLocation] => [s.id, { kind: "epic", key: g.key }]),
     ),
     ...(Object.keys(GROUP_KEY_BY_STAGE) as (keyof typeof GROUP_KEY_BY_STAGE)[]).flatMap((stage) =>
-      partition[stage].map((s): [string, RailLocation] => [
-        s.id,
-        { kind: "stage", key: GROUP_KEY_BY_STAGE[stage] },
-      ]),
+      partition[stage].map((s): [string, RailLocation] => [s.id, restLocation(stage, s)]),
     ),
   ];
   return new Map(entries);

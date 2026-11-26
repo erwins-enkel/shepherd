@@ -18,8 +18,11 @@ export type JumpDeps = {
   isDesktop: () => boolean;
   collapsedEpics: ReadonlySet<string>;
   collapsedStages: ReadonlySet<string>;
+  /** Repo layout (#4228): collapsed repo sections — shared by desktop and phone. */
+  collapsedRepos: ReadonlySet<string>;
   expandEpic: (key: string) => void;
   expandStage: (key: string) => void;
+  expandRepo: (key: string) => void;
   tick: () => Promise<void>;
   /** The page's selectUnit — default select for direct jumps. */
   select: (id: string, focusTerm?: boolean, toDetail?: boolean) => void;
@@ -70,6 +73,9 @@ export async function revealAndSelect(
     expanded = true;
   } else if (loc?.kind === "stage" && deps.isDesktop() && deps.collapsedStages.has(loc.key)) {
     deps.expandStage(loc.key);
+    expanded = true;
+  } else if (loc?.kind === "repo" && deps.collapsedRepos.has(loc.key)) {
+    deps.expandRepo(loc.key);
     expanded = true;
   }
   // Only an actual expansion needs THIS tick (the row must mount before it can be

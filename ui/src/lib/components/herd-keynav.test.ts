@@ -504,6 +504,69 @@ test("railLocationsOf: a lone surviving variant falls back into the lifecycle re
   expect(locs.get("lone")).toEqual({ kind: "stage", key: GROUP_KEY_BY_STAGE.active });
 });
 
+// Repo layout (#4228) — the rest walks repo sections alphabetically, skipping collapsed ones
+
+function repoRail(sessions: Session[], git: Record<string, GitState>, collapsed: Set<string>) {
+  const epics = { [epicKey("/w/zeta", 100)]: epic("/w/zeta", 100, [101]) };
+  const active = new Set([epicKey("/w/zeta", 100)]);
+  return railOrderRaw(
+    sessions,
+    git,
+    noReview,
+    noRework,
+    1000,
+    "all",
+    {},
+    epics,
+    active,
+    new Set(),
+    // a collapsed stage is ignored: the Repo layout renders no stage heading
+    new Set([GROUP_KEY_BY_STAGE.active]),
+    {},
+    [],
+    collapsed,
+  );
+}
+
+test("railOrder (Repo layout): epic groups first, then repos alphabetically, stage order within", () => {
+  const sessions = [
+    session("z-run", false, "running", null, "/w/zeta"),
+    session("z-epic", false, "running", 101, "/w/zeta"),
+    session("a-green", false, "idle", null, "/w/alpha"),
+    session("a-run", false, "running", null, "/w/alpha"),
+    session("z-ready", true, "idle", null, "/w/zeta"),
+  ];
+  const order = repoRail(sessions, { "a-green": git("open", "success") }, new Set());
+  expect(order).toEqual(["z-epic", "a-run", "a-green", "z-run", "z-ready"]);
+});
+
+test("railOrder (Repo layout): a collapsed repo contributes no rows", () => {
+  const sessions = [
+    session("a1", false, "running", null, "/w/alpha"),
+    session("z1", false, "running", null, "/w/zeta"),
+  ];
+  expect(repoRail(sessions, {}, new Set(["/w/alpha"]))).toEqual(["z1"]);
+});
+
+test("railLocationsOf (Repo layout): the lifecycle rest sits in repo sections", () => {
+  const host = { instanceId: "m1", name: "Mac", platform: "macos" };
+  const local = session("l", false, "idle", null, "/w/shepherd");
+  const mirroredSession = { ...session("r", false, "idle", null, "/Users/x/shepherd"), host };
+  const locs = railLocationsOf(
+    [local],
+    {},
+    noReview,
+    noRework,
+    1000,
+    {},
+    new Set(),
+    [mirroredSession],
+    true,
+  );
+  expect(locs.get("l")).toEqual({ kind: "repo", key: "/w/shepherd" });
+  expect(locs.get("r")).toEqual({ kind: "repo", key: "/w/shepherd" });
+});
+
 // altComboKey — physical KeyboardEvent.code → keynav key vocabulary
 
 test("altComboKey maps j/k letter codes", () => {

@@ -111,7 +111,7 @@
       } catch (e) {
         if (e instanceof MergeRefusedError) {
           mergeBusy = false;
-          throw e; // the dialog re-states the responsibility and stays open
+          throw e; // the flow reopens the re-stated dialog
         }
         // The PR is not gone from the list either way, so the row stays — only the message differs.
         if (e instanceof ApiError && (e.code === "merge_enqueued" || e.code === "merge_pending")) {
@@ -160,20 +160,24 @@
         href={firstSafeHttpUrl(pr.url) ?? undefined}
         target="_blank"
         rel="noopener"
-        title={m.prspanel_open_link()}>#{pr.number}</a
+        title={m.prspanel_open_link()}
       >
+        #{pr.number}
+      </a>
       <a
         class="pr-title"
         href={firstSafeHttpUrl(pr.url) ?? undefined}
         target="_blank"
         rel="noopener"
-        title={m.prspanel_open_link()}>{pr.title}</a
+        title={m.prspanel_open_link()}
       >
+        {pr.title}
+      </a>
       <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {#if pr.kind === "dependabot"}
-        <span class="kind-tag dep" title={m.prkind_dependabot_tag()}
-          >{m.prkind_dependabot_tag()}</span
-        >
+        <span class="kind-tag dep" title={m.prkind_dependabot_tag()}>
+          {m.prkind_dependabot_tag()}
+        </span>
       {:else if pr.kind === "release"}
         <span class="kind-tag rel" title={m.prkind_release_tag()}>{m.prkind_release_tag()}</span>
       {/if}
@@ -188,8 +192,10 @@
         <span
           class="needs-approval"
           title={m.prrow_awaiting_approval_title()}
-          aria-label={m.prrow_awaiting_approval_title()}>{m.prrow_awaiting_approval()}</span
+          aria-label={m.prrow_awaiting_approval_title()}
         >
+          {m.prrow_awaiting_approval()}
+        </span>
       {/if}
       {#if pr.checks !== "none"}
         {#if hasJobs}
@@ -250,8 +256,10 @@
                 href={firstSafeHttpUrl(job.url) ?? undefined}
                 target="_blank"
                 rel="noopener"
-                title={m.actionspanel_job_link()}>{job.name}</a
+                title={m.actionspanel_job_link()}
               >
+                {job.name}
+              </a>
               <!-- eslint-enable svelte/no-navigation-without-resolve -->
             {:else}
               <span class="job-name">{job.name}</span>
@@ -267,13 +275,13 @@
          stay flush-left as a group instead of fighting over the free space. -->
       {#if failed || mergeInFlight || rebaseFailed || requested}
         <div class="pr-status">
-          {#if failed}<span class="merge-err"
-              >{baseMerged
+          {#if failed}<span class="merge-err">
+              {baseMerged
                 ? m.prspanel_merge_failed_base_merged()
                 : stackUntested
                   ? m.prspanel_merge_failed_stack_untested()
-                  : m.prspanel_merge_failed()}</span
-            >{/if}
+                  : m.prspanel_merge_failed()}
+            </span>{/if}
           {#if mergeInFlight}
             <span class="rebase-note" role="status">{m.prspanel_merge_in_progress()}</span>
           {/if}
@@ -296,8 +304,10 @@
       <button
         class="review-btn"
         onclick={() => onreview(pr)}
-        title={m.prspanel_review_button_title()}>{m.prspanel_review_button()}</button
+        title={m.prspanel_review_button_title()}
       >
+        {m.prspanel_review_button()}
+      </button>
       {#if !pr.isDraft}
         <button
           class="merge-btn"

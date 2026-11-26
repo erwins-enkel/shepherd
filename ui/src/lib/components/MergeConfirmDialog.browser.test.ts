@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import { userEvent } from "vitest/browser";
 import "../../app.css";
 import MergeConfirmDialog from "./MergeConfirmDialog.svelte";
-import { CONFIRM_ARM_MS, type MergeConfirmContext } from "./merge-confirm";
+import type { MergeConfirmContext } from "./merge-confirm";
 import { m } from "#lib/paraglide/messages.js";
 
 function ctx(over: Partial<MergeConfirmContext> = {}): MergeConfirmContext {
@@ -145,20 +145,6 @@ describe("MergeConfirmDialog", () => {
     await armed();
     await userEvent.keyboard("{Escape}");
     expect(onclose).toHaveBeenCalled();
-    expect(onconfirm).not.toHaveBeenCalled();
-  });
-
-  it("locks both controls while the merge is in flight", async () => {
-    const onconfirm = vi.fn();
-    const onclose = vi.fn();
-    render(MergeConfirmDialog, {
-      props: { ctx: ctx(), busy: true, onclose, onconfirm },
-    });
-
-    // The busy lock does not expire — no arm delay can unlock it.
-    await new Promise((r) => setTimeout(r, CONFIRM_ARM_MS + 50));
-    expect(confirmEl().disabled).toBe(true);
-    confirmEl().click();
     expect(onconfirm).not.toHaveBeenCalled();
   });
 

@@ -1,3 +1,4 @@
+import { SvelteSet } from "svelte/reactivity";
 import { ApiError, MergeRefusedError, mergePr } from "#lib/api.js";
 import { basename } from "#lib/basename.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -35,25 +36,47 @@ function mergeFailureText(e: unknown, git: GitState | null | undefined): string 
 
 /** A session's manual merge behind the confirmation dialog (#2299), for the merge row (#3540).
  *  The owner renders `flow` through MergeConfirmHost and shows `error`; `busy` covers the
- *  request after confirmation. */
+ *  request after confirmation.
+ *
+ *  One instance serves every session the Viewport shows, and the merge runs in the background, so
+ *  the operator can switch sessions mid-request. `busy` and `error` therefore belong to the session
+ *  the merge was FOR: another session never shows its state, and a failure that lands after a
+ *  switch is toasted instead of written to the wrong row. */
 export class SessionPrMerge {
-  readonly flow = new MergeConfirmFlow();
-  busy = $state(false);
-  /** Why the last merge failed; cleared when the next one opens. */
-  error = $state<string | null>(null);
+  /** Replaced when a different session merges while one is in flight — see merge(). */
+  flow = $state(new MergeConfirmFlow());
+  /** Sessions whose merge request is in flight — several, once the operator switches and merges on. */
+  readonly #inFlight = new SvelteSet<string>();
+  #error = $state<{ sessionId: string; text: string } | null>(null);
+  readonly #current: () => string;
+
+  /** `current` reads the session the owner shows now. */
+  constructor(current: () => string) {
+    this.#current = current;
+  }
+
+  get busy(): boolean {
+    return this.#inFlight.has(this.#current());
+  }
+
+  /** Why the current session's last merge failed; cleared when the next one opens. */
+  get error(): string | null {
+    return this.#error?.sessionId === this.#current() ? this.#error.text : null;
+  }
 
   merge(target: SessionMergeTarget): void {
-    if (this.busy) return;
+    if (this.#inFlight.has(target.sessionId)) return;
     const ctx = mergeConfirmFromGit(target.git, basename(target.repoPath));
     if (!ctx) return;
     // Everything the merge and its toast act on is captured NOW, at dialog-open time: the
     // Viewport rebinds on a session switch and the confirmation is answered later, so a live
     // read could merge a different session.
     const t = { ...target };
-    this.error = null;
+    this.#error = null;
+    // Another session's merge still holds the flow: give this one its own.
+    if (this.flow.busy) this.flow = new MergeConfirmFlow();
     this.flow.open(ctx, async (confirm) => {
-      this.busy = true;
-      this.error = null;
+      this.#inFlight.add(t.sessionId);
       try {
         await mergePr(t.sessionId, { deleteBranch: true, confirm });
         // Only a note: the merge row, now MERGED, carries the next step (Decommission).
@@ -61,18 +84,20 @@ export class SessionPrMerge {
           key: `pr-merge:${t.sessionId}`,
         });
       } catch (e) {
-        if (e instanceof MergeRefusedError) throw e; // the dialog re-states and stays open
-        this.error = mergeFailureText(e, t.git);
+        if (e instanceof MergeRefusedError) throw e; // the flow reopens the re-stated dialog
+        const text = mergeFailureText(e, t.git);
+        if (t.sessionId === this.#current()) this.#error = { sessionId: t.sessionId, text };
+        else toasts.info(text, { alert: true, key: `pr-merge:${t.sessionId}` });
       } finally {
-        this.busy = false;
+        this.#inFlight.delete(t.sessionId);
       }
     });
   }
 
   /** Session switch: drop the stale error and close an unanswered confirmation (a merge
-   *  already in flight keeps its dialog until it settles). */
+   *  already in flight runs on behind its progress toast). */
   reset(): void {
     this.flow.close();
-    this.error = null;
+    this.#error = null;
   }
 }

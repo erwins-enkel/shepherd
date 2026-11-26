@@ -74,7 +74,7 @@
     onsummary?: () => void;
   } = $props();
 
-  const merge = new SessionPrMerge();
+  const merge = new SessionPrMerge(() => session.id);
 
   const verdict = $derived(reviews.map[session.id]);
   const reviewing = $derived(reviews.isReviewing(session.id));
@@ -360,8 +360,10 @@
       aria-label={m.prrow_more_aria()}
       aria-haspopup="menu"
       aria-expanded={!!menuAnchor}
-      onclick={toggleMenu}>⋯</button
+      onclick={toggleMenu}
     >
+      ⋯
+    </button>
   {/if}
 {/snippet}
 
@@ -399,8 +401,10 @@
           href={logsLink}
           target="_blank"
           rel="noopener"
-          aria-label={m.prrow_logs_aria()}>{m.prrow_logs_link()}</a
+          aria-label={m.prrow_logs_aria()}
         >
+          {m.prrow_logs_link()}
+        </a>
         <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {:else if prHref}
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
@@ -409,8 +413,10 @@
           href={prHref}
           target="_blank"
           rel="noopener"
-          aria-label={m.prbadge_open_pr()}>{m.prrow_pr_link()}</a
+          aria-label={m.prbadge_open_pr()}
         >
+          {m.prrow_pr_link()}
+        </a>
         <!-- eslint-enable svelte/no-navigation-without-resolve -->
       {/if}
       {#if canReview && !mobile}
@@ -419,8 +425,10 @@
           class:armed
           type="button"
           onclick={() => doReview()}
-          use:coachTarget={"manual-critic-review"}>{reviewLabel}</button
+          use:coachTarget={"manual-critic-review"}
         >
+          {reviewLabel}
+        </button>
       {/if}
       {#if !mobile}{@render more()}{/if}
       <span class="pr-sep" aria-hidden="true"></span>
@@ -431,8 +439,10 @@
           role="status"
           tabindex="0"
           use:statusTip={stepTip}
-          use:coachTarget={"pr-merge-row"}>{step.reason}</span
+          use:coachTarget={"pr-merge-row"}
         >
+          {step.reason}
+        </span>
       {:else if step.action !== "merge"}
         <button
           class="gbtn primary"

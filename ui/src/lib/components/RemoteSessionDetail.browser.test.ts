@@ -799,3 +799,31 @@ describe("RemoteSessionDetail merge row (#3957)", () => {
     expect(document.querySelector("section.pr-row")).toBeNull();
   });
 });
+
+// #4221: the Terminal tab hands the keyboard to the terminal, so ↑/↓ never reach herd keynav.
+describe("RemoteSessionDetail Terminal tab focus (#4221)", () => {
+  async function switchToTerminal() {
+    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
+    await page.getByRole("tab", { name: m.viewport_terminal_tab() }).click();
+  }
+
+  it("clicking the Terminal tab focuses the terminal", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), terminalOwners: {} });
+    await vi.waitFor(() => expect(document.querySelector(".xterm")).not.toBeNull());
+    await switchToTerminal();
+    await vi.waitFor(() => expect(document.activeElement?.closest(".xterm")).not.toBeNull());
+  });
+
+  it("leaves focus alone on the compact (phone/touch) layout", async () => {
+    render(RemoteSessionDetail, {
+      session: remote(),
+      nowMs: Date.now(),
+      terminalOwners: {},
+      compact: true,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".xterm")).not.toBeNull());
+    await switchToTerminal();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.activeElement?.closest(".xterm")).toBeNull();
+  });
+});

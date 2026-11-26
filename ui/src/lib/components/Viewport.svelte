@@ -655,6 +655,14 @@
   export function focusTerminal() {
     if (tab === "term") termRef?.focus();
   }
+  /** Switch to the Terminal tab and, on desktop, hand it the keyboard (#4221): focus left on
+   *  the tab button lets the page's plain ↑/↓ keynav switch sessions instead. Waits a tick so the
+   *  term mount is no longer display:none. Touch keeps tap-to-focus (no soft-keyboard pop). */
+  async function showTerminal() {
+    tab = "term";
+    await tick();
+    if (!mobile && !touch) focusTerminal();
+  }
   /** Type raw keys at the agent (a blocked prompt's answer from the Chat), no bracketed paste. */
   export function sendKeys(seq: string): boolean {
     if (!ptyLive || !conn) return false;
@@ -3292,6 +3300,7 @@
       {/if}
       <ViewportTabBar
         bind:tab
+        onterminal={showTerminal}
         {session}
         {previewPort}
         todoExists={!!todoExists}
@@ -3669,7 +3678,7 @@
             onsend={chatSend}
             onkeys={sendKeys}
             oninterrupt={sendInterrupt}
-            onterminal={() => (tab = "term")}
+            onterminal={showTerminal}
             composerLead={mobile ? steerToggle : undefined}
             resolveLocalPath={hasFiles ? resolveLocalPath : undefined}
             onopenfile={openFileInFiles}

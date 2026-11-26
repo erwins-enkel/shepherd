@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type {
     BlockReason,
     PendingAsk,
@@ -169,6 +169,13 @@
   export function focusTerminal() {
     if (tab === "term") terminal?.focus();
   }
+  /** Switch to the Terminal tab and, on desktop, hand it the keyboard (#4221) — as the
+   *  Viewport's showTerminal. A tick so the `hidden` term pane can take focus. */
+  async function showTerminal() {
+    chosen = { id: session.id, tab: "term" };
+    await tick();
+    if (!compact) focusTerminal();
+  }
 </script>
 
 {#snippet steerToggle()}
@@ -178,9 +185,9 @@
 <section class="remote-detail" aria-label={qualifiedDesig(session)}>
   <header class="head" class:compact>
     {#if onback}
-      <button type="button" class="back" aria-label={m.viewport_back_aria()} onclick={onback}
-        >{m.viewport_back_button()}</button
-      >
+      <button type="button" class="back" aria-label={m.viewport_back_aria()} onclick={onback}>
+        {m.viewport_back_button()}
+      </button>
     {/if}
     <button type="button" class="desig" use:statusTip={facts}>{qualifiedDesig(session)}</button>
     <span class="name" title={session.name}>{session.name}</span>
@@ -200,8 +207,11 @@
           aria-selected={tab === t.id}
           aria-controls={panelId}
           disabled={!live && t.id !== "term"}
-          onclick={() => (chosen = { id: session.id, tab: t.id })}>{t.label()}</button
+          onclick={() =>
+            t.id === "term" ? showTerminal() : (chosen = { id: session.id, tab: t.id })}
         >
+          {t.label()}
+        </button>
       {/each}
     </div>
     <span class="sep">·</span>
@@ -254,7 +264,7 @@
                 )}
               onkeys={(seq) => terminal?.sendKeys(seq) ?? false}
               oninterrupt={() => interruptSession(mirrored.id).catch(() => {})}
-              onterminal={() => (chosen = { id: mirrored.id, tab: "term" })}
+              onterminal={showTerminal}
               composerLead={compact ? steerToggle : undefined}
             />
           {/key}
@@ -301,8 +311,10 @@
           type="button"
           class="gbtn"
           aria-disabled="true"
-          use:statusTip={{ text: tip, wide: true }}>{m.remote_detail_steer()}</button
+          use:statusTip={{ text: tip, wide: true }}
         >
+          {m.remote_detail_steer()}
+        </button>
       </div>
     {/if}
   {/if}

@@ -95,17 +95,37 @@ describe("sessionlessEpicWait", () => {
     expect(sessionlessEpicWait(e, otherNext).lines).toEqual([m.epic_sessionless_unknown()]);
   });
 
-  it("an in-flight child: its machine, else its PR, else unknown ownership without a claim", () => {
+  it("reports the machine, a confirmed PR or a live session PR; historical PRs leave ownership unknown", () => {
     const host = { instanceId: "i-1", name: "studio", platform: "darwin" };
     const e = epic([
       child(1, { state: "running", elsewhere: { host, sessionId: null, prNumber: null } }),
       child(2, { state: "in-review", claimed: true, retiredPrNumber: 77 }),
       child(3, { state: "running", sessionId: "gone" }),
+      child(4, {
+        state: "in-review",
+        archivedReview: { number: 79, url: "https://example.com/pull/79" },
+      }),
+      child(5, { state: "running", sessionId: "live", prNumber: 80 }),
     ]);
     expect(sessionlessEpicWait(e, drain()).lines).toEqual([
       m.epic_sessionless_elsewhere({ number: 1, machine: "studio" }),
-      m.epic_sessionless_pr_open({ number: 2, pr: 77 }),
+      m.epic_sessionless_claimed_unknown({ number: 2 }),
       m.epic_sessionless_inflight_unknown({ number: 3 }),
+      m.epic_sessionless_pr_open({ number: 4, pr: 79 }),
+      m.epic_sessionless_pr_open({ number: 5, pr: 80 }),
+    ]);
+  });
+
+  it("lets a displayed review explain the wait and keeps dependent issues visible", () => {
+    const reviewed = child(1, {
+      state: "in-review",
+      archivedReview: { number: 80, url: "https://example.com/pull/80" },
+    });
+    const rows = new Set([1]);
+    expect(sessionlessEpicWait(epic([reviewed]), drain(), rows).lines).toEqual([]);
+    const blocked = child(2, { state: "blocked", blockedBy: [1] });
+    expect(sessionlessEpicWait(epic([reviewed, blocked]), drain(), rows).lines).toEqual([
+      m.epic_sessionless_waits_on({ number: 2, blockers: "#1" }),
     ]);
   });
 

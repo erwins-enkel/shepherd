@@ -148,7 +148,7 @@
   import TopBar from "#lib/components/TopBar.svelte";
   import { basename } from "#lib/basename.js";
   import Herd from "#lib/components/Herd.svelte";
-  import { withRemoteEpics } from "#lib/components/epic-grouping.js";
+  import { epicChildSessionMatcher, withRemoteEpics } from "#lib/components/epic-grouping.js";
   import {
     railOrder,
     railLocationsOf,
@@ -665,6 +665,7 @@
     const ctx = herdStatusCtx();
     return byRepo.filter((s) => herdStatusOf(s, ctx) === statusFilter);
   });
+  const hasChildSession = $derived(epicChildSessionMatcher(store.sessions, store.remoteSessions));
   const herdSessions = $derived(byOrigin(herdScopedSessions, originFilter));
   const herdRemoteSessions = $derived(byOrigin(herdScopedRemoteSessions, originFilter));
   // Tasks whose start on a machine is unknown (#2774) are no sessions: they show only unfiltered.
@@ -4161,6 +4162,7 @@
       {#if mobileScreen === "list"}
         <div class="col">
           <Herd
+            {hasChildSession}
             sessions={herdSessions}
             remoteSessions={herdRemoteSessions}
             filteredRepo={repoFilterName}
@@ -4408,6 +4410,7 @@
           <div class="herd-col" class:with-rail={canCollapse} bind:this={herdColEl}>
             {@render repoRail(canCollapse)}
             <Herd
+              {hasChildSession}
               sessions={herdSessions}
               remoteSessions={herdRemoteSessions}
               filteredRepo={repoFilterName}

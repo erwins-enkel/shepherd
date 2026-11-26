@@ -1703,9 +1703,11 @@ export interface EpicChild {
   startedAt?: number | null;
   /** Epoch ms the child was done; null while not done or when unknown. Absent from older servers. */
   endedAt?: number | null;
-  /** #3423: the open PR the drain retired this session-less in-review child with (checks cleared,
+  /** #3423: the PR the drain retired this session-less in-review child with (checks cleared,
    *  mergeable, left for a human merge). Absent otherwise. */
   retiredPrNumber?: number;
+  /** A PR confirmed open for a child whose session has ended. */
+  archivedReview?: { number: number; url: string };
   /** What it needs from the machine it runs on, read from its labels and its epic's. */
   requirements?: string[];
   /** The drain sent it to another machine; absent otherwise. */

@@ -8403,8 +8403,8 @@
   "epic_sessionless_running": "Läuft · kein Agent hier aktiv",
   "epic_sessionless_paused": "Pausiert · kein Agent hier aktiv",
   "epic_sessionless_reason_paused": "Der Lauf ist pausiert — bis zur Fortsetzung startet keine Teilaufgabe.",
-  "epic_sessionless_claimed_unknown": "#{number} ist beansprucht, aber hier gibt es weder Session noch PR — Zuständigkeit unbekannt.",
-  "epic_sessionless_inflight_unknown": "#{number} gilt als in Arbeit, aber hier gibt es weder Session noch PR — Zuständigkeit unbekannt.",
+  "epic_sessionless_claimed_unknown": "#{number} ist beansprucht, aber hier ist keine laufende Session und kein offener PR bestätigt — Zuständigkeit unbekannt.",
+  "epic_sessionless_inflight_unknown": "#{number} gilt als in Arbeit, aber hier ist keine laufende Session und kein offener PR bestätigt — Zuständigkeit unbekannt.",
   "epic_sessionless_pr_open": "#{number}: PR #{pr} wartet auf den Merge.",
   "epic_sessionless_elsewhere": "#{number} wird auf {machine} bearbeitet.",
   "epic_sessionless_waits_on": "#{number} wartet auf {blockers}.",
@@ -9539,5 +9539,8 @@
   "diagnostics_hint_postgres_image": "Gestoppt. Das Image wird geladen, sobald ein Agent zum ersten Mal eine Datenbank anfordert.",
   "diagnostics_hint_postgres_uninspectable": "Der Postgres-Server konnte nicht geprüft werden.",
   "feat_postgres_title": "Postgres bei Bedarf",
-  "feat_postgres_body": "Shepherd kann einen gemeinsamen Postgres-Server für deine Repos betreiben und ihn nur starten, wenn ein Agent ihn braucht. Jede Session bekommt eine eigene Datenbank-Kopie, die beim Archivieren gelöscht wird. Schalte es unter Einstellungen → Ressourcen ein, dann pro Repo unter Repo-Einstellungen → Agent."
+  "feat_postgres_body": "Shepherd kann einen gemeinsamen Postgres-Server für deine Repos betreiben und ihn nur starten, wenn ein Agent ihn braucht. Jede Session bekommt eine eigene Datenbank-Kopie, die beim Archivieren gelöscht wird. Schalte es unter Einstellungen → Ressourcen ein, dann pro Repo unter Repo-Einstellungen → Agent.",
+  "epic_archived_review_status": "Session beendet · PR offen",
+  "feat_epic_archived_reviews_title": "Offene Reviews in Epic-Gruppen",
+  "feat_epic_archived_reviews_body": "In der Ansicht „Alle“ in Mission Control bleibt der Link zu einem offenen Pull Request im Epic sichtbar, wenn die Session endet."
 }

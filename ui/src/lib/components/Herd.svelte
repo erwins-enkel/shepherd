@@ -59,7 +59,12 @@
   } from "./herd-status";
   import { groupByRepo, repoKeyFn, type StageTag } from "./herd-repo-groups";
   import { herdLayout } from "#lib/herd-layout.svelte.js";
-  import { groupSessionsByEpic, isRemoteEpic, sessionlessEpicGroups } from "./epic-grouping";
+  import {
+    epicChildSessionMatcher,
+    groupSessionsByEpic,
+    isRemoteEpic,
+    sessionlessEpicGroups,
+  } from "./epic-grouping";
   import { sessionlessEpicWait } from "./epic-sessionless";
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -76,6 +81,7 @@
   let {
     sessions,
     remoteSessions = [],
+    hasChildSession,
     remoteDispatches = [],
     selectedId,
     jumpFlashId = null,
@@ -163,6 +169,8 @@
     // sessions mirrored from connected machines (#2762) — joined into the lifecycle groups among
     // the local ones (#3055), with the PR state their machine reports; only the view mixes them
     remoteSessions?: Session[];
+    /** The page checks every live session, including sessions hidden by its filters. */
+    hasChildSession?: ReturnType<typeof epicChildSessionMatcher>;
     /** Tasks sent to connected machines that no machine confirmed (#2774), atop the list. */
     remoteDispatches?: RemoteDispatch[];
     selectedId: string | null;
@@ -510,8 +518,20 @@
   const completedEpicKeys = $derived(
     new Set(completedEpics.map((e) => `${e.repoPath}#${e.parentIssueNumber}`)),
   );
+  const childIsLive = $derived(
+    hasChildSession ?? epicChildSessionMatcher(sessions, remoteSessions),
+  );
+  function reviewsFor(epic: Epic) {
+    if (!showSessionless || !sessionlessInMachine(epic)) return [];
+    if (repoFilter.size && !isRemoteEpic(epic) && !repoFilter.has(epic.repoPath)) return [];
+    return epic.children.flatMap((child) =>
+      child.archivedReview && !childIsLive(epic, child)
+        ? [{ issue: child.number, title: child.title, pr: child.archivedReview }]
+        : [],
+    );
+  }
   const epicGroups = $derived([
-    ...grouped.groups,
+    ...grouped.groups.map((g) => ({ ...g, reviews: reviewsFor(g.epic) })),
     ...(showSessionless
       ? sessionlessEpicGroups(
           sessions,
@@ -523,13 +543,18 @@
           new Set(grouped.integrated.keys()),
         )
           .filter((g) => sessionlessInMachine(g.epic))
-          .map((g) => ({
-            ...g,
-            wait: sessionlessEpicWait(
-              g.epic,
-              isRemoteEpic(g.epic) ? g.epic.drain : drain[g.epic.repoPath],
-            ),
-          }))
+          .map((g) => {
+            const reviews = reviewsFor(g.epic);
+            return {
+              ...g,
+              reviews,
+              wait: sessionlessEpicWait(
+                g.epic,
+                isRemoteEpic(g.epic) ? g.epic.drain : drain[g.epic.repoPath],
+                new Set(reviews.map((r) => r.issue)),
+              ),
+            };
+          })
       : []),
   ]);
   // Mirrored sessions skip experiment grouping (this Shepherd's own); those epic grouping left join

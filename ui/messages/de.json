@@ -9539,7 +9539,7 @@
   "diagnostics_hint_postgres_image": "Gestoppt. Das Image wird geladen, sobald ein Agent zum ersten Mal eine Datenbank anfordert.",
   "diagnostics_hint_postgres_uninspectable": "Der Postgres-Server konnte nicht geprüft werden.",
   "feat_postgres_title": "Postgres bei Bedarf",
-  "feat_postgres_body": "Shepherd kann einen gemeinsamen Postgres-Server für deine Repos betreiben und ihn nur starten, wenn ein Agent ihn braucht. Jede Session bekommt eine eigene Datenbank-Kopie, die beim Archivieren gelöscht wird. Schalte es unter Einstellungen → Ressourcen ein und wähle dort unter Repos mit Postgres seine Repos.",
+  "feat_postgres_body": "Shepherd kann einen gemeinsamen Postgres-Server für deine Repos betreiben und ihn nur starten, wenn ein Agent ihn braucht. Jede Session bekommt eine eigene Datenbank-Kopie, die beim Archivieren gelöscht wird. Schalte es unter Einstellungen → Ressourcen ein und wähle dort unter Repos mit Postgres seine Repos. Um die Startdaten eines Repos zu aktualisieren, klicke eine Session mit rechts an und wähle Datenbank als Repo-Vorlage übernehmen.",
   "epic_archived_review_status": "Session beendet · PR offen",
   "feat_epic_archived_reviews_title": "Offene Reviews in Epic-Gruppen",
   "feat_epic_archived_reviews_body": "In der Ansicht „Alle“ in Mission Control bleibt der Link zu einem offenen Pull Request im Epic sichtbar, wenn die Session endet.",
@@ -9550,5 +9550,12 @@
   "postgres_repos_add": "Repo hinzufügen…",
   "postgres_repos_remove_aria": "Postgres für {repo} ausschalten",
   "postgres_repos_save_failed": "Postgres für {repo} konnte nicht geändert werden.",
-  "postgres_repos_load_failed": "Die Repos mit Postgres konnten nicht geladen werden."
+  "postgres_repos_load_failed": "Die Repos mit Postgres konnten nicht geladen werden.",
+  "cardmenu_promote_db": "Datenbank als Repo-Vorlage übernehmen",
+  "cardmenu_promote_db_confirm": "Repo-Vorlage ersetzen?",
+  "cardmenu_promote_db_title": "Neue Sessions starten von dieser Datenbank; die alte Vorlage wird gelöscht.",
+  "cardmenu_promote_db_toast": "Die Datenbank von {name} ist jetzt die Vorlage für {repo}.",
+  "cardmenu_promote_db_failed": "Die Datenbank von {name} konnte nicht zur Repo-Vorlage werden. Details stehen im Shepherd-Log.",
+  "cardmenu_promote_db_failed_disabled": "Postgres ist in den Einstellungen ausgeschaltet, deshalb lässt sich die Vorlage nicht ersetzen.",
+  "cardmenu_promote_db_failed_missing": "{name} hat keine Datenbank mehr, es gibt nichts zu übernehmen."
 }

@@ -211,6 +211,58 @@ export function roleScript(sessionId: string, password: string, repoPath: string
   ].join("\n");
 }
 
+/** `pg_default_acl.defaclobjtype` → the `ALTER DEFAULT PRIVILEGES … ON <kind>` keyword. */
+const ACL_KIND =
+  "CASE d.defaclobjtype WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES' WHEN 'f' THEN 'FUNCTIONS' " +
+  "WHEN 'T' THEN 'TYPES' WHEN 'n' THEN 'SCHEMAS' END";
+
+/** Remove every default-privilege row of `role` in the current database (#4240): revoke each entry,
+ *  then give a global row back the built-in default (owner ALL; PUBLIC EXECUTE on functions, USAGE
+ *  on types) — Postgres deletes a row that equals the default, and a schema row once empty. One
+ *  query, so every statement is computed from the rows as they were before any of them runs. */
+export function clearDefaultAclsSql(role: string): string {
+  ident(role);
+  const r = lit(role);
+  const scope =
+    "CASE WHEN d.defaclnamespace <> 0 THEN ' IN SCHEMA ' || quote_ident(n.nspname) ELSE '' END";
+  return (
+    `SELECT stmt FROM (` +
+    `SELECT 1 AS ord, format('ALTER DEFAULT PRIVILEGES FOR ROLE %I%s REVOKE ALL ON %s FROM %s', ${r}, ${scope}, ${ACL_KIND}, ` +
+    `CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END) AS stmt ` +
+    `FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace, aclexplode(d.defaclacl) a ` +
+    `WHERE d.defaclrole = ${r}::regrole ` +
+    `UNION ALL SELECT 2, format('ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL ON %s TO %I', ${r}, ${ACL_KIND}, ${r}) ` +
+    `FROM pg_default_acl d WHERE d.defaclrole = ${r}::regrole AND d.defaclnamespace = 0 ` +
+    `UNION ALL SELECT 3, format('ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT %s TO PUBLIC', ${r}, ` +
+    `CASE d.defaclobjtype WHEN 'f' THEN 'EXECUTE ON FUNCTIONS' ELSE 'USAGE ON TYPES' END) ` +
+    `FROM pg_default_acl d WHERE d.defaclrole = ${r}::regrole AND d.defaclnamespace = 0 AND d.defaclobjtype IN ('f', 'T')` +
+    `) s ORDER BY ord\\gexec`
+  );
+}
+
+/** Re-issue `from`'s default privileges (`ALTER DEFAULT PRIVILEGES`) as `FOR ROLE to`, in the
+ *  current database (#4240). `REASSIGN OWNED` does not move them and `DROP OWNED` deletes them, so a
+ *  migration's `ALTER DEFAULT PRIVILEGES … GRANT … TO app_role` would otherwise vanish on promote
+ *  and never reach a clone's session role. A global row fully replaces the built-in default, so it
+ *  is reset first (`REVOKE ALL … FROM PUBLIC, to`); a schema row only adds. `from` itself as a
+ *  grantee maps to `to`. */
+export function copyDefaultAclsSql(from: string, to: string): string {
+  ident(from);
+  ident(to);
+  return [
+    `SELECT format('ALTER DEFAULT PRIVILEGES FOR ROLE %I REVOKE ALL ON %s FROM PUBLIC, %I', ${lit(to)}, ${ACL_KIND}, ${lit(to)}) ` +
+      `FROM pg_default_acl d WHERE d.defaclrole = ${lit(from)}::regrole AND d.defaclnamespace = 0\\gexec`,
+    `SELECT format('ALTER DEFAULT PRIVILEGES FOR ROLE %I%s GRANT %s ON %s TO %s%s', ${lit(to)}, ` +
+      `CASE WHEN d.defaclnamespace <> 0 THEN ' IN SCHEMA ' || quote_ident(n.nspname) ELSE '' END, ` +
+      `a.privilege_type, ${ACL_KIND}, ` +
+      `CASE WHEN a.grantee = 0 THEN 'PUBLIC' WHEN a.grantee = d.defaclrole THEN quote_ident(${lit(to)}) ` +
+      `ELSE quote_ident(pg_get_userbyid(a.grantee)) END, ` +
+      `CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END) ` +
+      `FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace, aclexplode(d.defaclacl) a ` +
+      `WHERE d.defaclrole = ${lit(from)}::regrole\\gexec`,
+  ].join("\n");
+}
+
 export function cloneScript(repoPath: string, sessionId: string): string {
   const db = sessionDb(sessionId);
   return [
@@ -219,6 +271,8 @@ export function cloneScript(repoPath: string, sessionId: string): string {
     `REVOKE CONNECT, TEMPORARY ON DATABASE ${db} FROM PUBLIC;`,
     `\\connect ${db}`,
     `REASSIGN OWNED BY ${repoRole(repoPath)} TO ${db};`,
+    copyDefaultAclsSql(repoRole(repoPath), db),
+    clearDefaultAclsSql(repoRole(repoPath)),
     "",
   ].join("\n");
 }
@@ -253,6 +307,65 @@ const POSTGRES_HBA_LINES = [
   "local all postgres trust",
   "host sameuser all all scram-sha-256",
 ] as const;
+
+/** `postgres_reset` (#4240): drop the clone (force-closing its connections) so `cloneScript` can
+ *  re-create it from the template; the login role and its password stay. */
+export function resetScript(sessionId: string): string {
+  return `DROP DATABASE IF EXISTS ${sessionDb(sessionId)} WITH (FORCE);\n`;
+}
+
+/** Scratch names for the template swap in {@link promoteScript}. */
+const repoNextDb = (repoPath: string) => ident(`${repoRole(repoPath)}_next`);
+const repoOldDb = (repoPath: string) => ident(`${repoRole(repoPath)}_old`);
+
+/** Promote (#4240): the session's clone becomes the repo's new template. Clones `s_<id>` into a
+ *  superuser-owned `_next` (connections to the clone blocked + closed first: a template must have
+ *  none), re-owns its objects to the repo role so later clones' `REASSIGN OWNED BY r_<repo>` works,
+ *  then swaps it in by rename in one transaction and drops the old template. `REASSIGN OWNED` also
+ *  moves SHARED objects (databases) the role owns, so the clone DB is parked on the superuser around
+ *  it; default privileges REPLACE the repo role's (`clearDefaultAclsSql` + `copyDefaultAclsSql`)
+ *  before `DROP OWNED` deletes the session role's.
+ *  Always follow with {@link promoteRestoreScript}, success or failure. */
+export function promoteScript(repoPath: string, sessionId: string): string {
+  const db = sessionDb(sessionId);
+  const role = repoRole(repoPath);
+  const base = repoBaseDb(repoPath);
+  const next = repoNextDb(repoPath);
+  const old = repoOldDb(repoPath);
+  return [
+    `DROP DATABASE IF EXISTS ${next};`,
+    `DROP DATABASE IF EXISTS ${old};`,
+    `ALTER DATABASE ${db} ALLOW_CONNECTIONS false;`,
+    `SELECT count(pg_terminate_backend(pid, 5000)) FROM pg_stat_activity WHERE datname = ${lit(db)} AND pid <> pg_backend_pid();`,
+    "SET file_copy_method = clone;",
+    `CREATE DATABASE ${next} TEMPLATE ${db} STRATEGY FILE_COPY;`,
+    `REVOKE CONNECT, TEMPORARY ON DATABASE ${next} FROM PUBLIC;`,
+    `ALTER DATABASE ${db} OWNER TO postgres;`,
+    `\\connect ${next}`,
+    `REASSIGN OWNED BY ${db} TO ${role};`,
+    clearDefaultAclsSql(role),
+    copyDefaultAclsSql(db, role),
+    `DROP OWNED BY ${db};`,
+    "\\connect postgres",
+    "BEGIN;",
+    `ALTER DATABASE ${base} RENAME TO ${old};`,
+    `ALTER DATABASE ${next} RENAME TO ${base};`,
+    "COMMIT;",
+    `DROP DATABASE ${old};`,
+    "",
+  ].join("\n");
+}
+
+/** Undo promote's temporary changes to the clone and clear a half-built `_next`. Idempotent. */
+export function promoteRestoreScript(repoPath: string, sessionId: string): string {
+  const db = sessionDb(sessionId);
+  return [
+    `ALTER DATABASE ${db} OWNER TO ${db};`,
+    `ALTER DATABASE ${db} ALLOW_CONNECTIONS true;`,
+    `DROP DATABASE IF EXISTS ${repoNextDb(repoPath)};`,
+    "",
+  ].join("\n");
+}
 
 /** Session roles may connect only to their own clone: PUBLIC loses CONNECT/TEMPORARY on the
  *  cluster's built-in databases too (template0 already refuses connections), and the cluster's

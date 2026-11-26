@@ -38,6 +38,8 @@
     updateEpic,
     mergePr,
     interruptSession,
+    promoteSessionPostgres,
+    ApiError,
     setShelved,
     setReadyToMerge,
     MergeRefusedError,
@@ -958,6 +960,11 @@
       session.status !== "archived",
   );
   const onAskAssistant = $derived(askable ? askAssistantFromMenu : undefined);
+  // Same cap rationale for promoting the session's Postgres clone to the repo template (#4240):
+  // only while the session holds one (`postgresDb`, kept live by `session:postgres`).
+  const promotable = $derived(
+    !!session.postgresDb && session.archivedAt == null && session.status !== "archived",
+  );
   // Same cap rationale for Shelve / Unshelve: any live local session.
   const shelvable = $derived(session.archivedAt == null && session.status !== "archived");
   // Same cap rationale for Mark ready: the PR ⋯ menu's predicate (open PR, agent not running or
@@ -1013,6 +1020,7 @@
           onaskassistant: onAskAssistant,
           onrename: onrename ? renameFromMenu : undefined,
           onamend: onamend ? amendFromMenu : undefined,
+          onpromotedb: promotable ? promoteDbFromMenu : undefined,
           onrelaunch: relaunchable ? relaunchFromMenu : undefined,
           onrelaunchTrusted: relaunchTrustedAble ? relaunchTrustedFromMenu : undefined,
           onrelaunchElsewhere: relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined,
@@ -1117,6 +1125,24 @@
     }
   }
 
+  async function promoteDbFromMenu() {
+    menu = null;
+    const { id, name } = session;
+    const key = `postgres-promote:${id}`;
+    try {
+      await promoteSessionPostgres(id);
+      toasts.info(m.cardmenu_promote_db_toast({ name, repo: repoName }), { key });
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : undefined;
+      const text =
+        code === "disabled"
+          ? m.cardmenu_promote_db_failed_disabled()
+          : code === "no-database"
+            ? m.cardmenu_promote_db_failed_missing({ name })
+            : m.cardmenu_promote_db_failed({ name });
+      toasts.info(text, { alert: true, key });
+    }
+  }
   async function stopFromMenu() {
     menu = null;
     try {

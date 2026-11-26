@@ -1019,6 +1019,9 @@ components:
           nullable: true
         hasScratchpadFiles:
           type: boolean
+        postgresDb:
+          type: boolean
+          description: Transient (#4240) — the session holds an active on-demand Postgres clone database; gates promoting it to the repo template. Absent on archived rows.
         host:
           $ref: "#/components/schemas/SessionHost"
         connection:
@@ -4253,6 +4256,19 @@ components:
         name:
           type: string
           description: Free text; the server slugifies it (slugifyManual) before storing. Must not be blank after trimming.
+    PostgresPromoteResult:
+      type: object
+      required:
+        - ok
+        - template
+      properties:
+        ok:
+          type: boolean
+          enum:
+            - true
+        template:
+          type: string
+          description: The repo's template database name.
     RenameResult:
       type: object
       additionalProperties: true
@@ -14525,6 +14541,37 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: error is "name_taken" — the target branch name is already in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/postgres/promote:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: promoteSessionPostgres
+      description: Make the session's on-demand Postgres clone the repo's new template database (#4240). The clone's connections are refused while it is copied; the previous template is dropped; other sessions' clones are untouched. Starts the server when stopped. Operator-only.
+      responses:
+        "200":
+          description: Promoted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostgresPromoteResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or archived session (code "no-session"), or the session has no database (code "no-database").
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Postgres is off, unavailable, Docker unreachable, or the promote failed; `error` says which.
           content:
             application/json:
               schema:

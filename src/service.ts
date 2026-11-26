@@ -598,7 +598,10 @@ export interface ServiceDeps {
   agentSecrets?: Pick<AgentSecretStore, "entries">;
   /** On-demand Postgres (#4232): the spawn-path `postgres_request` capability and the re-start
    *  on resume of a session holding a lease. Absent ⇒ off. Wired to `PostgresService`. */
-  postgres?: Pick<PostgresService, "settings" | "hasLease" | "ensureRunning" | "request">;
+  postgres?: Pick<
+    PostgresService,
+    "settings" | "hasLease" | "ensureRunning" | "request" | "reset" | "sessionStatus"
+  >;
   /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
    *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
   prepareScratchpadBind?: (

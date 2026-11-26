@@ -80,7 +80,7 @@ import type { RepoConfig, SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
-import { PostgresError, type PostgresService } from "./postgres";
+import { PostgresError, type PostgresRequestOutcome, type PostgresService } from "./postgres";
 import { POSTGRES_HOST_LOOPBACK } from "./postgres-core";
 import {
   BUILD_STEP_STATUSES,
@@ -136,7 +136,7 @@ export interface AgentControlDeps {
   reviewFeedback?: Pick<ReviewFeedbackService, "markAddressed">;
   /** On-demand Postgres (#4232); absent ⇒ `postgres_request` answers "unavailable" and the
    *  capability is off. */
-  postgres?: Pick<PostgresService, "request" | "settings">;
+  postgres?: Pick<PostgresService, "request" | "reset" | "sessionStatus" | "settings">;
   /** Where this session reaches Postgres (#4239): a host, or null when its sandbox can't (an
    *  egress-confined spawn that did not open the port). Absent ⇒ the host loopback. */
   postgresHost?: (sessionId: string) => Promise<string | null>;
@@ -508,25 +508,68 @@ const POSTGRES_STARTING_NEXT =
 const POSTGRES_UNREACHABLE_NEXT =
   "Postgres is not reachable from this session's sandbox: it was started before Postgres was opened for it, or it cannot reach the host. Ask the operator to resume this session, then call postgres_request again. Until then, never substitute PGlite, SQLite, an embedded Postgres or a Postgres of your own: leave the database-backed checks to CI's db job and say so in your report.";
 
+const POSTGRES_RESET_STARTING_NEXT =
+  "The reset is still running (the server may be starting). Call postgres_request (not postgres_reset) to pick up the result.";
+const POSTGRES_STATUS_NEXT =
+  "Call postgres_request to get (or re-get) this session's credentials; it starts the server when needed. The status never starts anything.";
+
 /** Ensure this session's clone DB and hand back its credentials, or `starting`. */
-async function applyPostgresRequest(
+function applyPostgresRequest(
   deps: AgentControlDeps,
   sessionId: string,
   signal?: AbortSignal,
+): Promise<ApplyResult<unknown>> {
+  return postgresProvision(deps, sessionId, POSTGRES_STARTING_NEXT, (pg, host) =>
+    pg.request(sessionId, signal, host),
+  );
+}
+
+/** `postgres_reset` (#4240): re-clone this session's DB from the repo template; same answers. */
+function applyPostgresReset(
+  deps: AgentControlDeps,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<ApplyResult<unknown>> {
+  return postgresProvision(deps, sessionId, POSTGRES_RESET_STARTING_NEXT, (pg, host) =>
+    pg.reset(sessionId, signal, host),
+  );
+}
+
+/** Resolve the session's host, run `op`, and shape `ready` / `starting` / `unreachable`. */
+async function postgresProvision(
+  deps: AgentControlDeps,
+  sessionId: string,
+  startingNext: string,
+  op: (
+    pg: NonNullable<AgentControlDeps["postgres"]>,
+    host: string,
+  ) => Promise<PostgresRequestOutcome>,
 ): Promise<ApplyResult<unknown>> {
   if (!deps.postgres) return { ok: false, status: 503, error: "postgres unavailable" };
   try {
     const host = deps.postgresHost ? await deps.postgresHost(sessionId) : POSTGRES_HOST_LOOPBACK;
     if (host === null)
       return { ok: true, data: { status: "unreachable", next: POSTGRES_UNREACHABLE_NEXT } };
-    const outcome = await deps.postgres.request(sessionId, signal, host);
+    const outcome = await op(deps.postgres, host);
     return outcome.status === "ready"
       ? { ok: true, data: { status: "ready", ...outcome.connection, next: POSTGRES_READY_NEXT } }
-      : { ok: true, data: { status: "starting", next: POSTGRES_STARTING_NEXT } };
+      : { ok: true, data: { status: "starting", next: startingNext } };
   } catch (e) {
     const status = e instanceof PostgresError && e.code === "no-session" ? 404 : 503;
     return { ok: false, status, error: (e as Error).message };
   }
+}
+
+/** `postgres_status` (#4240): read-only server + database state, no credentials. */
+async function applyPostgresStatus(
+  deps: AgentControlDeps,
+  sessionId: string,
+): Promise<ApplyResult<unknown>> {
+  if (!deps.postgres) return { ok: false, status: 503, error: "postgres unavailable" };
+  return {
+    ok: true,
+    data: { ...(await deps.postgres.sessionStatus(sessionId)), next: POSTGRES_STATUS_NEXT },
+  };
 }
 
 // ── gh permission request (#4119) ────────────────────────────────────────────
@@ -898,6 +941,25 @@ const POSTGRES_REQUEST: McpTool = {
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };
 
+const POSTGRES_RESET: McpTool = {
+  name: "postgres_reset",
+  description:
+    "Throw away this session's Postgres database and re-create it as a fresh copy of the repo's " +
+    "template (drops every change you made, and closes your open connections). Credentials stay " +
+    "the same. Answers like postgres_request: `ready` with the dsn, `starting` (then call " +
+    "postgres_request, not this tool, to pick up the result) or `unreachable`.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+};
+
+const POSTGRES_STATUS: McpTool = {
+  name: "postgres_status",
+  description:
+    "Read-only state of Shepherd's Postgres for this session: `server` (off, " +
+    "docker-unreachable, stopped, starting, running) and `database` (none, provisioned, " +
+    "dropping). Never starts the server and returns no credentials; use postgres_request for those.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+};
+
 const SCHEDULE_NOOP: McpTool = {
   name: "schedule_noop",
   description:
@@ -1063,7 +1125,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.ciDownload) tools.push(CI_DOWNLOAD);
   if (caps.ghPermissionRequest) tools.push(GH_REQUEST_PERMISSION);
   if (caps.reviewFeedbackResolve) tools.push(REVIEW_FEEDBACK_ADDRESSED);
-  if (caps.postgresRequest) tools.push(POSTGRES_REQUEST);
+  if (caps.postgresRequest) tools.push(POSTGRES_REQUEST, POSTGRES_RESET, POSTGRES_STATUS);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   if (caps.operatorCodex) tools.push(ASSISTANT_SHELL_TOOL, ASSISTANT_VIEW_TOOL);
   if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
@@ -1302,6 +1364,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     applyGhRequestPermission(deps, id, args, signal),
   review_feedback_addressed: (deps, id, args) => applyReviewFeedbackAddressed(deps, id, args),
   postgres_request: (deps, id, _args, signal) => applyPostgresRequest(deps, id, signal),
+  postgres_reset: (deps, id, _args, signal) => applyPostgresReset(deps, id, signal),
+  postgres_status: (deps, id) => applyPostgresStatus(deps, id),
   herd_status: (deps, id, args) => applyHerdStatus(deps, args, assistantScope(deps, id)),
   repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),

@@ -5,14 +5,19 @@ import {
   postgresInstanceNames,
   adoptScript,
   baseScript,
+  clearDefaultAclsSql,
   cloneScript,
   connectionFor,
+  copyDefaultAclsSql,
   dropScript,
   isImageRef,
   isSessionDbName,
   parsePostgresPatch,
+  promoteRestoreScript,
+  promoteScript,
   repoBaseDb,
   repoRole,
+  resetScript,
   roleScript,
   sessionDb,
   sessionPassword,
@@ -139,6 +144,78 @@ describe("scripts", () => {
     expect(sql).toContain("WITH (FORCE)");
     expect(sql.indexOf(`DROP OWNED BY ${sessionDb(SID)}`)).toBeLessThan(sql.indexOf("DROP ROLE"));
     expect(() => dropScript("postgres")).toThrow();
+  });
+
+  it("reset force-drops only the session's clone", () => {
+    expect(resetScript(SID)).toBe(`DROP DATABASE IF EXISTS ${sessionDb(SID)} WITH (FORCE);\n`);
+    expect(() => resetScript("not-a-uuid")).toThrow();
+  });
+
+  it("promote: blocks the clone, copies it, re-owns to the repo role, swaps atomically", () => {
+    const db = sessionDb(SID);
+    const role = repoRole(repo);
+    const base = repoBaseDb(repo);
+    const sql = promoteScript(repo, SID);
+    const at = (s: string) => {
+      const i = sql.indexOf(s);
+      expect(i).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    expect(at(`ALTER DATABASE ${db} ALLOW_CONNECTIONS false;`)).toBeLessThan(
+      at("pg_terminate_backend"),
+    );
+    expect(at("pg_terminate_backend")).toBeLessThan(
+      at(`CREATE DATABASE ${role}_next TEMPLATE ${db} STRATEGY FILE_COPY;`),
+    );
+    expect(sql).not.toMatch(/CREATE DATABASE \S+ TEMPLATE \S+ STRATEGY FILE_COPY OWNER/);
+    at(`REVOKE CONNECT, TEMPORARY ON DATABASE ${role}_next FROM PUBLIC;`);
+    // The clone DB is parked on the superuser so REASSIGN can't move it to the repo role.
+    expect(at(`ALTER DATABASE ${db} OWNER TO postgres;`)).toBeLessThan(at("REASSIGN OWNED"));
+    expect(at(`\\connect ${role}_next`)).toBeLessThan(at(`REASSIGN OWNED BY ${db} TO ${role};`));
+    // Default privileges REPLACE the repo role's before DROP OWNED deletes the session role's.
+    expect(at(clearDefaultAclsSql(role))).toBeLessThan(at(copyDefaultAclsSql(db, role)));
+    expect(at(copyDefaultAclsSql(db, role))).toBeGreaterThan(at(`REASSIGN OWNED BY ${db}`));
+    expect(at(copyDefaultAclsSql(db, role))).toBeLessThan(at(`DROP OWNED BY ${db};`));
+    expect(at(`DROP OWNED BY ${db};`)).toBeLessThan(at("BEGIN;"));
+    expect(at("BEGIN;")).toBeLessThan(at(`ALTER DATABASE ${base} RENAME TO ${role}_old;`));
+    expect(at(`ALTER DATABASE ${role}_next RENAME TO ${base};`)).toBeLessThan(at("COMMIT;"));
+    expect(at("COMMIT;")).toBeLessThan(at(`DROP DATABASE ${role}_old;`));
+  });
+
+  it("default ACLs: reset global rows, re-grant every entry for the target role", () => {
+    const sql = copyDefaultAclsSql("s_from", "r_to");
+    expect(sql).toContain("REVOKE ALL ON %s FROM PUBLIC, %I', 'r_to'");
+    expect(sql).toContain("d.defaclnamespace = 0\\gexec");
+    expect(sql).toContain("aclexplode(d.defaclacl)");
+    expect(sql).toContain("WHEN a.grantee = d.defaclrole THEN quote_ident('r_to')");
+    expect(sql).toContain("WHERE d.defaclrole = 's_from'::regrole\\gexec");
+    expect(sql.indexOf("REVOKE ALL")).toBeLessThan(sql.indexOf(" GRANT %s"));
+    expect(() => copyDefaultAclsSql("x'; DROP", "r_to")).toThrow();
+  });
+
+  it("clone MOVES the repo role's default ACLs to the session role", () => {
+    const sql = cloneScript(repo, SID);
+    const copy = sql.indexOf(copyDefaultAclsSql(repoRole(repo), sessionDb(SID)));
+    expect(sql.indexOf("REASSIGN OWNED")).toBeLessThan(copy);
+    expect(copy).toBeLessThan(sql.indexOf(clearDefaultAclsSql(repoRole(repo))));
+  });
+
+  it("clearing revokes every entry, then restores built-in defaults on global rows, in one query", () => {
+    const sql = clearDefaultAclsSql("r_to");
+    expect(sql.match(/\\gexec/g)).toHaveLength(1);
+    expect(sql).toContain("REVOKE ALL ON %s FROM %s");
+    expect(sql).toContain("GRANT ALL ON %s TO %I");
+    expect(sql).toContain("'EXECUTE ON FUNCTIONS' ELSE 'USAGE ON TYPES'");
+    expect(sql).toContain("ORDER BY ord");
+    expect(() => clearDefaultAclsSql("bad name")).toThrow();
+  });
+
+  it("promote restore gives the clone back to its role and clears a half-built copy", () => {
+    const db = sessionDb(SID);
+    const sql = promoteRestoreScript(repo, SID);
+    expect(sql).toContain(`ALTER DATABASE ${db} OWNER TO ${db};`);
+    expect(sql).toContain(`ALTER DATABASE ${db} ALLOW_CONNECTIONS true;`);
+    expect(sql).toContain(`DROP DATABASE IF EXISTS ${repoRole(repo)}_next;`);
   });
 });
 

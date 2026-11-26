@@ -30,7 +30,11 @@ import { EventHub } from "../src/events";
 import { LoginRequestService } from "../src/login-request";
 import { GhPermissionRequestService } from "../src/gh-grant";
 import type { SandboxProfile } from "../src/sandbox";
-import { PostgresError, type PostgresRequestOutcome } from "../src/postgres";
+import {
+  PostgresError,
+  type PostgresRequestOutcome,
+  type PostgresSessionStatus,
+} from "../src/postgres";
 import { DEFAULT_POSTGRES_SETTINGS } from "../src/postgres-core";
 
 function harness(
@@ -1562,6 +1566,8 @@ describe("postgres_request", () => {
         signal?: AbortSignal,
         host?: string,
       ) => Promise<PostgresRequestOutcome>;
+      reset?: (id: string, signal?: AbortSignal, host?: string) => Promise<PostgresRequestOutcome>;
+      sessionStatus?: (id: string) => Promise<PostgresSessionStatus>;
       postgresHost?: AgentControlDeps["postgresHost"];
     } = {},
   ): AgentControlDeps => {
@@ -1574,6 +1580,9 @@ describe("postgres_request", () => {
       postgres: {
         settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: opts.enabled ?? true }),
         request: opts.request ?? (async () => ({ status: "ready", connection: CONN })),
+        reset: opts.reset ?? (async () => ({ status: "ready", connection: CONN })),
+        sessionStatus:
+          opts.sessionStatus ?? (async () => ({ server: "running", database: "provisioned" })),
       },
       postgresHost: opts.postgresHost,
     };
@@ -1581,7 +1590,12 @@ describe("postgres_request", () => {
 
   test("offered only with Postgres on globally and the repo on-request, on any profile", () => {
     const on = harness();
-    expect(names(withPg(on), on.sessionId)).toEqual([...READ_TOOLS, "postgres_request"]);
+    expect(names(withPg(on), on.sessionId)).toEqual([
+      ...READ_TOOLS,
+      "postgres_request",
+      "postgres_reset",
+      "postgres_status",
+    ]);
     for (const profile of ["standard", "autonomous"] as const) {
       const h = harness({ sandboxApplied: profile });
       expect(names(withPg(h), h.sessionId)).toContain("postgres_request");
@@ -1658,6 +1672,43 @@ describe("postgres_request", () => {
     expect(out.payload.next).toContain("resume");
     expect(out.payload.next).toContain("PGlite");
     expect(hosts).toHaveLength(2);
+  });
+
+  test("postgres_reset resolves the host, re-clones and points `starting` at postgres_request", async () => {
+    const h = harness({ sandboxApplied: "autonomous" });
+    const hosts: Array<string | undefined> = [];
+    const reset = async (_id: string, _signal?: AbortSignal, host?: string) => {
+      hosts.push(host);
+      return { status: "starting" as const };
+    };
+    const deps = withPg(h, { reset, postgresHost: async () => "10.0.2.2" });
+    const starting = toolPayload(await call(deps, h.sessionId, "postgres_reset", {}));
+    expect(starting.payload).toMatchObject({ status: "starting" });
+    expect(starting.payload.next).toContain("postgres_request (not postgres_reset)");
+    expect(hosts).toEqual(["10.0.2.2"]);
+    const ready = toolPayload(await call(withPg(h), h.sessionId, "postgres_reset", {}));
+    expect(ready.payload).toMatchObject({ status: "ready", ...CONN });
+    const unreachable = toolPayload(
+      await call(withPg(h, { postgresHost: async () => null }), h.sessionId, "postgres_reset", {}),
+    );
+    expect(unreachable.payload).toMatchObject({ status: "unreachable" });
+  });
+
+  test("postgres_status returns the state without credentials", async () => {
+    const h = harness();
+    const ids: string[] = [];
+    const deps = withPg(h, {
+      sessionStatus: async (id) => {
+        ids.push(id);
+        return { server: "stopped", database: "none" };
+      },
+    });
+    const out = toolPayload(await call(deps, h.sessionId, "postgres_status", {}));
+    expect(out.isError).toBe(false);
+    expect(out.payload).toMatchObject({ server: "stopped", database: "none" });
+    expect(out.payload.next).toContain("postgres_request");
+    expect(out.payload).not.toHaveProperty("password");
+    expect(ids).toEqual([h.sessionId]);
   });
 
   test("a failure is an isError result the agent can read", async () => {

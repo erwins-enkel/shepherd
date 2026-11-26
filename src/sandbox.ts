@@ -40,6 +40,7 @@ import { resolveWorktreePinSync } from "./safe-git";
 import type { EgressBackend } from "./egress";
 import { agentGhModeConfigured } from "./agent-gh-env";
 import { secretEnvLauncher } from "./agent-secrets";
+import { credentialMirrorPath } from "./credential-mirror-path";
 
 /** realpath that falls back to the input on any error (broken/missing path). */
 export function safeRealpath(p: string): string {
@@ -130,6 +131,17 @@ export interface PathProbeDeps {
   /** Host env, read for the agent gh token mode ({@link agentGhModeConfigured}); default
    *  `process.env`. */
   env?: Record<string, string | undefined>;
+  /** The synced OAuth credential mirror for `claudeDir` (credential-mirror.ts, #4260), or null
+   *  when there is none. Default: {@link credentialMirrorPath} when it exists on the host. */
+  credentialMirror?: (claudeDir: string) => string | null;
+}
+
+/** The mirror when CredentialMirror.ensure created one AND the host still has a credential; null →
+ *  bind the host file. After a host logout the mirror keeps the old tokens (it never deletes), so a
+ *  new spawn must not get them: like the absent host file, it gets no credential. */
+function defaultCredentialMirror(claudeDir: string): string | null {
+  const mirror = credentialMirrorPath(claudeDir);
+  return existsSync(mirror) && existsSync(`${claudeDir}/.credentials.json`) ? mirror : null;
 }
 
 export interface GitStoreDeps {
@@ -1165,13 +1177,20 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   const term = inputs.term ?? "xterm-256color";
   const projectsSrc = inputs.projectsBindSource ?? `${claudeDir}/projects`;
 
-  // Subscription/default: rw `--bind-try` so OAuth token refresh writes back.
+  // Subscription/default: rw `--bind-try` so OAuth token refresh writes back. Source is the
+  // Shepherd-synced mirror when there is one (#4260): a host-file bind pins its inode, and host
+  // Claude replaces the file on every refresh, stranding the sandbox on a revoked token.
   // api-key (maskCredentials): EMPTY — the OAuth token is GENUINELY ABSENT inside the sandbox
   // (matching the credential-less CLAUDE_CONFIG_DIR mirror in auth-config-dir.ts) rather than an
   // empty overlay, which could trip a re-auth prompt.
+  const credentialDest = `${claudeDir}/.credentials.json`;
   const credentialFlags: string[] = inputs.maskCredentials
     ? []
-    : ["--bind-try", `${claudeDir}/.credentials.json`, `${claudeDir}/.credentials.json`];
+    : [
+        "--bind-try",
+        (deps.credentialMirror ?? defaultCredentialMirror)(claudeDir) ?? credentialDest,
+        credentialDest,
+      ];
 
   const f: string[] = [
     // ── base read-only root ──────────────────────────────────────────────

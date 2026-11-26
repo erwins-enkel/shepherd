@@ -10,6 +10,7 @@ import {
   epicBaseDirective,
   CI_FIX_STEER,
   CI_CAP_MESSAGE,
+  AUTH_FAIL_MESSAGE,
   EMPTY_COMPLETION_STEER,
   EMPTY_COMPLETION_MESSAGE,
   rebaseSteer,
@@ -135,6 +136,8 @@ function harness(opts: {
   backgroundBusy?: () => boolean;
   /** The apiRetryPending dep (an API-error auto-retry is armed); omit = unset. */
   apiRetryPending?: () => boolean;
+  /** The authHalted dep (last turn died on a Claude auth failure); omit = unset. */
+  authHalted?: () => boolean;
   pendingQuestions?: () => Promise<boolean>;
   /** The criticReviewing dep (#3426: a critic run holds this head's CI steer); omit = unset. */
   criticReviewing?: (id: string, headSha: string) => boolean;
@@ -254,6 +257,7 @@ function harness(opts: {
     toolUseSince: opts.toolUseSince,
     isBackgroundBusy: opts.backgroundBusy,
     apiRetryPending: opts.apiRetryPending,
+    authHalted: opts.authHalted,
     criticReviewing: opts.criticReviewing,
     ciRestartHeld: opts.ciRestartHeld,
     rebaseCap: opts.rebaseCap ?? 5,
@@ -505,6 +509,48 @@ test("onDone while an API-error retry is pending → no classify, no steer", asy
   await h.svc.onDone("s1");
   expect(h.classifyCount()).toBe(0);
   expect(h.events.some((e) => "steer" in e || "pause" in e)).toBe(false);
+});
+
+test("onDone after a Claude auth failure → auth hand-back, no classify, no steer (#4260)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    authHalted: () => true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ pause: "s1", q: AUTH_FAIL_MESSAGE });
+  expect(h.state().autopilotPaused).toBe(true);
+});
+
+test("auth hand-back is a guard pause: red CI does not re-engage it", async () => {
+  const h = harness({
+    session: sess({ status: "done", autopilotPaused: true, autopilotQuestion: AUTH_FAIL_MESSAGE }),
+    repoEnabled: true,
+    authHalted: () => true,
+  });
+  h.svc.onGit("s1", {
+    kind: "github",
+    state: "open",
+    checks: "failure",
+    headSha: "sha1",
+    number: 7,
+    deployConfigured: false,
+  });
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("auth failure on a session without autopilot → no pause", async () => {
+  const h = harness({
+    session: sess({ status: "done", autopilotEnabled: null }),
+    repoEnabled: false,
+    verdict: { kind: "finished", summary: "done" },
+    authHalted: () => true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "pause" in e)).toBe(false);
 });
 
 test("onDone with no API-error retry pending → classifies as usual", async () => {

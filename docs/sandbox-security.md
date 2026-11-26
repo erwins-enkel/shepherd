@@ -108,7 +108,11 @@ The membrane keeps two token surfaces readable to any in-membrane tool call
 (`buildMembraneFlags`, `src/sandbox.ts`):
 
 - `~/.claude/.credentials.json` — bound **RW** so OAuth refresh writes back
-  (`--bind-try`), on top of the config dir's allowlisted RO entries
+  (`--bind-try`). The bind source is a Shepherd-synced mirror of the host file
+  (`src/credential-mirror.ts`, under the runtime dir), not the host file itself:
+  host Claude replaces the file on every refresh (new inode), which used to strand
+  a single-file bind on a revoked token (#4260). The server copies changes both
+  ways (host → mirror in place, mirror → host by rename), on top of the config dir's allowlisted RO entries
   (`CLAUDE_DIR_ENTRIES`, see [Shared Claude state](#shared-claude-state-and-agent-written-files)).
   **In api-key mode** (`maskCredentials`) there is no credential bind of any kind —
   the token is not on the allowlist, so it is **genuinely absent** inside the
@@ -344,8 +348,8 @@ so a shell-quoted spelling may slip past.
 Everything these roles post or file (review body, post-merge comment, maintain
 issue title/body) passes through `redactSecretText` first.
 
-**Residual: credentials RW.** `.credentials.json` stays bound RW and `CODEX_HOME`
-stays RW for every membrane. A read-only or per-membrane copy breaks
+**Residual: credentials RW.** `.credentials.json` stays bound RW (via the synced
+mirror, whose writes reach the host file) and `CODEX_HOME` stays RW for every membrane. A read-only or per-membrane copy breaks
 refresh-token rotation: the first in-membrane refresh rotates the token and
 strands the host copy. Closing it needs a host-brokered refresh, which is not
 built.

@@ -17,6 +17,7 @@
  */
 import { homedir } from "node:os";
 import { basename } from "node:path";
+import { credentialMirrorRoot } from "./credential-mirror-path";
 import { effortForSpawn } from "./default-effort";
 import { OPERATOR_DIAG_TOOL_NAMES, shepherdToolRule } from "./operator-assistant-permissions";
 import { operatorLanguageBlock, type OperatorLanguage } from "./operator-language";
@@ -72,12 +73,14 @@ function rulePrefix(dir: string, home: string): string {
  *  re-reads mid-session (assistantPermissionRules). `stateDir` is Shepherd's state dir (dirname of
  *  its db). `spawnDir` holds every assistant's spawn files with its ingress key
  *  (src/assistant-ingress.ts): all assistants share one uid, so without this rule a repo-scoped
- *  assistant could read the global one's key and act herd-wide through its endpoint. */
+ *  assistant could read the global one's key and act herd-wide through its endpoint.
+ *  `credentialMirrorDir` holds the membrane's copies of the Claude OAuth credential. */
 export function operatorAssistantPermissions(
   stateDir = "~/.shepherd",
   home = homedir(),
   spawnDir = `${stateDir.replace(/\/+$/, "")}/assistant-spawn`,
   assistantDir = `${stateDir.replace(/\/+$/, "")}/assistant`,
+  credentialMirrorDir = credentialMirrorRoot(),
 ): {
   defaultMode: "default";
   allow: string[];
@@ -99,6 +102,8 @@ export function operatorAssistantPermissions(
         `Read(${rulePrefix(spawnDir, home)}/**)`,
         `Read(${rulePrefix(assistantDir, home)}/.codex-runtime/**)`,
         ...CREDENTIAL_PATHS.map((p) => `Read(${p})`),
+        // The membrane's synced copies of the Claude OAuth credential (#4260).
+        `Read(${rulePrefix(credentialMirrorDir, home)}/**)`,
       ]),
     ],
   };

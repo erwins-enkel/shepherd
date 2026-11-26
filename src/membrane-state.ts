@@ -406,7 +406,7 @@ function everyUnref(fn: () => void, ms: number): () => void {
  * credential helper) sees the old or the new text, never an empty or truncated one. No-op when
  * unchanged. Opened without O_CREAT: a removed file is not resurrected (ENOENT).
  */
-async function rewriteInPlace(file: string, content: string): Promise<void> {
+export async function rewriteInPlace(file: string, content: string): Promise<void> {
   const fh = await open(file, "r+");
   try {
     const current = await fh.readFile();

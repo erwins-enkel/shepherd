@@ -7,6 +7,7 @@ import {
   type OperatorAssistantArgvOpts,
 } from "../src/operator-assistant-core";
 import { operatorLanguageBlock } from "../src/operator-language";
+import { credentialMirrorRoot } from "../src/credential-mirror-path";
 import { ASSISTANT_ACTION_GROUPS } from "../src/operator-assistant-permissions";
 
 const BASE: OperatorAssistantArgvOpts = {
@@ -123,6 +124,7 @@ test("permissions: exact shape — the read tools by name the only allow, edits 
       "Read(~/.docker/config.json)",
       "Read(~/.kube/config)",
       "Read(//proc/**/environ)",
+      `Read(/${credentialMirrorRoot()}/**)`,
     ],
   });
 });
@@ -140,6 +142,16 @@ test("permissions: the state-dir rules follow Shepherd's real state dir, never t
   expect(
     operatorAssistantPermissions("/srv/shepherd", home, "/opt/sa/assistant-spawn").deny,
   ).toContain("Read(//opt/sa/assistant-spawn/**)");
+  // The membrane's OAuth credential mirrors (#4260), wherever the runtime dir is.
+  expect(
+    operatorAssistantPermissions(
+      "/srv/shepherd",
+      home,
+      undefined,
+      undefined,
+      "/run/user/9/shepherd/membrane-creds",
+    ).deny,
+  ).toContain("Read(//run/user/9/shepherd/membrane-creds/**)");
   // The env file stays at ~/.shepherd/env when SHEPHERD_DB moves the db: denied either way.
   expect(inHome).toContain("Read(~/.shepherd/env)");
   expect(elsewhere).toContain("Read(~/.shepherd/env)");

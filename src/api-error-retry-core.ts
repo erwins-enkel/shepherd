@@ -22,6 +22,20 @@ interface TranscriptRecord {
  * (system turn_duration, api-request blobs, …) are skipped. `uuid` keys the error episode.
  */
 export function transientApiError(jsonl: string): { uuid: string } | null {
+  return lastApiError(jsonl, "server_error");
+}
+
+/**
+ * The authentication failure a Claude turn died on, or null: the last conversational record is
+ * the synthetic `isApiErrorMessage` record with `error: "authentication_failed"` ("OAuth token
+ * revoked · Please run /login", "Login expired", …). Retrying cannot fix it (#4260).
+ */
+export function authApiError(jsonl: string): { uuid: string } | null {
+  return lastApiError(jsonl, "authentication_failed");
+}
+
+/** The last main-chain conversational record, when it is an API error of `kind`. */
+function lastApiError(jsonl: string, kind: string): { uuid: string } | null {
   let last: TranscriptRecord | null = null;
   for (const o of eachJsonlObject(jsonl)) {
     const rec = o as TranscriptRecord | null;
@@ -31,7 +45,7 @@ export function transientApiError(jsonl: string): { uuid: string } | null {
   if (
     last?.type === "assistant" &&
     last.isApiErrorMessage === true &&
-    last.error === "server_error" &&
+    last.error === kind &&
     typeof last.uuid === "string"
   )
     return { uuid: last.uuid };

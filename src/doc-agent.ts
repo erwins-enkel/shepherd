@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+  unlinkSync,
+} from "node:fs";
 import { devNull } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -246,15 +256,13 @@ const REMOTE_REAP_CAP = 20;
  *  content becomes the PR body. It lives OUTSIDE the staged in-scope list so it is never committed. */
 const SENTINEL = ".shepherd-doc-update.md";
 
+/** Largest sentinel read (bytes). It becomes the PR body, which GitHub caps at 65,536 chars; a
+ *  larger file is treated as absent, so the run finalizes on its timeout without a summary. */
+const SENTINEL_MAX_BYTES = 64 * 1024;
+
 /** Layout guard marker: the partition/prompt/staging are Shepherd-doc-layout-specific, so a repo
  *  that lacks this tree is rejected before any spawn (it would have nothing to stage). */
 const DOC_TREE_MARKER = "docs-site/src/content/docs";
-
-/** Re-target run marker (issue #956 Option B): written at the worktree root so a restart can
- *  re-adopt a re-target run with its mode + target PR even after the in-flight map is lost. Holds
- *  `{ prNumber, headBranch, base }`. It lives OUTSIDE {@link IN_SCOPE_PATHS}, so the staging
- *  `git add -- <inScope>` already excludes it (same posture as {@link SENTINEL}). */
-const RETARGET_MARKER = ".shepherd-doc-retarget.json";
 
 /** Default settled-idle debounce before a re-target run fires (mirrors recap's
  *  DEFAULT_IDLE_THRESHOLD_MS): a code-PR session must be idle+green this long before we push docs
@@ -359,6 +367,7 @@ export interface DocAgentDeps extends MembraneSeams {
     SessionStore,
     | "getSetting"
     | "setSetting"
+    | "deleteSetting"
     | "setReviewerSpawnProviderSessionId"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
@@ -400,10 +409,6 @@ export interface DocAgentDeps extends MembraneSeams {
   /** Read a spawn's token usage from its transcript at finalize (cost attribution). Mirrors
    *  recap.ts's identical dep + readSessionUsage default. */
   readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
-  /** Write the re-target marker (tests inject a fake; default `writeFileSync`). */
-  writeMarker?: (path: string, contents: string) => void;
-  /** Read the re-target marker on boot re-adopt (tests inject a fake; default `readFileSync`). */
-  readMarker?: (path: string) => string | null;
 }
 
 /**
@@ -450,8 +455,6 @@ export class DocAgentService {
   private act: boolean;
   private readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
   private idleThresholdMs: number;
-  private writeMarkerFn: (path: string, contents: string) => void;
-  private readMarkerFn: (path: string) => string | null;
   /** Per-session settled-idle debounce for the re-target sweep (mirrors RecapService.debounce). */
   private readyDebounce = new Map<string, { stamp: number; fired: boolean }>();
 
@@ -470,22 +473,18 @@ export class DocAgentService {
     this.act = deps.act ?? false;
     this.readUsage = deps.readUsage ?? ((cwd, id) => readReviewerSpawnUsage(deps.store, cwd, id));
     this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
-    this.writeMarkerFn = deps.writeMarker ?? ((p, c) => writeFileSync(p, c, "utf8"));
-    this.readMarkerFn = deps.readMarker ?? defaultReadMarker;
   }
 
-  /** Serialize + write the re-target marker JSON (best-effort caller catches). */
-  private writeMarker(
-    path: string,
-    data: {
-      prNumber: number;
-      headBranch: string;
-      base: string;
-      ownerSessionId?: string;
-      headSha?: string;
-    },
-  ): void {
-    this.writeMarkerFn(path, JSON.stringify(data));
+  /** Persist a re-target run's state in settings, keyed by its worktree path, so a restart can
+   *  re-adopt it with its mode + target PR after the in-flight map is lost. Server-side state, not
+   *  a file in the agent-writable worktree. */
+  private saveRetargetState(worktreePath: string, data: RetargetState): void {
+    this.deps.store.setSetting(retargetKey(worktreePath), JSON.stringify(data));
+  }
+
+  /** Forget a worktree's re-target state (no-op for fresh runs). */
+  private dropRetargetState(worktreePath: string): void {
+    this.deps.store.deleteSetting(retargetKey(worktreePath));
   }
 
   /** Start a doc-agent run for `repoPath` (manual trigger). At most one per repo at a time. */
@@ -680,7 +679,8 @@ export class DocAgentService {
    * untouched so it can fire once the session becomes eligible without restarting the idle clock.
    */
   private retargetCandidate(s: Session): GitState | null {
-    if (!s.branch) return null;
+    // The head branch becomes a push refspec and persisted state: refuse anything off the grammar.
+    if (!s.branch || !BRANCH_RE.test(s.branch)) return null;
     if (!this.fileExists(join(s.repoPath, DOC_TREE_MARKER))) return null;
     const git = this.deps.gitState?.(s.id);
     if (!git || git.state !== "open" || git.checks !== "success") return null;
@@ -748,6 +748,7 @@ export class DocAgentService {
       this.deps.store.setSetting(prSyncedKey(repoPath, prNumber), "1");
 
       const promptCtx: RetargetPromptCtx = { prNumber, prTitle: git.title ?? "" };
+      let createdPath: string | undefined;
       const launched = await this.launchRun(
         repoPath,
         headSha,
@@ -761,11 +762,12 @@ export class DocAgentService {
           headSha,
         },
         promptCtx,
-        // Drop the restart marker so a boot reconcile re-adopts this as a re-target run. Runs after
-        // worktree creation, before the spawn — same position as the original inline write.
+        // Record the restart state so a boot reconcile re-adopts this as a re-target run. Runs after
+        // worktree creation, before the spawn.
         (worktreePath) => {
+          createdPath = worktreePath;
           try {
-            this.writeMarker(join(worktreePath, RETARGET_MARKER), {
+            this.saveRetargetState(worktreePath, {
               prNumber,
               headBranch: session.branch!,
               base,
@@ -773,11 +775,14 @@ export class DocAgentService {
               headSha,
             });
           } catch (err) {
-            console.warn(`[doc-agent] writing re-target marker failed for ${repoPath}:`, err);
+            console.warn(`[doc-agent] saving re-target state failed for ${repoPath}:`, err);
           }
         },
       );
-      if (!launched.ok) return launched.result;
+      if (!launched.ok) {
+        if (createdPath !== undefined) this.dropRetargetState(createdPath);
+        return launched.result;
+      }
       return { status: "started" };
     } finally {
       this.starting.delete(repoPath);
@@ -787,7 +792,7 @@ export class DocAgentService {
   /**
    * Shared run-launch mechanics for {@link begin} (fresh) and {@link beginRetarget} (retarget):
    * create a disposable `shepherd/docs-update-<8hex>` worktree off `baseRef`, optionally run
-   * `afterCreate` (the re-target marker write — between create and spawn), spawn the scoped agent,
+   * `afterCreate` (the re-target state write — between create and spawn), spawn the scoped agent,
    * register it in `inflight` (merging `extra` for mode + the retarget-only fields), and persist the
    * durable cost row. Returns `{ ok: true }` on success or `{ ok: false, result }` carrying the
    * skip/error result the caller returns. The worktree is removed on any post-create failure.
@@ -833,6 +838,7 @@ export class DocAgentService {
       return { ok: false, result: { status: "error", reason: "worktree creation failed" } };
     }
 
+    removeCheckedOutSentinel(wt.worktreePath);
     afterCreate?.(wt.worktreePath);
 
     const spawned = await this.spawnAgent(
@@ -1090,8 +1096,8 @@ export class DocAgentService {
 
   /** Fail-closed gate before any host-side processing: resolve the trusted git pin, then refuse a
    *  worktree with ANY modified or untracked path beyond {@link IN_SCOPE_PATHS} (+ the run's own
-   *  {@link SENTINEL} / {@link RETARGET_MARKER}). Staging alone would merely leave such edits out of
-   *  the commit; aborting keeps them from reaching anything finalize runs. Returns the pin. */
+   *  {@link SENTINEL}). Staging alone would merely leave such edits out of the commit; aborting
+   *  keeps them from reaching anything finalize runs. Returns the pin. */
   private async assertWorktreeInScope(f: InFlight): Promise<GitPin | null> {
     let pin: GitPin | null;
     try {
@@ -1104,7 +1110,7 @@ export class DocAgentService {
       ["status", "--porcelain=v1", "-z", "-uall", "--no-renames"],
       { pin },
     );
-    const allowed = new Set([...IN_SCOPE_PATHS, SENTINEL, RETARGET_MARKER]);
+    const allowed = new Set([...IN_SCOPE_PATHS, SENTINEL]);
     const stray = porcelainPaths(status).filter((p) => !allowed.has(p));
     if (stray.length > 0) {
       throw new DocScopeError(f.repoPath, `out-of-scope changes: ${stray.join(", ")}`);
@@ -1234,6 +1240,7 @@ export class DocAgentService {
       // force-delete the local branch (the pushed remote branch backs any opened PR).
       await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
+      this.dropRetargetState(f.worktreePath);
       try {
         await this.git(f.repoPath, ["branch", "-D", f.branch]);
       } catch {
@@ -1608,10 +1615,10 @@ export class DocAgentService {
     // RE-ADOPT: hand the `starting` claim to `inflight`; the next tick() finalizes it (and completes
     // the row). Recover spawnedAt + the spawn session id from the uncompleted row when present.
     const row = this.uncompletedRowFor(path);
-    // Restart-safety (issue #956): a re-target run dropped a marker; re-adopt it as such so the next
+    // Restart-safety (issue #956): a re-target run recorded its state; re-adopt it as such so the next
     // tick()→finalize routes to publishRetarget (which re-checks prStatus and either pushes onto the
-    // open PR or falls through to a fresh PR). Absent/unparseable marker → fresh path (unchanged).
-    const marker = this.readRetargetMarker(path);
+    // open PR or falls through to a fresh PR). Absent/invalid state → fresh path (unchanged).
+    const state = this.readRetargetState(path);
     this.inflight.set(repo, {
       repoPath: repo,
       worktreePath: path,
@@ -1621,13 +1628,13 @@ export class DocAgentService {
       agentName: liveTab?.name ?? "",
       startedAt: row?.spawnedAt ?? this.now(),
       spawnSessionId: row?.reviewerSessionId ?? "",
-      mode: marker ? "retarget" : "fresh",
-      ...(marker
+      mode: state ? "retarget" : "fresh",
+      ...(state
         ? {
-            prNumber: marker.prNumber,
-            headBranch: marker.headBranch,
-            ownerSessionId: marker.ownerSessionId,
-            headSha: marker.headSha,
+            prNumber: state.prNumber,
+            headBranch: state.headBranch,
+            ownerSessionId: state.ownerSessionId,
+            headSha: state.headSha,
           }
         : {}),
     });
@@ -1705,6 +1712,7 @@ export class DocAgentService {
     const tab = await this.findLiveTab(path);
     if (tab) await this.deps.herdr.closeTab(tab.tabId);
     this.deps.worktree.remove(path);
+    this.dropRetargetState(path);
     try {
       await this.git(repo, ["branch", "-D", branch]);
     } catch {
@@ -1793,15 +1801,10 @@ export class DocAgentService {
     }
   }
 
-  /** Read + parse the re-target marker at a worktree root, or null when absent/unparseable. */
-  private readRetargetMarker(worktreePath: string): {
-    prNumber: number;
-    headBranch: string;
-    base: string;
-    ownerSessionId?: string;
-    headSha?: string;
-  } | null {
-    const raw = this.readMarkerFn(join(worktreePath, RETARGET_MARKER));
+  /** Read + parse a worktree's re-target state, or null when absent, unparseable, or its head
+   *  branch is off the refname grammar. */
+  private readRetargetState(worktreePath: string): RetargetState | null {
+    const raw = this.deps.store.getSetting(retargetKey(worktreePath));
     if (raw == null) return null;
     try {
       const m = JSON.parse(raw) as {
@@ -1812,6 +1815,7 @@ export class DocAgentService {
         headSha?: unknown;
       };
       if (typeof m.prNumber !== "number" || typeof m.headBranch !== "string") return null;
+      if (!BRANCH_RE.test(m.headBranch)) return null;
       return {
         prNumber: m.prNumber,
         headBranch: m.headBranch,
@@ -1863,6 +1867,17 @@ const mergedSeenKey = (repo: string, prNumber: number) =>
 // the spawn) so onMergedPr defers even if the code PR merges mid-run. Same accept-and-grow posture
 // as mergedSeenKey — one tiny row per re-targeted PR, never cleaned up.
 const prSyncedKey = (repo: string, prNumber: number) => `docagent:pr-synced:${repo}:${prNumber}`;
+// A re-target run's restart state, keyed by its worktree path. Deleted on finalize/prune/failed
+// launch.
+const retargetKey = (worktreePath: string) => `docagent:retarget:${worktreePath}`;
+
+interface RetargetState {
+  prNumber: number;
+  headBranch: string;
+  base: string;
+  ownerSessionId?: string;
+  headSha?: string;
+}
 
 /** Local `YYYY-MM-DD` for `now` — the nightly once/day key. Local, not UTC, so the cadence
  *  turns over at the operator's midnight. */
@@ -1890,24 +1905,43 @@ export function isDocRelevantMerge(title: string | undefined): boolean {
   return type === "feat" || type === "config" || scope === "config";
 }
 
-function defaultReadSentinel(worktreePath: string): string | null {
-  const p = join(worktreePath, SENTINEL);
-  if (!existsSync(p)) return null;
+/** Read `p` only if it is a regular file of at most `maxBytes`, else null. Opens first and checks
+ *  the opened descriptor (no check-then-open window): O_NOFOLLOW refuses a symlink, O_NONBLOCK
+ *  keeps a FIFO from blocking the open, and fstat rejects anything that is not a regular file. */
+function readRegularFile(p: string, maxBytes: number): string | null {
+  let fd: number;
   try {
-    const txt = readFileSync(p, "utf8");
-    return txt.trim().length > 0 ? txt : null;
+    fd = openSync(p, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   } catch {
-    return null; // partial write — retry next tick
+    return null;
+  }
+  try {
+    if (!fstatSync(fd).isFile()) return null;
+    const buf = Buffer.alloc(maxBytes + 1);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return n > maxBytes ? null : buf.toString("utf8", 0, n);
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
   }
 }
 
-/** Read the re-target marker file at an absolute path, or null when absent/unreadable. */
-function defaultReadMarker(path: string): string | null {
-  if (!existsSync(path)) return null;
+/** The agent's completion sentinel at the worktree root, or null when absent, blank, not a
+ *  regular file, or over {@link SENTINEL_MAX_BYTES}. A partial write reads as-is; the next tick
+ *  retries a blank one. */
+export function defaultReadSentinel(worktreePath: string): string | null {
+  const txt = readRegularFile(join(worktreePath, SENTINEL), SENTINEL_MAX_BYTES);
+  return txt !== null && txt.trim().length > 0 ? txt : null;
+}
+
+/** Remove a sentinel the checked-out commit already carries, so only the agent's own write signals
+ *  completion. unlink removes a symlink itself, never its target. */
+function removeCheckedOutSentinel(worktreePath: string): void {
   try {
-    return readFileSync(path, "utf8");
+    unlinkSync(join(worktreePath, SENTINEL));
   } catch {
-    return null;
+    /* best-effort: usually absent; anything left (a directory) never reads as a sentinel */
   }
 }
 

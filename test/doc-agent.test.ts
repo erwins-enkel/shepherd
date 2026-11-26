@@ -1,6 +1,15 @@
 import { test, expect } from "bun:test";
-import { execFile } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -12,6 +21,7 @@ import {
   DocsManifestError,
   assertPrettierClean,
   defaultPrettierWrite,
+  defaultReadSentinel,
   isDocRelevantMerge,
   porcelainPaths,
   type DocAgentFinalize,
@@ -94,8 +104,6 @@ interface Harness {
   spawnRows: SpawnRow[];
   completedRows: CompletedRow[];
   deletedRemote: string[];
-  /** Re-target marker files written by the service, keyed by absolute path. */
-  markers: Map<string, string>;
   /** Args of every herdr.start (incl. the wrapped argv) for prompt-grounding assertions. */
   startArgs: { name: string; cwd: string; argv: string[] }[];
   /** Captured editPr calls (prNumber + patch). */
@@ -215,8 +223,8 @@ function mkHarness(opts?: {
   /** Full prStatus (state + url) per branch — drives the re-target finalize re-check. Falls back to
    *  prStatusByBranch (state only) when absent. */
   prStatusFull?: Record<string, { state: "none" | "open" | "merged" | "closed"; url?: string }>;
-  /** Pre-seeded re-target marker files (abs path → JSON), read by reapOneWorktree. */
-  markerFiles?: Record<string, string>;
+  /** Fixed path worktree.create returns (a real dir for fs-level tests); default `/wt/<name>`. */
+  worktreePath?: string;
   /** Owner-worktree git responses for the ff guard: porcelain status + rev-parse HEAD. */
   ownerStatusPorcelain?: string;
   ownerHead?: string;
@@ -263,7 +271,6 @@ function mkHarness(opts?: {
     pinThrows: false,
     sessions: [] as Session[],
     gitStateById: {} as Record<string, GitState | undefined>,
-    markerFiles: {} as Record<string, string>,
     ownerStatusPorcelain: "",
     ownerHead: "headsha1",
     openDocPrs: undefined as { number: number; headRefName: string; url?: string }[] | undefined,
@@ -282,7 +289,6 @@ function mkHarness(opts?: {
   const genDocsCalls: GenDocsCall[] = [];
   const starts: { name: string; cwd: string }[] = [];
   const startArgs: { name: string; cwd: string; argv: string[] }[] = [];
-  const markers = new Map<string, string>(Object.entries(o.markerFiles));
   const closedTabs: string[] = [];
   const removedWorktrees: string[] = [];
   const openPrInputs: unknown[] = [];
@@ -298,6 +304,9 @@ function mkHarness(opts?: {
     getSetting: (key: string) => kv.get(key) ?? null,
     setSetting: (key: string, value: string) => {
       kv.set(key, value);
+    },
+    deleteSetting: (key: string) => {
+      kv.delete(key);
     },
     recordReviewerSpawn: (r: {
       reviewerSessionId: string;
@@ -469,7 +478,7 @@ function mkHarness(opts?: {
 
   const worktree = {
     create: (_repo: string, _base: string, name: string) => ({
-      worktreePath: `/wt/${name}`,
+      worktreePath: o.worktreePath ?? `/wt/${name}`,
       branch: `shepherd/${name}`,
       isolated: true,
     }),
@@ -535,10 +544,6 @@ function mkHarness(opts?: {
     readSentinel: () => o.sentinel,
     gitState: (id: string) => o.gitStateById[id],
     idleThresholdMs: o.idleThresholdMs,
-    writeMarker: (p: string, c: string) => {
-      markers.set(p, c);
-    },
-    readMarker: (p: string) => markers.get(p) ?? null,
     readUsage: async () =>
       o.usageUnavailable
         ? null
@@ -572,7 +577,6 @@ function mkHarness(opts?: {
     spawnRows,
     completedRows,
     deletedRemote,
-    markers,
     startArgs,
     editPrCalls,
     stoppedTerminals,
@@ -1291,11 +1295,10 @@ for (const act of [false, true]) {
   });
 }
 
-test("scope gate: in-scope edits + the run's own sentinel/marker pass; status runs pinned", async () => {
+test("scope gate: in-scope edits + the run's own sentinel pass; status runs pinned", async () => {
   const h = mkHarness({
     act: true,
-    worktreeStatus:
-      " M docs/sandbox-security.md\0?? .shepherd-doc-update.md\0?? .shepherd-doc-retarget.json\0",
+    worktreeStatus: " M docs/sandbox-security.md\0?? .shepherd-doc-update.md\0",
   });
   await h.svc.consider("/repo");
   await h.svc.tick();
@@ -1553,6 +1556,7 @@ test("finalize: no staged changes → outcome 'nochange', url null", async () =>
 // ── re-target: fold docs into the open code PR (issue #956 Option B) ─────────────
 
 const PR_SYNCED = (repo: string, pr: number) => `docagent:pr-synced:${repo}:${pr}`;
+const RETARGET_STATE = (wt: string) => `docagent:retarget:${wt}`;
 const RETARGET_MARKER_FILE = ".shepherd-doc-retarget.json";
 
 /** A re-target sweep fixture: one idle session whose code PR is open+green+doc-relevant, with the
@@ -1585,10 +1589,12 @@ test("re-target sweep: open+green+doc-relevant+settled → beginRetarget, claims
   // a durable doc_agent cost row was recorded for the re-target run
   expect(h.spawnRows).toHaveLength(1);
   expect(h.spawnRows[0]!.kind).toBe("doc_agent");
-  // a re-target marker was written into the new worktree root
-  const markerEntry = [...h.markers.entries()].find(([p]) => p.endsWith(RETARGET_MARKER_FILE));
-  expect(markerEntry).toBeDefined();
-  const parsed = JSON.parse(markerEntry![1]) as { prNumber: number; headBranch: string };
+  // the re-target state is kept in settings, keyed by the new worktree path
+  const wt = h.spawnRows[0]!.worktreePath;
+  const parsed = JSON.parse(h.kv.get(RETARGET_STATE(wt))!) as {
+    prNumber: number;
+    headBranch: string;
+  };
   expect(parsed.prNumber).toBe(7);
   expect(parsed.headBranch).toBe("feature/x");
 });
@@ -1839,18 +1845,18 @@ test("onMergedPr: skips when prSyncedKey set; fires fresh consider when unset", 
   expect(h2.kv.has(MERGED_SEEN("/repo", 7))).toBe(false);
 });
 
-test("reapOrphans: worktree with a re-target marker re-adopts as mode:retarget and pushes onto the PR head", async () => {
-  const markerPath = "/wt/docs-update-rt000001/.shepherd-doc-retarget.json";
+test("reapOrphans: worktree with re-target state re-adopts as mode:retarget and pushes onto the PR head", async () => {
   const h = mkHarness({
     repos: ["/repo"],
     worktreeListPorcelain: DOCS_WT_PORCELAIN("rt000001"),
     sentinel: "## Changes\n- updated configuration.md\n",
     act: true,
-    markerFiles: {
-      [markerPath]: JSON.stringify({ prNumber: 7, headBranch: "feature/x", base: "main" }),
-    },
     prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
   });
+  h.kv.set(
+    RETARGET_STATE("/wt/docs-update-rt000001"),
+    JSON.stringify({ prNumber: 7, headBranch: "feature/x", base: "main" }),
+  );
   await h.svc.reapOrphans();
   await h.svc.tick();
   // re-adopted as a re-target run → pushed onto the code PR's head branch, opened no new PR
@@ -1859,7 +1865,7 @@ test("reapOrphans: worktree with a re-target marker re-adopts as mode:retarget a
   expect(h.openPrInputs).toHaveLength(0);
 });
 
-test("reapOrphans: worktree WITHOUT a marker re-adopts as mode:fresh (opens a standalone PR)", async () => {
+test("reapOrphans: worktree WITHOUT re-target state re-adopts as mode:fresh (opens a standalone PR)", async () => {
   const h = mkHarness({
     repos: ["/repo"],
     worktreeListPorcelain: DOCS_WT_PORCELAIN("fr000001"),
@@ -2219,4 +2225,188 @@ test("Codex capacity review: a deferred retarget never consumes PR ownership", a
   await h.svc.resumeCapacity("sess-1", intents[0]!.fingerprint);
   expect(h.starts).toHaveLength(1);
   expect(h.kv.get(PR_SYNCED("/repo", 7))).toBe("1");
+});
+
+// ── worktree file I/O: sentinel reads, re-target state, branch grammar ──────────
+
+const SENTINEL_FILE = ".shepherd-doc-update.md";
+
+function withTmpDirs(n: number, fn: (...dirs: string[]) => void | Promise<void>) {
+  const dirs = Array.from({ length: n }, () => mkdtempSync(join(tmpdir(), "doc-agent-io-")));
+  const cleanup = () => dirs.forEach((d) => rmSync(d, { recursive: true, force: true }));
+  try {
+    const r = fn(...dirs);
+    if (r instanceof Promise) return r.finally(cleanup);
+    cleanup();
+    return r;
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+}
+
+test("defaultReadSentinel: returns a regular sentinel's content; blank → null", () =>
+  withTmpDirs(1, (wt) => {
+    expect(defaultReadSentinel(wt!)).toBeNull(); // absent
+    writeFileSync(join(wt!, SENTINEL_FILE), "## Changes\n- x\n");
+    expect(defaultReadSentinel(wt!)).toBe("## Changes\n- x\n");
+    writeFileSync(join(wt!, SENTINEL_FILE), "  \n");
+    expect(defaultReadSentinel(wt!)).toBeNull();
+  }));
+
+test("defaultReadSentinel: does not follow a symlinked sentinel", () =>
+  withTmpDirs(2, (wt, outside) => {
+    writeFileSync(join(outside!, "notes.md"), "outside content\n");
+    symlinkSync(join(outside!, "notes.md"), join(wt!, SENTINEL_FILE));
+    expect(defaultReadSentinel(wt!)).toBeNull();
+    rmSync(join(wt!, SENTINEL_FILE));
+    symlinkSync("/dev/zero", join(wt!, SENTINEL_FILE));
+    expect(defaultReadSentinel(wt!)).toBeNull();
+  }));
+
+test("defaultReadSentinel: a FIFO sentinel returns null without blocking", () =>
+  withTmpDirs(1, (wt) => {
+    execFileSync("mkfifo", [join(wt!, SENTINEL_FILE)]);
+    expect(defaultReadSentinel(wt!)).toBeNull();
+  }));
+
+test("defaultReadSentinel: a sentinel over the 64 KiB cap or a directory → null", () =>
+  withTmpDirs(1, (wt) => {
+    const p = join(wt!, SENTINEL_FILE);
+    writeFileSync(p, "x".repeat(64 * 1024));
+    expect(defaultReadSentinel(wt!)).toHaveLength(64 * 1024);
+    writeFileSync(p, "x".repeat(64 * 1024 + 1));
+    expect(defaultReadSentinel(wt!)).toBeNull();
+    rmSync(p);
+    mkdirSync(p);
+    expect(defaultReadSentinel(wt!)).toBeNull();
+  }));
+
+test("re-target: state stays out of the worktree; a symlinked marker path is never written through", () =>
+  withTmpDirs(2, async (wt, outside) => {
+    const target = join(outside!, "profile");
+    writeFileSync(target, "original\n");
+    symlinkSync(target, join(wt!, RETARGET_MARKER_FILE));
+    const h = mkRetargetHarness({ worktreePath: wt });
+    await h.svc.sweepReadyPrs();
+    await h.svc.sweepReadyPrs();
+    expect(h.starts).toHaveLength(1);
+    expect(readFileSync(target, "utf8")).toBe("original\n");
+    expect(lstatSync(join(wt!, RETARGET_MARKER_FILE)).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(h.kv.get(RETARGET_STATE(wt!))!)).toMatchObject({
+      prNumber: 7,
+      headBranch: "feature/x",
+    });
+  }));
+
+test("re-target gate: a head branch outside the refname grammar → no fire, no claim, no state", async () => {
+  for (const branch of ["feat/x$(id)|sh", "-x", "feat/x y", "a:b"]) {
+    const h = mkRetargetHarness({ sessions: [mkSession({ id: "sess-1", branch })] });
+    await h.svc.sweepReadyPrs();
+    await h.svc.sweepReadyPrs();
+    expect(h.starts).toHaveLength(0);
+    expect(h.kv.has(PR_SYNCED("/repo", 7))).toBe(false);
+    expect([...h.kv.keys()].some((k) => k.startsWith("docagent:retarget:"))).toBe(false);
+  }
+});
+
+test("reapOrphans: a marker file inside the worktree does not select re-target mode", () =>
+  withTmpDirs(1, async (root) => {
+    const wt = join(root!, "docs-update-mf000001");
+    mkdirSync(wt);
+    writeFileSync(
+      join(wt, RETARGET_MARKER_FILE),
+      JSON.stringify({ prNumber: 7, headBranch: "main", base: "main" }),
+    );
+    const h = mkHarness({
+      repos: ["/repo"],
+      worktreeListPorcelain: [
+        "worktree /repo",
+        "branch refs/heads/main",
+        "",
+        `worktree ${wt}`,
+        "branch refs/heads/shepherd/docs-update-mf000001",
+        "",
+      ].join("\n"),
+      sentinel: "## Changes\n- updated configuration.md\n",
+      act: true,
+      prStatusFull: { main: { state: "open", url: "https://forge/pr/7" } },
+    });
+    await h.svc.reapOrphans();
+    await h.svc.tick();
+    expect(h.gitCalls.some((c) => c.args.includes("HEAD:refs/heads/main"))).toBe(false);
+    expect(h.openPrInputs).toHaveLength(1);
+    expect((h.openPrInputs[0] as any).head).toBe("shepherd/docs-update-mf000001");
+  }));
+
+test("reapOrphans: re-target state with a head branch outside the grammar re-adopts as fresh", async () => {
+  const h = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("rt000002"),
+    sentinel: "## Changes\n- updated configuration.md\n",
+    act: true,
+  });
+  h.kv.set(
+    RETARGET_STATE("/wt/docs-update-rt000002"),
+    JSON.stringify({ prNumber: 7, headBranch: "x$(id)", base: "main" }),
+  );
+  await h.svc.reapOrphans();
+  await h.svc.tick();
+  expect(h.gitCalls.some((c) => c.args.some((a) => a.startsWith("HEAD:refs/heads/")))).toBe(false);
+  expect(h.openPrInputs).toHaveLength(1);
+});
+
+test("launch: a sentinel the checked-out commit already carries is removed before spawn", () =>
+  withTmpDirs(2, async (wt, outside) => {
+    writeFileSync(join(wt!, SENTINEL_FILE), "committed\n");
+    const h = mkRetargetHarness({ worktreePath: wt });
+    await h.svc.sweepReadyPrs();
+    await h.svc.sweepReadyPrs();
+    expect(h.starts).toHaveLength(1);
+    expect(existsSync(join(wt!, SENTINEL_FILE))).toBe(false);
+
+    // fresh mode, symlinked sentinel: the link is removed, its target is left alone
+    const target = join(outside!, "notes.md");
+    writeFileSync(target, "outside\n");
+    symlinkSync(target, join(wt!, SENTINEL_FILE));
+    const h2 = mkHarness({ worktreePath: wt });
+    expect((await h2.svc.consider("/repo")).status).toBe("started");
+    expect(() => lstatSync(join(wt!, SENTINEL_FILE))).toThrow();
+    expect(readFileSync(target, "utf8")).toBe("outside\n");
+  }));
+
+test("re-target state: deleted at finalize and prune, never left by a failed launch", async () => {
+  const h = mkRetargetHarness({
+    act: true,
+    prStatusFull: { "feature/x": { state: "open", url: "https://forge/pr/7" } },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  const wt = h.spawnRows[0]!.worktreePath;
+  expect(h.kv.has(RETARGET_STATE(wt))).toBe(true);
+  await h.svc.tick();
+  expect(h.kv.has(RETARGET_STATE(wt))).toBe(false);
+
+  const h2 = mkRetargetHarness({
+    runSpawnHooks: async () => {
+      throw new PluginSpawnAborted("pool exhausted", "cswap");
+    },
+  });
+  await h2.svc.sweepReadyPrs();
+  await h2.svc.sweepReadyPrs();
+  expect(h2.starts).toHaveLength(0);
+  expect([...h2.kv.keys()].some((k) => k.startsWith("docagent:retarget:"))).toBe(false);
+
+  const h3 = mkHarness({
+    repos: ["/repo"],
+    worktreeListPorcelain: DOCS_WT_PORCELAIN("dead0002"),
+    sentinel: null,
+  });
+  h3.kv.set(
+    RETARGET_STATE("/wt/docs-update-dead0002"),
+    JSON.stringify({ prNumber: 7, headBranch: "feature/x", base: "main" }),
+  );
+  await h3.svc.reapOrphans();
+  expect(h3.removedWorktrees).toContain("/wt/docs-update-dead0002");
+  expect(h3.kv.has(RETARGET_STATE("/wt/docs-update-dead0002"))).toBe(false);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { API_RETRY_STEER, transientApiError } from "../src/api-error-retry-core";
+import { API_RETRY_STEER, authApiError, transientApiError } from "../src/api-error-retry-core";
 import { API_RETRY_DELAYS_MS, ApiErrorRetry } from "../src/api-error-retry";
 import type { Session } from "../src/types";
 
@@ -53,6 +53,27 @@ describe("transientApiError", () => {
       uuid: "e1",
     });
     expect(transientApiError("")).toBeNull();
+  });
+});
+
+describe("authApiError", () => {
+  test("an authentication_failed record ending the transcript is an auth failure", () => {
+    const t = apiError("e1", "authentication_failed", "OAuth token revoked · Please run /login");
+    expect(authApiError([user("u1"), t, trailer].join("\n"))).toEqual({ uuid: "e1" });
+  });
+  test("transient errors, later records and sidechains are not", () => {
+    expect(authApiError(apiError("e1"))).toBeNull();
+    expect(
+      authApiError([apiError("e1", "authentication_failed"), user("u2")].join("\n")),
+    ).toBeNull();
+    const side = line({
+      type: "assistant",
+      uuid: "s",
+      isSidechain: true,
+      isApiErrorMessage: true,
+      error: "authentication_failed",
+    });
+    expect(authApiError([assistant("a1"), side].join("\n"))).toBeNull();
   });
 });
 
@@ -128,6 +149,43 @@ describe("ApiErrorRetry", () => {
     expect(h.halts).toEqual(["s1"]);
     expect(h.retry.pending("s1")).toBe(false);
     await h.done(); // repeat edge on the same exhausted error → no second halt
+    expect(h.halts).toEqual(["s1"]);
+  });
+
+  test("an auth failure halts at once: no retry timer, no steer; flagged authHalted (#4260)", async () => {
+    const h = harness();
+    h.setTranscript(apiError("e1", "authentication_failed"));
+    await h.done();
+    expect(h.halts).toEqual(["s1"]);
+    expect(h.timers).toHaveLength(0);
+    expect(h.steers).toHaveLength(0);
+    expect(h.retry.authHalted("s1")).toBe(true);
+    expect(h.retry.pending("s1")).toBe(false);
+    await h.done(); // repeat edge on the same error → no second halt
+    expect(h.halts).toEqual(["s1"]);
+    h.setTranscript(assistant("a2")); // clean turn after re-login → cleared
+    await h.done();
+    expect(h.retry.authHalted("s1")).toBe(false);
+  });
+
+  test("a later transient error clears authHalted (the retry flow owns it again)", async () => {
+    const h = harness();
+    h.setTranscript(apiError("e1", "authentication_failed"));
+    await h.done();
+    expect(h.retry.authHalted("s1")).toBe(true);
+    h.setTranscript(apiError("e2"));
+    await h.done();
+    expect(h.retry.authHalted("s1")).toBe(false);
+    expect(h.retry.pending("s1")).toBe(true);
+  });
+
+  test("an auth failure cancels an armed transient retry", async () => {
+    const h = harness();
+    await h.done();
+    expect(h.retry.pending("s1")).toBe(true);
+    h.setTranscript(apiError("e2", "authentication_failed"));
+    await h.done();
+    expect(h.timers[0]!.cancelled).toBe(true);
     expect(h.halts).toEqual(["s1"]);
   });
 

@@ -36,7 +36,9 @@ import { secretEnvLauncher, secretLauncherSkip } from "../src/agent-secrets";
 import { AGENT_SHELL_MARKERS } from "../src/agent-shell-env";
 import { CODEX_ROLE_SCHEMA_DIR } from "../src/codex-role-output-schema";
 import type { EgressBackend } from "../src/egress";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { credentialMirrorPath } from "../src/credential-mirror-path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -58,7 +60,11 @@ function fakeMembrane(over: Partial<MembraneInputs> = {}): MembraneInputs {
 
 // Deterministic path probes: nothing exists.
 // whichAll: no claude launcher found, so wrapArgv never scans the host PATH.
-const detDeps = { exists: () => false, whichAll: () => [] as string[] };
+const detDeps = {
+  exists: () => false,
+  whichAll: () => [] as string[],
+  credentialMirror: () => null,
+};
 // Host git-store prep stubbed out, for seams that claim the (fake) store exists.
 const noGitStore = { pinCommondir: () => {}, ensureWorktreeConfig: () => {}, adminDir: () => null };
 
@@ -872,6 +878,64 @@ describe("buildMembraneFlags", () => {
     expect(hasTriple(f, "--ro-bind", "/dev/null", "/home/me/.claude/.credentials.json")).toBe(
       false,
     );
+  });
+
+  test("subscription + credential mirror: the mirror is bound AS .credentials.json (#4260)", () => {
+    const f = buildMembraneFlags(fakeMembrane(), {
+      ...detDeps,
+      credentialMirror: (d: string) =>
+        d === "/home/me/.claude" ? "/run/c/abc/.credentials.json" : null,
+    });
+    expect(
+      hasTriple(
+        f,
+        "--bind-try",
+        "/run/c/abc/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(true);
+    expect(
+      hasTriple(
+        f,
+        "--bind-try",
+        "/home/me/.claude/.credentials.json",
+        "/home/me/.claude/.credentials.json",
+      ),
+    ).toBe(false);
+  });
+
+  test("default mirror probe: bound only while the host still has a credential", () => {
+    const root = mkdtempSync(join(tmpdir(), "cred-probe-"));
+    const prevXdg = process.env.XDG_RUNTIME_DIR;
+    process.env.XDG_RUNTIME_DIR = join(root, "run");
+    try {
+      const claudeDir = join(root, ".claude");
+      mkdirSync(claudeDir, { recursive: true });
+      const mirror = credentialMirrorPath(claudeDir);
+      mkdirSync(dirname(mirror), { recursive: true });
+      writeFileSync(mirror, "{}");
+      const deps = { exists: () => false, whichAll: () => [] as string[] };
+      const host = `${claudeDir}/.credentials.json`;
+      // Host logged out: the stale mirror must not hand its old tokens to a new spawn.
+      let f = buildMembraneFlags(fakeMembrane({ claudeDir }), deps);
+      expect(hasTriple(f, "--bind-try", host, host)).toBe(true);
+      expect(f.includes(mirror)).toBe(false);
+      writeFileSync(host, "{}");
+      f = buildMembraneFlags(fakeMembrane({ claudeDir }), deps);
+      expect(hasTriple(f, "--bind-try", mirror, host)).toBe(true);
+    } finally {
+      if (prevXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = prevXdg;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("maskCredentials: no credential bind even when a mirror exists", () => {
+    const f = buildMembraneFlags(fakeMembrane({ maskCredentials: true }), {
+      ...detDeps,
+      credentialMirror: () => "/run/c/abc/.credentials.json",
+    });
+    expect(f.includes("/run/c/abc/.credentials.json")).toBe(false);
   });
 
   test("no api-key fields => BYTE-IDENTICAL to a bare fakeMembrane (deep equal)", () => {

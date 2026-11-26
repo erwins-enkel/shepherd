@@ -273,6 +273,9 @@ export interface AutopilotDeps {
    *  transient API error, not a real turn end — stand down; ApiErrorRetry hands back via onDone
    *  if the retry ends without steering. */
   apiRetryPending?: (id: string) => boolean;
+  /** The session's last turn died on a Claude authentication failure (ApiErrorRetry.authHalted,
+   *  #4260): every steer would fail the same way — hand back with AUTH_FAIL_MESSAGE instead. */
+  authHalted?: (id: string) => boolean;
   /** #3426: a critic run on this head is in flight (ReviewService.ciSteerHeld). Its red CI is
    *  held — the critic's findings steer carries it, or its settle releases it to the tick. Omitted
    *  → never held. */
@@ -331,6 +334,10 @@ export const CI_CAP_MESSAGE =
  *  answering the steer instead of acting on it (TASK-2614), so more nudges only burn turns. */
 export const NUDGE_STALL_MESSAGE =
   "Autopilot's nudges aren't moving the agent — it keeps replying without doing any work. Over to you.";
+/** Hand-back when the agent's Claude login failed (#4260): steering it (CI fixes included) only
+ *  produces more auth errors, and "couldn't get CI green" would misname the cause. */
+export const AUTH_FAIL_MESSAGE =
+  "Claude's login failed in this session (OAuth token revoked or expired) — re-login on the host if needed, then resume. Over to you.";
 /** Generic hand-back text when a question/unknown verdict carries no summary of its own. */
 const SURFACE_MESSAGE = "Autopilot paused for your input.";
 /** Non-alarming hand-back text when a `complete` verdict carries no summary of its own. */
@@ -343,6 +350,7 @@ const GUARD_PAUSE_MESSAGES: ReadonlySet<string> = new Set([
   REBASE_CAP_MESSAGE,
   NUDGE_STALL_MESSAGE,
   EMPTY_COMPLETION_MESSAGE,
+  AUTH_FAIL_MESSAGE,
 ]);
 
 /** A classifier pause or `complete` that red CI re-engages: it was judged from a stop's tail, often
@@ -464,6 +472,25 @@ export class AutopilotService {
     this.deps.store.setAutopilotState(s.id, { paused: true, complete: false, question });
     this.deps.onPause(s.id, question);
     this.deps.onState?.(s.id);
+  }
+
+  /** reEngageCi's hand-back stand-downs (null → neither applies). A session whose Claude login
+   *  failed is handed back now: a CI-fix steer would only fail on auth again (#4260). One already
+   *  handed back waits for the operator. */
+  private parkedForCi(s: Session, git: GitState | null): boolean | null {
+    if (this.deps.authHalted?.(s.id) && !s.autopilotPaused) {
+      this.pauseOnAuthFailure(s.id);
+      return this.skipCi(s, git, "auth", true);
+    }
+    if (ciHandedBack(s)) return this.skipCi(s, git, parkedReason(s), false);
+    return null;
+  }
+
+  /** Hand an autopilot session whose Claude login failed back to the operator (once). */
+  private pauseOnAuthFailure(id: string): void {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived" || !this.enabled(s) || s.autopilotPaused) return;
+    this.pause(s, AUTH_FAIL_MESSAGE);
   }
 
   /** Mark the session complete — a clean terminal state for a non-PR deliverable. `summary`
@@ -739,6 +766,7 @@ export class AutopilotService {
       return;
     }
     if (this.deps.apiRetryPending?.(id)) return;
+    if (this.deps.authHalted?.(id)) return this.pauseOnAuthFailure(id);
     // Kick a PR refresh up front: an agent that just ran `gh pr create` then idled may not
     // be in the cached PR snapshot yet. Firing it here puts the poll in flight during classify,
     // so the post-classify eligible()/hasPr re-check in consider() usually sees the fresh PR.
@@ -1046,7 +1074,8 @@ export class AutopilotService {
     if (s.mergingSince !== null) return this.skipCi(s, git, "merging", true); // merge train owns this session: claim it so onDone short-circuits BEFORE classify, but don't steer/bump/pause — that state must not survive mark-clear
     if (this.authPending.has(id)) return this.skipCi(s, git, "auth", false); // human-only MCP OAuth pending — don't steer even an open+red PR
     if (!this.enabled(s)) return false;
-    if (ciHandedBack(s)) return this.skipCi(s, git, parkedReason(s), false); // already handed back; waits for operator
+    const parked = this.parkedForCi(s, git);
+    if (parked !== null) return parked;
     if (this.pending.has(id)) return this.skipCi(s, git, "pending-classify", false); // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
     if (!git) return false;
     const held = this.claimedRedHold(s, git);

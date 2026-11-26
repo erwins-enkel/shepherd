@@ -256,10 +256,12 @@ import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import {
   GhHostsRefresher,
   prepareMembraneClaudeState,
+  type MembraneStateInputs,
   prepareMembraneGhHosts,
   prepareMembraneMiseConfig,
   resolveMembraneGhBin,
 } from "./membrane-state";
+import { CredentialMirror } from "./credential-mirror";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture, HOST_SIGNAL_REPO } from "./signals";
 import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
@@ -1111,6 +1113,15 @@ const ghHostsRefresher = new GhHostsRefresher({
   grants: (id) => store.get(id)?.ghGrants?.map((g) => g.permission) ?? [],
 });
 const ghPermissionRequests = new GhPermissionRequestService({ events });
+// #4260: membrane spawns bind a synced mirror of the OAuth credential instead of the host file,
+// whose inode host Claude replaces on every refresh. Boot resumes syncing mirrors live sandboxes
+// still bind; every wrapped spawn creates/syncs its claudeDir's mirror before bwrap starts.
+const credentialMirror = new CredentialMirror();
+void credentialMirror.start();
+const prepareMembraneState = async (i: MembraneStateInputs): Promise<string | null> => {
+  await credentialMirror.ensure(i.claudeDir); // never throws; no mirror ⇒ host-file bind
+  return prepareMembraneClaudeState(i);
+};
 const ghGrants = new GhGrantService({
   store,
   events,
@@ -1218,7 +1229,7 @@ const service = new SessionService({
   },
   capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
   store,
-  prepareMembraneState: prepareMembraneClaudeState,
+  prepareMembraneState,
   prepareMembraneMiseConfig,
   prepareMembraneGhHosts,
   ghHostsRefresh: ghHostsRefresher,
@@ -2295,7 +2306,7 @@ const docAgent = new DocAgentService({
   // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
-  prepareClaudeState: prepareMembraneClaudeState,
+  prepareClaudeState: prepareMembraneState,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   store,
   gitState: (id) => prPoller.get(id),
@@ -2344,7 +2355,7 @@ const reviewService = new ReviewService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
-  prepareClaudeState: prepareMembraneClaudeState,
+  prepareClaudeState: prepareMembraneState,
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
@@ -2405,7 +2416,7 @@ const standaloneCritic = new StandalonePrCriticService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
-  prepareClaudeState: prepareMembraneClaudeState,
+  prepareClaudeState: prepareMembraneState,
   // Same per-role critic environment as reviewService (read per spawn → live settings).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   timeoutMs: config.reviewTimeoutMs,
@@ -2445,7 +2456,7 @@ const planGate = new PlanGateService({
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
-  prepareClaudeState: prepareMembraneClaudeState,
+  prepareClaudeState: prepareMembraneState,
   // Raw steer, delivered THROUGH resumeThenSteer (paneAlive/resume/deferSteer below): findings now
   // revive an exited planner before landing rather than holding the round on a dead pane. This is
   // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.
@@ -2509,7 +2520,7 @@ const maintainService = new MaintainService({
   // Plugin onSpawn hooks + the membrane + the workspace-trust pre-accept, same as every aux spawn.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
-  prepareClaudeState: prepareMembraneClaudeState,
+  prepareClaudeState: prepareMembraneState,
 });
 
 function realpathOrNull(p: string): string | null {
@@ -2537,7 +2548,7 @@ const pluginAgents = new PluginAgentService({
   },
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
-  prepareClaudeState: prepareMembraneClaudeState,
+  prepareClaudeState: prepareMembraneState,
 });
 
 // Grace window for a recent uncompleted reviewer_spawns row: spares a plan-gate reviewer during
@@ -3333,6 +3344,7 @@ const autopilot = new AutopilotService({
   getReview: (id) => store.getReview(id),
   isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
   apiRetryPending: (id) => apiErrorRetry.pending(id),
+  authHalted: (id) => apiErrorRetry.authHalted(id),
   // #3426: a critic reviewing the red head holds the CI-fix steer (its findings steer carries it).
   criticReviewing: (id, headSha): boolean => reviewService.ciSteerHeld(id, headSha),
   ciRestartHeld: (id) => ciRestartHolds.held(id),
@@ -5110,6 +5122,7 @@ process.on("exit", () => {
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();
+  credentialMirror.stopAll();
   activityPublisher.stop();
   pluginRegistry.teardown(); // best-effort plugin teardown (also covers the SIGTERM path)
 });
@@ -5122,6 +5135,7 @@ process.on("SIGTERM", () => {
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();
+  credentialMirror.stopAll();
   process.exit(0);
 });
 

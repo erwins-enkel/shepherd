@@ -1,4 +1,4 @@
-import { API_RETRY_STEER, transientApiError } from "./api-error-retry-core";
+import { API_RETRY_STEER, authApiError, transientApiError } from "./api-error-retry-core";
 import type { SessionConsumer } from "./session-router";
 import type { SessionStateChange } from "./session-snapshot";
 import { isOperatorAssistant } from "./operator-assistant-core";
@@ -15,7 +15,7 @@ export interface ApiErrorRetryDeps {
   readTranscript: (s: Session) => Promise<string | null>;
   /** Type the retry steer into the pane; false when it could not be delivered. */
   steer: (id: string, text: string) => Promise<boolean>;
-  /** Retries exhausted: flag the session halted on an error. */
+  /** Retries exhausted, or an auth failure: flag the session halted on an error. */
   setHalt: (id: string, haltedAt: number) => void;
   /** A pending retry ended without steering a resting session — let autopilot classify the stop
    *  it stood down from (autopilot.onDone; its own eligibility guards apply). */
@@ -46,6 +46,8 @@ interface Streak {
 export class ApiErrorRetry implements SessionConsumer {
   readonly name = "api-retry";
   private streaks = new Map<string, Streak>();
+  /** Sessions whose last turn died on an auth failure, keyed to that error's uuid (#4260). */
+  private authFailures = new Map<string, string>();
 
   constructor(private deps: ApiErrorRetryDeps) {}
 
@@ -54,9 +56,15 @@ export class ApiErrorRetry implements SessionConsumer {
     return this.streaks.get(id)?.cancel != null;
   }
 
+  /** The session's last turn died on an authentication failure (autopilot must not steer it). */
+  authHalted(id: string): boolean {
+    return this.authFailures.has(id);
+  }
+
   forget(id: string): void {
     this.streaks.get(id)?.cancel?.();
     this.streaks.delete(id);
+    this.authFailures.delete(id);
   }
 
   async handle(change: SessionStateChange): Promise<void> {
@@ -69,7 +77,9 @@ export class ApiErrorRetry implements SessionConsumer {
    *  error are no-ops. */
   async onTurnEnd(s: Session): Promise<void> {
     if (!eligible(s)) return;
-    const err = transientApiError((await this.deps.readTranscript(s)) ?? "");
+    const transcript = (await this.deps.readTranscript(s)) ?? "";
+    if (this.haltOnAuthFailure(s, transcript)) return;
+    const err = transientApiError(transcript);
     if (!err) {
       this.forget(s.id); // clean turn end → streak over
       return;
@@ -89,6 +99,22 @@ export class ApiErrorRetry implements SessionConsumer {
     this.log(
       `[api-retry] scheduled ${s.desig} attempt=${attempts + 1}/${API_RETRY_DELAYS_MS.length} in=${delay / 1000}s`,
     );
+  }
+
+  /** An auth failure halts at once — a retry steer would only fail the same way. True when the
+   *  turn ended on one (a repeat edge for the same error does not halt again). */
+  private haltOnAuthFailure(s: Session, transcript: string): boolean {
+    const auth = authApiError(transcript);
+    if (!auth) {
+      this.authFailures.delete(s.id); // any other turn end supersedes the auth failure
+      return false;
+    }
+    if (this.authFailures.get(s.id) === auth.uuid) return true;
+    this.forget(s.id);
+    this.authFailures.set(s.id, auth.uuid);
+    this.log(`[api-retry] ${s.desig} halted: Claude authentication failed`);
+    this.deps.setHalt(s.id, this.deps.now());
+    return true;
   }
 
   private async fire(id: string, uuid: string): Promise<void> {

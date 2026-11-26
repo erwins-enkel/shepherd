@@ -4522,7 +4522,8 @@ async function handleRepoRunDefaults({ req, parts, deps }: Ctx): Promise<Respons
 }
 
 /** GET /api/postgres/repos (#4232): the repos under the repo root with on-demand Postgres
- *  switched on (stored postgresMode on-request), for Settings › Resources › Postgres. */
+ *  switched on (stored postgresMode on-request or auto, #4238) and their mode, for Settings ›
+ *  Resources › Postgres. */
 async function handlePostgresRepos({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "postgres" && parts[2] === "repos" && !parts[3]))
     return null;
@@ -4533,10 +4534,10 @@ async function handlePostgresRepos({ req, parts, deps, token }: Ctx): Promise<Re
       .filter((r) => tokenRepoAllowed(token, r.path))
       .map((r) => [r.realPath, r.name]),
   );
-  const repos = [...deps.store.postgresRepoPaths()]
-    .flatMap((repoPath) => {
+  const repos = [...deps.store.postgresRepoModes()]
+    .flatMap(([repoPath, mode]) => {
       const name = names.get(repoPath);
-      return name === undefined ? [] : [{ repoPath, name }];
+      return name === undefined ? [] : [{ repoPath, name, mode }];
     })
     .sort((a, b) => a.name.localeCompare(b.name));
   return json({ repos });

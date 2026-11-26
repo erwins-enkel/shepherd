@@ -81,7 +81,7 @@ import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { PostgresError, type PostgresRequestOutcome, type PostgresService } from "./postgres";
-import { POSTGRES_HOST_LOOPBACK } from "./postgres-core";
+import { POSTGRES_HOST_LOOPBACK, postgresRepoOn } from "./postgres-core";
 import {
   BUILD_STEP_STATUSES,
   validateBuildStepStatus,
@@ -1195,7 +1195,7 @@ export function reviewFeedbackResolveAllowed(o: {
 }
 
 /** The `postgresRequest` rule (#4232), shared by the spawn path and the row path: Postgres is on
- *  globally and the repo opted in. Any profile: an egress-confined autonomous spawn opens the port
+ *  globally and the repo opted in (`on-request` or `auto`). Any profile: an egress-confined autonomous spawn opens the port
  *  through the slirp gateway (#4239), and the tool resolves the session's host at call time. Codex
  *  sessions get no MCP control plane. */
 export function postgresRequestAllowed(o: {
@@ -1205,7 +1205,7 @@ export function postgresRequestAllowed(o: {
   globalEnabled: boolean;
 }): boolean {
   return (
-    o.globalEnabled && o.postgresMode === "on-request" && !o.plain && o.agentProvider !== "codex"
+    o.globalEnabled && postgresRepoOn(o.postgresMode) && !o.plain && o.agentProvider !== "codex"
   );
 }
 

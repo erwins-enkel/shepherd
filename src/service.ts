@@ -56,7 +56,7 @@ import {
   type PostgresAvailability,
   type PostgresNoticeMode,
 } from "./postgres-contract";
-import { POSTGRES_HOST_LOOPBACK } from "./postgres-core";
+import { POSTGRES_HOST_LOOPBACK, postgresEnv, postgresRepoOn } from "./postgres-core";
 import { bootstrapSessionPhase } from "./bootstrap";
 import {
   HOUSE_STACK_SETTING,
@@ -600,7 +600,7 @@ export interface ServiceDeps {
    *  on resume of a session holding a lease. Absent ⇒ off. Wired to `PostgresService`. */
   postgres?: Pick<
     PostgresService,
-    "settings" | "hasLease" | "ensureRunning" | "request" | "reset" | "sessionStatus"
+    "settings" | "hasLease" | "ensureRunning" | "request" | "reset" | "sessionStatus" | "connection"
   >;
   /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
    *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
@@ -2452,13 +2452,14 @@ function primaryDirectiveBlock(
   return null;
 }
 
-/** The `<postgres-notice>` mode for a session (#4232 follow-up): a non-isolated session runs in
- *  the shared repo checkout; a session without the tool on a Postgres repo is told not to
- *  substitute its own database (#4239); none when Postgres is off for it. */
+/** The `<postgres-notice>` mode for a session (#4232 follow-up): env injected at spawn (#4238); a
+ *  non-isolated session runs in the shared repo checkout; a session without the tool on a Postgres
+ *  repo is told not to substitute its own database (#4239); none when Postgres is off for it. */
 function postgresNoticeMode(
   postgres: PostgresAvailability,
   isolated: boolean,
 ): PostgresNoticeMode | undefined {
+  if (postgres.injected) return "injected";
   if (postgres.tool) return isolated ? "worktree" : "shared-checkout";
   return postgres.globalEnabled && postgres.repoOn ? "no-tool" : undefined;
 }
@@ -2495,13 +2496,15 @@ function trailingBlocks(
     blocks.push(taggedBlock("scheduled-run-notice", SCHEDULED_RUN_NOTICE));
   // Postgres notice (#4232 follow-up): only where `postgres_request` exists. MCP tools may load
   // deferred (name only, no description), so the how-to rides here too.
-  // The no-tool notice rides for Codex too: it is the main session without the tool.
+  // The no-tool and injected (#4238) notices ride for Codex too: neither needs the tool.
   if (
     opts.postgres &&
     !opts.plain &&
-    (opts.postgres === "no-tool" || opts.agentProvider !== "codex")
+    (opts.postgres === "no-tool" || opts.postgres === "injected" || opts.agentProvider !== "codex")
   )
-    blocks.push(taggedBlock("postgres-notice", postgresSessionNotice(opts.postgres)));
+    blocks.push(
+      taggedBlock("postgres-notice", postgresSessionNotice(opts.postgres, opts.postgresTool)),
+    );
   // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
   // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
   // or null for "en" — omitted entirely then, so existing "en" callers stay byte-identical.
@@ -2614,8 +2617,11 @@ export interface ComposeSystemPromptOptions {
   /** A schedule fired this session (#3469); absent/false → no `<scheduled-run-notice>`. */
   scheduled?: boolean;
   /** Set when Postgres is on for the session's repo (#4232): with the `postgres_request` tool, where
-   *  it runs (picks the `.env` advice); `no-tool` otherwise (#4239). Absent → no `<postgres-notice>`. */
+   *  it runs (picks the `.env` advice); `injected` when Shepherd sets its env (#4238); `no-tool`
+   *  otherwise (#4239). Absent → no `<postgres-notice>`. */
   postgres?: PostgresNoticeMode;
+  /** The session has `postgres_request` — the `injected` notice names it only then (#4238). */
+  postgresTool?: boolean;
 }
 
 /**
@@ -3193,7 +3199,11 @@ export function sanitizeSteerText(text: string): string {
  *  no secrets for this spawn. */
 interface AgentSecretsPrep {
   dir: string | undefined;
+  /** Every env name the dir carries (operator secrets + Postgres, #4238). */
   names: string[];
+  /** The operator secret names actually delivered (Postgres-shadowed ones excluded): the #4122
+   *  audit records only these. */
+  operatorNames: string[];
   /** The canonical (realpath) repo key the secrets were looked up under — the same key the
    *  `/api/repo-secrets` route stores them under (`safeRepoDir`), and the audit row's repoPath. */
   repoKey: string;
@@ -3565,17 +3575,45 @@ export class SessionService {
   }
 
   /** The on-demand Postgres port to open for an egress-confined spawn (#4239), or null: Postgres on
-   *  for this machine and repo, a Claude session (Codex has no `postgres_request`), and a
-   *  host-loopback-capable slirp. Opened at spawn/resume only; `postgresHostFor` checks it later. */
+   *  for this machine and repo, a Claude session or (mode `auto`, #4238: env injected) any session,
+   *  and a host-loopback-capable slirp. Opened at spawn/resume only; `postgresHostFor` checks it. */
   private postgresEgressGateway(
     repoPath: string,
     agentProvider: string | undefined,
   ): HostGateway | null {
     const settings = this.deps.postgres?.settings();
-    if (!settings?.enabled || agentProvider === "codex") return null;
-    if (this.deps.store.getRepoConfig(repoPath).postgresMode !== "on-request") return null;
+    if (!settings?.enabled) return null;
+    const mode = this.deps.store.getRepoConfig(repoPath).postgresMode;
+    if (!postgresRepoOn(mode) || (agentProvider === "codex" && mode !== "auto")) return null;
     if (!this.detectHostLoopback()) return null;
     return { ip: SLIRP_HOST_GATEWAY, port: settings.port };
+  }
+
+  /** Shepherd injects this session's Postgres connection into its env (#4238): Postgres on, a task
+   *  session that is not plain, and the repo in `auto` — or `on-request` with an active lease. ONE
+   *  rule for the spawn env, the notice and the create/resume provisioning kick. */
+  private postgresInjects(o: {
+    sessionId: string;
+    repoPath: string;
+    plain?: boolean;
+    operatorAssistant?: boolean;
+  }): boolean {
+    const pg = this.deps.postgres;
+    if (!pg?.settings().enabled || o.plain || o.operatorAssistant) return false;
+    const mode = this.deps.store.getRepoConfig(o.repoPath).postgresMode;
+    return mode === "auto" || (mode === "on-request" && pg.hasLease(o.sessionId));
+  }
+
+  /** Where this spawn reaches Postgres (#4238), the same rule as {@link postgresHostFor}: the host
+   *  loopback on the host net, the slirp gateway when an egress-confined spawn opens the port, and
+   *  null (no injection: unreachable) otherwise. */
+  private spawnPostgresHost(
+    egressOn: boolean,
+    repoPath: string,
+    agentProvider: string | undefined,
+  ): string | null {
+    if (!egressOn) return POSTGRES_HOST_LOOPBACK;
+    return this.postgresEgressGateway(repoPath, agentProvider) ? SLIRP_HOST_GATEWAY : null;
   }
 
   /**
@@ -3729,6 +3767,7 @@ export class SessionService {
     innerArgv: string[],
     ctx: Parameters<SessionService["prepareSpawn"]>[1],
     envParts: Parameters<SessionService["runSpawnHookPatch"]>[2],
+    postgresHost: string | null,
   ): Promise<
     | {
         patchEnv: Record<string, string>;
@@ -3740,7 +3779,7 @@ export class SessionService {
   > {
     const hook = await this.runSpawnHookPatch(innerArgv, ctx, envParts);
     if ("holdReason" in hook) return hook;
-    const secrets = await this.prepareAgentSecrets(ctx);
+    const secrets = await this.prepareAgentSecrets(ctx, postgresHost);
     if ("holdReason" in secrets) return secrets;
     const prepared = await this.prepareCodexSpawnSpeed(
       innerArgv,
@@ -4096,6 +4135,8 @@ export class SessionService {
       /** The Operator Assistant (#1446): plugin onSpawn hooks are skipped, so no plugin can patch
        *  its read-only argv (e.g. append a permission bypass) or its env. */
       operatorAssistant?: boolean;
+      /** Plain task kind: never gets Postgres env injected (#4238). */
+      plain?: boolean;
       resumeAllowed?: () => void;
       beforeStart?: () => Promise<void>;
       codexSpeed?: CodexSpeed;
@@ -4123,6 +4164,8 @@ export class SessionService {
     const degraded = isDegraded(profile, backend);
     // egress WILL wrap iff autonomous + FS backend + egress backend all present (shared predicate).
     const egressOn = willEgressConfine(profile, backend, egressBackend ?? null);
+    // #4238: where an injected Postgres DSN points (null → unreachable, nothing injected).
+    const postgresHost = this.spawnPostgresHost(egressOn, ctx.repoPath, ctx.agentProvider);
     // An interactive autonomous session with the FS membrane but no egress backend ran
     // FS-only (network open) — warrants the egress-degraded banner.
     const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
@@ -4165,12 +4208,12 @@ export class SessionService {
     // before the membrane wrap, on BOTH create and resume. abort → {ok:false} rides the
     // existing auto-refuse machinery (create rolls back, resume returns null). See helper.
     // Then the per-repo agent secret dir (#4122), whose write failure holds the spawn the same way.
-    const hook = await this.runSpawnHookAndSecrets(innerArgv, ctx, {
-      willWrap,
-      passthroughEnv,
-      rendererEnv,
-      apiKeyPassthrough,
-    });
+    const hook = await this.runSpawnHookAndSecrets(
+      innerArgv,
+      ctx,
+      { willWrap, passthroughEnv, rendererEnv, apiKeyPassthrough },
+      postgresHost,
+    );
     if ("holdReason" in hook) return { ...hook, ok: false };
     const { patchEnv, finalInnerArgv, secrets, codexSpeedLaunch } = hook;
 
@@ -4257,7 +4300,7 @@ export class SessionService {
     };
     const agent = await this.startPreparedSpawn(ctx, wrapped, spawnEnv, codexSpeedLaunch);
     this.startGhHostsRefresh(ctx, membrane);
-    this.recordAgentSecretInjection(ctx.sessionId, secrets.repoKey, secrets.names);
+    this.recordAgentSecretInjection(ctx.sessionId, secrets.repoKey, secrets.operatorNames);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
       this.deps.egressWatcher?.start(ctx.sessionId, {
@@ -4349,27 +4392,55 @@ export class SessionService {
   }
 
   /** This task spawn's per-repo agent secret dir (#4122): written fresh (or a stale one removed)
-   *  from the repo's current secrets. The Operator Assistant never gets them. Values never leave
-   *  the 0600 files — a write failure holds the spawn with a value-free reason. */
-  private async prepareAgentSecrets(ctx: {
-    sessionId: string;
-    repoPath: string;
-    operatorAssistant?: boolean;
-  }): Promise<AgentSecretsPrep | { holdReason: string }> {
-    if (ctx.operatorAssistant) return { dir: undefined, names: [], repoKey: ctx.repoPath };
+   *  from the repo's current secrets, plus the session's Postgres env when Shepherd injects it
+   *  (#4238; its values win over same-named operator secrets). The Operator Assistant never gets
+   *  them. Values never leave the 0600 files — a write failure holds the spawn with a value-free
+   *  reason. */
+  private async prepareAgentSecrets(
+    ctx: { sessionId: string; repoPath: string; operatorAssistant?: boolean; plain?: boolean },
+    postgresHost: string | null = null,
+  ): Promise<AgentSecretsPrep | { holdReason: string }> {
+    if (ctx.operatorAssistant)
+      return { dir: undefined, names: [], operatorNames: [], repoKey: ctx.repoPath };
     // Session repoPaths are resolve()d, not realpath'd; the route keys secrets by safeRepoDir's
     // realpath — canonicalize so a symlinked repo root still finds them.
     const repoKey = await realpath(ctx.repoPath).catch(() => ctx.repoPath);
-    const entries = this.deps.agentSecrets?.entries(repoKey) ?? {};
+    const operator = this.deps.agentSecrets?.entries(repoKey) ?? {};
+    const pgEnv = await this.postgresSpawnEnv(ctx, postgresHost);
+    const shadowed = Object.keys(operator).filter((n) => n in pgEnv);
+    if (shadowed.length > 0)
+      console.warn(
+        `[agent-secrets] ${ctx.sessionId}: Postgres env shadows secret(s) ${shadowed.join(", ")}`,
+      );
+    const operatorNames = Object.keys(operator).filter((n) => !(n in pgEnv));
+    const entries = { ...operator, ...pgEnv };
     try {
       const dir = await writeSessionSecretDir(this.agentSecretBaseDir(), ctx.sessionId, entries);
       return dir
-        ? { dir, names: Object.keys(entries), repoKey }
-        : { dir: undefined, names: [], repoKey };
+        ? { dir, names: Object.keys(entries), operatorNames, repoKey }
+        : { dir: undefined, names: [], operatorNames: [], repoKey };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[agent-secrets] ${ctx.sessionId}: could not prepare secret dir: ${msg}`);
       return { holdReason: `agent secrets could not be prepared: ${msg}` };
+    }
+  }
+
+  /** The session's Postgres env when Shepherd injects it (#4238), else none. No provisioning: the
+   *  DSN is deterministic, the clone comes from kickPostgres. A failure only logs (never a value)
+   *  and skips injection — it never holds the spawn. */
+  private async postgresSpawnEnv(
+    ctx: { sessionId: string; repoPath: string; plain?: boolean },
+    host: string | null,
+  ): Promise<Record<string, string>> {
+    const pg = this.deps.postgres;
+    if (!pg || host === null || !this.postgresInjects(ctx)) return {};
+    try {
+      return postgresEnv(await pg.connection(ctx.sessionId, host));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[postgres] ${ctx.sessionId}: env not injected: ${msg}`);
+      return {};
     }
   }
 
@@ -4819,7 +4890,11 @@ export class SessionService {
   ): PromptBlock[] {
     const { sessionId, baseUrl, planGateOn, autopilotActive } = ctx;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const postgres = this.postgresAvailability(repoConfig, ctx.postgresTool);
+    const postgres = this.postgresAvailability(repoConfig, ctx.postgresTool, {
+      sessionId,
+      repoPath: input.repoPath,
+      plain: input.plain,
+    });
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled
       ? buildQueueDirective({
@@ -4883,6 +4958,7 @@ export class SessionService {
       agentProvider: ctx.agentProvider,
       branchRename: ctx.branchRename,
       postgres: postgresNoticeMode(postgres, ctx.isolated),
+      postgresTool: postgres.tool,
       // The ONE place the live config value enters — never defaulted at any module-level
       // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
       // literal "en" default).
@@ -4890,15 +4966,19 @@ export class SessionService {
     });
   }
 
-  /** What a session sees of Shepherd's Postgres (#4232 follow-up), for the bootstrap directives. */
+  /** What a session sees of Shepherd's Postgres (#4232 follow-up), for the bootstrap directives and
+   *  `<postgres-notice>`. `injected` follows {@link postgresInjects} (the spawn host is not
+   *  considered); at create there is no lease yet, so only `auto` injects. */
   private postgresAvailability(
     repoConfig: Pick<RepoConfig, "postgresMode">,
     tool: boolean,
+    session: { sessionId: string; repoPath: string; plain?: boolean },
   ): PostgresAvailability {
     return {
       tool,
       globalEnabled: this.deps.postgres?.settings().enabled ?? false,
-      repoOn: repoConfig.postgresMode === "on-request",
+      repoOn: postgresRepoOn(repoConfig.postgresMode),
+      injected: this.postgresInjects(session),
     };
   }
 
@@ -5082,7 +5162,8 @@ export class SessionService {
       autopilotActive,
       trimmed: false,
       agentProvider: "codex",
-      // Codex sessions get no MCP control plane, so no `postgres_request`.
+      // Codex sessions get no MCP control plane, so no `postgres_request` (an `auto` repo injects
+      // the env instead — directiveBlocks derives `injected` itself, #4238).
       postgresTool: false,
     });
     argv.push(
@@ -5286,10 +5367,28 @@ export class SessionService {
   }
 
   /** #4232: a resumed session holding a Postgres lease expects its DB back — start the server in
-   *  the background (best-effort; the agent's `postgres_request` retries on its own). */
+   *  the background (best-effort; the agent's `postgres_request` retries on its own). #4238: an
+   *  `auto` repo's session (create or resume) gets its lease + clone provisioned in the background
+   *  instead; call only once the session row exists (a lease without a row is dropped). */
   private kickPostgres(id: string): void {
     const pg = this.deps.postgres;
-    if (!pg?.settings().enabled || !pg.hasLease(id)) return;
+    const s = this.deps.store.get(id);
+    if (!pg?.settings().enabled || !s) return;
+    const auto =
+      this.deps.store.getRepoConfig(s.repoPath).postgresMode === "auto" &&
+      this.postgresInjects({
+        sessionId: id,
+        repoPath: s.repoPath,
+        plain: s.plain,
+        operatorAssistant: isOperatorAssistant(s),
+      });
+    if (auto) {
+      pg.request(id).catch((e: unknown) =>
+        console.warn(`[postgres] ${id}: provisioning failed: ${(e as Error).message}`),
+      );
+      return;
+    }
+    if (!pg.hasLease(id)) return;
     pg.ensureRunning().catch((e: unknown) =>
       console.warn(`[postgres] resume ensure failed: ${(e as Error).message}`),
     );
@@ -5347,6 +5446,7 @@ export class SessionService {
       model: session.model ?? null,
       agentProvider: session.agentProvider,
       operatorAssistant: isOperatorAssistant(session),
+      plain: session.plain,
       resumeAllowed,
       beforeStart,
       codexSpeed: session.codexSpeed,
@@ -6026,6 +6126,7 @@ export class SessionService {
           profileOverride,
           model: spawnInput.model,
           agentProvider,
+          plain: spawnInput.plain,
           signal: phases.signal,
           codexSpeed,
           claudeSessionId,
@@ -6100,6 +6201,9 @@ export class SessionService {
         }),
       });
       this.#holdGoal(session, held);
+      // #4238: an `auto` repo's clone is provisioned now the row exists (a lease without one is
+      // dropped); the injected env already points at it.
+      this.kickPostgres(sessionId);
       // The row exists post-create; read it back so persistSpawnIdentity sees the persisted
       // (null) prior spawn-identity fields rather than relying on the in-memory shape.
       const created = this.deps.store.get(sessionId);
@@ -7544,6 +7648,7 @@ export class SessionService {
           profileOverride: launch.profileOverride,
           model: launch.spawnInput.model,
           agentProvider,
+          plain: s.plain,
           codexSpeed,
           claudeSessionId,
         },

@@ -3260,13 +3260,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return new Set(rows.map((r) => r.repoPath));
   }
 
-  /** repoPaths with on-demand Postgres switched on (#4232) — one batch read for Settings ›
-   *  Resources › Postgres's list, like hiddenRepoPaths. */
-  postgresRepoPaths(): Set<string> {
+  /** repoPath → mode for repos with on-demand Postgres switched on (#4232, `auto` #4238) — one
+   *  batch read for Settings › Resources › Postgres's list, like hiddenRepoPaths. */
+  postgresRepoModes(): Map<string, PostgresMode> {
     const rows = this.db
-      .query(`SELECT repoPath FROM repo_config WHERE postgresMode = 'on-request'`)
-      .all() as { repoPath: string }[];
-    return new Set(rows.map((r) => r.repoPath));
+      .query(
+        `SELECT repoPath, postgresMode FROM repo_config WHERE postgresMode IN ('on-request','auto')`,
+      )
+      .all() as { repoPath: string; postgresMode: PostgresMode }[];
+    return new Map(rows.map((r) => [r.repoPath, r.postgresMode]));
   }
 
   /** Effective run overrides, including discovered repos configured only through Git. */

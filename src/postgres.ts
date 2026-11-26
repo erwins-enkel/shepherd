@@ -474,8 +474,7 @@ export class PostgresService {
     reset = false,
   ): Promise<PostgresConnection> {
     await this.ensureRunning();
-    const { leaseKey } = await this.loadSecrets();
-    const password = sessionPassword(leaseKey, sessionId);
+    const connection = await this.connection(sessionId, host);
     const db = sessionDb(sessionId);
     // Lease first: a reconcile between clone and lease would otherwise drop the fresh clone.
     const fresh = !this.hasLease(sessionId);
@@ -484,7 +483,7 @@ export class PostgresService {
     await this.admin(async () => {
       await this.psql(baseScript(repoPath));
       await this.adoptNow(this.activeLeases());
-      let exists = (await this.psql(roleScript(sessionId, password, repoPath)))
+      let exists = (await this.psql(roleScript(sessionId, connection.password, repoPath)))
         .trim()
         .split("\n")
         .pop();
@@ -495,7 +494,17 @@ export class PostgresService {
       if (exists === "0") await this.psql(cloneScript(repoPath, sessionId));
     });
     this.lastBusyAt = this.now();
-    return connectionFor(host, this.settings().port, sessionId, password);
+    return connection;
+  }
+
+  /** The session's connection WITHOUT provisioning anything (#4238): the DSN is deterministic
+   *  (HMAC password), so spawn env injection never waits for the server or the clone. Equal to
+   *  what `request()` returns for the same host. */
+  async connection(sessionId: string, host: string = HOST): Promise<PostgresConnection> {
+    const s = this.settings();
+    if (!s.enabled) throw new PostgresError("disabled", "Postgres is turned off in Settings");
+    const { leaseKey } = await this.loadSecrets();
+    return connectionFor(host, s.port, sessionId, sessionPassword(leaseKey, sessionId));
   }
 
   /** The session's lease, if any (resume/relaunch use it to re-start the server). */

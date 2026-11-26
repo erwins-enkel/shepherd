@@ -3,7 +3,12 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService, composeSystemPromptBlocks } from "../src/service";
-import { DEFAULT_POSTGRES_SETTINGS } from "../src/postgres-core";
+import { DEFAULT_POSTGRES_SETTINGS, connectionFor } from "../src/postgres-core";
+import {
+  POSTGRES_APP_CONTRACT,
+  postgresSessionNotice,
+  postgresStatusLine,
+} from "../src/postgres-contract";
 import type { HouseStackResolution } from "../src/house-stack";
 import type { SandboxProfile } from "../src/sandbox";
 
@@ -12,9 +17,10 @@ const NOTICE = "<postgres-notice>";
 function harness(
   opts: {
     enabled?: boolean;
-    mode?: "off" | "on-request";
+    mode?: "off" | "on-request" | "auto";
     profile?: SandboxProfile;
     isolated?: boolean;
+    lease?: boolean;
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -65,9 +71,11 @@ function harness(
     transcriptExists: () => true,
     postgres: {
       settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: opts.enabled ?? true }),
-      hasLease: () => false,
+      hasLease: () => opts.lease ?? false,
       ensureRunning: async () => {},
       request: async () => ({ status: "starting" as const }),
+      connection: async (id: string, host: string) =>
+        connectionFor(host, DEFAULT_POSTGRES_SETTINGS.port, id, "p".repeat(32)),
     },
   } as any);
   return { store, svc, captured };
@@ -176,4 +184,98 @@ test("composer: the notice rides only for a Claude, non-plain session with the t
   expect(names({ postgres: "worktree", agentProvider: "codex" })).not.toContain("postgres-notice");
   expect(names({ postgres: "no-tool", agentProvider: "codex" })).toContain("postgres-notice");
   expect(names({ postgres: "no-tool", plain: true })).not.toContain("postgres-notice");
+});
+
+// ── auto mode + env injection (#4238) ────────────────────────────────────────
+
+const INJECTED = "Shepherd already set this session's connection in the environment";
+
+test("injected notice: names postgres_request only with the tool", () => {
+  const withTool = postgresSessionNotice("injected", true);
+  const without = postgresSessionNotice("injected", false);
+  for (const text of [withTool, without]) {
+    expect(text).toContain(INJECTED);
+    expect(text).toContain("`DATABASE_URL`");
+    expect(text).toContain("never write the DSN to `.env`");
+  }
+  expect(withTool).toContain("call `postgres_request`");
+  expect(without).not.toContain("postgres_request");
+  expect(without).toContain("leave the database-backed checks");
+});
+
+test("Claude spawn on an auto repo: injected notice that names the tool", async () => {
+  const { svc, captured } = harness({ mode: "auto" });
+  await svc.create(base);
+  const text = prompt(captured.argv!);
+  expect(text).toContain(NOTICE);
+  expect(text).toContain(INJECTED);
+  expect(text).toContain("call `postgres_request`");
+  expect(text).not.toContain("`git check-ignore -q .env`");
+});
+
+test("Codex spawn on an auto repo: injected notice without the tool; on-request stays no-tool", async () => {
+  const { svc, captured } = harness({ mode: "auto" });
+  await svc.create({ ...base, agentProvider: "codex" });
+  const text = prompt(captured.argv!);
+  expect(text).toContain(NOTICE);
+  expect(text).toContain(INJECTED);
+  expect(text).not.toContain("postgres_request");
+  const plain = harness({ mode: "auto" });
+  await plain.svc.create({ ...base, agentProvider: "codex", plain: true });
+  expect(prompt(plain.captured.argv!)).not.toContain(NOTICE);
+});
+
+test("on-request with an active lease: resume gets the injected notice", async () => {
+  const { store, svc, captured } = harness({ lease: true });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_old",
+    claudeSessionId: "abc-123",
+  });
+  store.update(s.id, { status: "done", lastState: "done" });
+  await svc.resume(s.id);
+  expect(prompt(captured.argv!)).toContain(INJECTED);
+});
+
+test("Codex bootstrap on an auto repo: status line says the connection is injected", async () => {
+  const { svc, captured } = harness({ mode: "auto" });
+  await svc.create({ ...base, agentProvider: "codex", bootstrap: true });
+  const text = prompt(captured.argv!);
+  expect(text).toContain("Shepherd injected this session's connection");
+  expect(text).not.toContain("Codex sessions don't get it yet");
+});
+
+test("status line: injected branch, no-tool branch points at the auto checkbox", () => {
+  const injected = postgresStatusLine({
+    tool: false,
+    globalEnabled: true,
+    repoOn: true,
+    injected: true,
+  });
+  expect(injected).toContain("Shepherd injected this session's connection");
+  const noTool = postgresStatusLine({ tool: false, globalEnabled: true, repoOn: true });
+  expect(noTool).toContain("**Database at every spawn**");
+  expect(noTool).not.toContain("don't get it yet");
+  const off = postgresStatusLine({ tool: false, globalEnabled: false, repoOn: false });
+  expect(off).toContain("Shepherd's Postgres is OFF");
+  expect(off).toContain("**Database at every spawn**");
+});
+
+test("app contract: Shepherd injects DATABASE_URL in a session (or postgres_request)", () => {
+  expect(POSTGRES_APP_CONTRACT).toContain("In an agent session Shepherd injects `DATABASE_URL`");
+  expect(POSTGRES_APP_CONTRACT).toContain("`postgres_request`");
+});
+
+test("composer: the injected notice rides for Codex too, never plain", () => {
+  const names = (opts: Parameters<typeof composeSystemPromptBlocks>[1]) =>
+    composeSystemPromptBlocks(false, opts).map((b) => b.name);
+  expect(names({ postgres: "injected", agentProvider: "codex" })).toContain("postgres-notice");
+  expect(names({ postgres: "injected", plain: true })).not.toContain("postgres-notice");
 });

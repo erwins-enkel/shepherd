@@ -173,7 +173,7 @@ test("the Operator Assistant never gets secrets (store not even consulted)", asy
     repoPath: "/repo",
     operatorAssistant: true,
   });
-  expect(out).toEqual({ dir: undefined, names: [], repoKey: "/repo" });
+  expect(out).toEqual({ dir: undefined, names: [], operatorNames: [], repoKey: "/repo" });
   expect(entriesCalls).toEqual([]);
   await expect(stat(join(spawnDir, "oa1.secrets"))).rejects.toThrow();
 });

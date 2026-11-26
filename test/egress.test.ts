@@ -30,6 +30,7 @@ import {
   type EgressCapturedRun,
 } from "../src/egress";
 import type { ForgeMap } from "../src/forge/types";
+import { buildMembraneFlags } from "../src/sandbox";
 import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -802,11 +803,25 @@ describe("egressMembraneOverrideFlags", () => {
     expect(probed.filter((p) => p !== "/etc/resolv.conf")).toHaveLength(0);
   });
 
-  test("result is the uid remap then two --ro-bind triples", () => {
+  test("result is the uid remap, the resolver-dir tmpfs, then two --ro-bind triples", () => {
     const flags = egressMembraneOverrideFlags(tmpDir, { isSymlink: () => false });
-    expect(flags).toHaveLength(11);
-    expect(flags[5]).toBe("--ro-bind");
-    expect(flags[8]).toBe("--ro-bind");
+    expect(flags).toHaveLength(13);
+    expect(flags.slice(5, 7)).toEqual(["--tmpfs", "/run/systemd/resolve"]);
+    expect(flags[7]).toBe("--ro-bind");
+    expect(flags[10]).toBe("--ro-bind");
+  });
+
+  test("systemd-resolved dir is an empty tmpfs, mounted before a resolv.conf target inside it", () => {
+    const target = "/run/systemd/resolve/stub-resolv.conf";
+    const flags = egressMembraneOverrideFlags(tmpDir, {
+      isSymlink: () => true,
+      realpath: () => target,
+    });
+    const tmpfs = flags.findIndex(
+      (x, i) => x === "--tmpfs" && flags[i + 1] === "/run/systemd/resolve",
+    );
+    expect(tmpfs).toBeGreaterThan(-1);
+    expect(tmpfs).toBeLessThan(flags.indexOf(target));
   });
 
   test("maps the agent back to the host uid/gid in a nested user namespace", () => {
@@ -852,6 +867,48 @@ describe("egressMembraneOverrideFlags", () => {
       },
     });
     expect(realpathCalls).toBe(1);
+  });
+});
+
+describe("egress membrane resolver surface", () => {
+  const tmpDir = "/tmp/shepherd-agent-99";
+  const membrane = {
+    worktreePath: "/repos/proj",
+    gitCommonDir: "/repos/proj/.git",
+    isolated: false,
+    repoPath: "/repos/proj",
+    claudeDir: "/home/me/.claude",
+    home: "/home/me",
+    nodeBinReal: "/usr/bin/node",
+  };
+  const flags = [
+    ...buildMembraneFlags(membrane, { exists: () => false, readdir: () => [] }),
+    ...egressMembraneOverrideFlags(tmpDir, {
+      isSymlink: () => true,
+      realpath: () => "/run/systemd/resolve/stub-resolv.conf",
+    }),
+  ];
+  const MOUNTS = new Set(["--ro-bind", "--ro-bind-try", "--bind", "--bind-try", "--tmpfs"]);
+  const mountDest = (i: number) => (flags[i] === "--tmpfs" ? flags[i + 1] : flags[i + 2]);
+
+  test("the last mount at the systemd-resolved dir is an empty tmpfs", () => {
+    const at = flags.flatMap((x, i) =>
+      MOUNTS.has(x) && mountDest(i) === "/run/systemd/resolve" ? [x] : [],
+    );
+    expect(at.at(-1)).toBe("--tmpfs");
+  });
+
+  test("only the generated resolv.conf is mounted inside the systemd-resolved dir", () => {
+    const inside = flags.flatMap((x, i) =>
+      MOUNTS.has(x) && mountDest(i)?.startsWith("/run/systemd/resolve/")
+        ? [[flags[i + 1], mountDest(i)]]
+        : [],
+    );
+    expect(inside).toEqual([[`${tmpDir}/resolv.conf`, "/run/systemd/resolve/stub-resolv.conf"]]);
+  });
+
+  test("no system bus path is mounted", () => {
+    expect(flags.some((x) => x === "/run/dbus" || x.startsWith("/run/dbus/"))).toBe(false);
   });
 });
 

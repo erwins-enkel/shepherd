@@ -1,4 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   resolveBackend,
   resolveMembraneEnv,
@@ -28,6 +31,14 @@ const stubEnv: MembraneEnv = {
  *  throws `MembraneProbeUnwiredError` under NODE_ENV=test rather than touching the host. Every test
  *  below that injects a `bwrap` backend AND reaches resolveAuxPatch must therefore inject this. */
 const okLaunch = async (): Promise<MembraneLaunch> => ({ state: "ok" });
+
+/** A real active projects dir holding `/wt/task`'s own transcript dir — the membrane binds that dir
+ *  from the host only when it exists. */
+function activeProjectsEnv(): MembraneEnv {
+  const projectsDir = join(mkdtempSync(join(tmpdir(), "spawn-membrane-projects-")), "projects");
+  mkdirSync(join(projectsDir, "-wt-task"), { recursive: true });
+  return { ...stubEnv, projectsDir };
+}
 
 const MIRROR = "/tmp/shepherd-test-apikey-config";
 beforeEach(() => {
@@ -332,6 +343,7 @@ describe("resolveAuxSpawn", () => {
   });
 
   test("patched credentialDir is BOUND as claudeDir in the membrane, projects source=active (#1213)", async () => {
+    const env = activeProjectsEnv();
     const result = await resolveAuxSpawn({
       argv: ["claude"],
       worktreePath: "/wt/task",
@@ -340,7 +352,7 @@ describe("resolveAuxSpawn", () => {
       seams: {
         detectBackend: () => "bwrap",
         membraneLaunch: okLaunch,
-        membraneEnv: () => stubEnv,
+        membraneEnv: () => env,
         pathExists: () => true,
         runSpawnHooks: async () => ({ credentialDir: "/pool/acct-3" }),
       },
@@ -352,9 +364,14 @@ describe("resolveAuxSpawn", () => {
     const f = result.wrapped;
     expect(f[0]).toBe("bwrap");
     // The pool dir is actually BOUND (the bug: previously only --setenv, never mounted).
-    expect(hasTriple(f, "--ro-bind", "/pool/acct-3", "/pool/acct-3")).toBe(true);
-    // projects bind SOURCE = active projects dir, DEST = pool projects → readback preserved.
-    expect(hasTriple(f, "--ro-bind-try", "/stub/projects", "/pool/acct-3/projects")).toBe(true);
+    expect(f[f.indexOf("--dir") + 1]).toBe("/pool/acct-3");
+    expect(
+      hasTriple(f, "--ro-bind-try", "/pool/acct-3/settings.json", "/pool/acct-3/settings.json"),
+    ).toBe(true);
+    // Own transcript SOURCE = active projects dir, DEST = pool projects → readback preserved.
+    expect(
+      hasTriple(f, "--bind", `${env.projectsDir}/-wt-task`, "/pool/acct-3/projects/-wt-task"),
+    ).toBe(true);
     // config-dir .claude.json: the host file only ever RO (no per-spawn copy seam here).
     expect(
       hasTriple(f, "--ro-bind-try", "/pool/acct-3/.claude.json", "/pool/acct-3/.claude.json"),
@@ -366,6 +383,7 @@ describe("resolveAuxSpawn", () => {
   });
 
   test("api-key WRAPPED redirect: masks the pool dir, binds helper, projects source=active (#1213)", async () => {
+    const env = activeProjectsEnv();
     const result = await withAuth("api-key", "/helper.sh", async () =>
       resolveAuxSpawn({
         argv: ["claude"],
@@ -375,7 +393,7 @@ describe("resolveAuxSpawn", () => {
         seams: {
           detectBackend: () => "bwrap",
           membraneLaunch: okLaunch,
-          membraneEnv: () => stubEnv,
+          membraneEnv: () => env,
           pathExists: () => true,
           runSpawnHooks: async () => ({ credentialDir: "/pool/acct-5" }),
         },
@@ -401,8 +419,10 @@ describe("resolveAuxSpawn", () => {
     ).toBe(false);
     // api-key helper RO-bound.
     expect(hasTriple(f, "--ro-bind-try", "/helper.sh", "/helper.sh")).toBe(true);
-    // projects bind SOURCE = active projects dir (readback preserved even under api-key routing).
-    expect(hasTriple(f, "--ro-bind-try", "/stub/projects", "/pool/acct-5/projects")).toBe(true);
+    // Own transcript SOURCE = active projects dir (readback preserved even under api-key routing).
+    expect(
+      hasTriple(f, "--bind", `${env.projectsDir}/-wt-task`, "/pool/acct-5/projects/-wt-task"),
+    ).toBe(true);
   });
 
   test("api-key + NO backend: credential-less mirror WINS over a routed credentialDir (#1213)", async () => {
@@ -459,7 +479,7 @@ describe("resolveAuxSpawn", () => {
     const f = result.wrapped;
     // NOT redirected: the missing pool dir is never referenced; the active dir is bound instead.
     expect(f.some((x) => x.includes("/pool/missing"))).toBe(false);
-    expect(hasTriple(f, "--ro-bind", "/stub/.claude", "/stub/.claude")).toBe(true);
+    expect(f[f.indexOf("--dir") + 1]).toBe("/stub/.claude");
     expect(warned).toContain("/pool/missing");
   });
 
@@ -468,6 +488,7 @@ describe("resolveAuxSpawn", () => {
     // The guard `claudeDir !== ${home}/.claude` (shared by the setenv + the config-dir .claude.json
     // bind) is FALSE → no CLAUDE_CONFIG_DIR is set (Claude defaults to ~/.claude, which IS bound)
     // and no config-dir .claude.json bind is added. Intentional and benign.
+    const env = activeProjectsEnv();
     const result = await resolveAuxSpawn({
       argv: ["claude"],
       worktreePath: "/wt/task",
@@ -476,7 +497,7 @@ describe("resolveAuxSpawn", () => {
       seams: {
         detectBackend: () => "bwrap",
         membraneLaunch: okLaunch,
-        membraneEnv: () => stubEnv, // claudeDir "/stub/.claude", home "/stub/home"
+        membraneEnv: () => env, // claudeDir "/stub/.claude", home "/stub/home"
         pathExists: () => true,
         runSpawnHooks: async () => ({ credentialDir: "/stub/home/.claude" }),
       },
@@ -486,11 +507,11 @@ describe("resolveAuxSpawn", () => {
     expect("aborted" in result || "refused" in result).toBe(false);
     if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     const f = result.wrapped;
-    // pool (== ~/.claude) is bound; projects source = active projects dir.
-    expect(hasTriple(f, "--ro-bind", "/stub/home/.claude", "/stub/home/.claude")).toBe(true);
-    expect(hasTriple(f, "--ro-bind-try", "/stub/projects", "/stub/home/.claude/projects")).toBe(
-      true,
-    );
+    // pool (== ~/.claude) is bound; own transcript source = active projects dir.
+    expect(f[f.indexOf("--dir") + 1]).toBe("/stub/home/.claude");
+    expect(
+      hasTriple(f, "--bind", `${env.projectsDir}/-wt-task`, "/stub/home/.claude/projects/-wt-task"),
+    ).toBe(true);
     // No CLAUDE_CONFIG_DIR setenv (relies on Claude's default) and no config-dir .claude.json bind.
     expect(f.includes("CLAUDE_CONFIG_DIR")).toBe(false);
     expect(

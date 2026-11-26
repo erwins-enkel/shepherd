@@ -4591,19 +4591,36 @@
         }
       }
     },
+    "diagnostics_hint_sandbox_membrane_selftest_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bubblewrap ist installiert, kann auf diesem Host aber keine [[sandbox-membrane|Sandbox-Membran]] aufbauen. Repos mit Standardwert laufen als Standard ohne Abschottung: Jede solche Sitzung wird als eingeschränkt markiert, und Auto-Drain hält an. Behebe das auf dem Host (etwa unprivilegierte User-Namespaces erlauben) oder setze SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted, um bewusst ohne Abschottung zu arbeiten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bubblewrap is installed but cannot build a [[sandbox-membrane|sandbox membrane]] on this host. Repos on the default sandbox run Standard without confinement: every such session is flagged degraded and auto-drain holds. Fix the host (for example, allow unprivileged user namespaces), or set SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted to run unconfined on purpose."
+          }
+        }
+      }
+    },
     "diagnostics_hint_sandbox_membrane_unavailable": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt oder ist blockiert). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert."
+            "value": "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing or blocked). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded."
+            "value": "This host has no working [[sandbox-membrane|sandbox membrane]] (bubblewrap missing). Repos on the default sandbox run Trusted (unconfined); a repo set to Standard or Autonomous runs unconfined and is flagged degraded."
           }
         }
       }

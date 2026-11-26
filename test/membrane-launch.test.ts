@@ -239,10 +239,21 @@ describe("readMembraneLaunchFacts", () => {
     const facts = await readMembraneLaunchFacts(ENV, {
       ...c,
       detectBackend: () => null,
+      selfTestFailed: () => false,
       which: () => "/bin/stub",
     });
-    expect(facts).toEqual({ backend: null, agents: [] });
+    expect(facts).toEqual({ backend: null, agents: [], selfTestFailed: false });
     expect(c.calls).toHaveLength(0);
+  });
+
+  test("no backend from a failed self-test → reported as such", async () => {
+    const facts = await readMembraneLaunchFacts(ENV, {
+      ...capture(OK),
+      detectBackend: () => null,
+      selfTestFailed: () => true,
+      which: () => "/bin/stub",
+    });
+    expect(facts).toEqual({ backend: null, agents: [], selfTestFailed: true });
   });
 });
 
@@ -253,6 +264,17 @@ describe("classifyMembraneLaunch", () => {
       state: "optional",
       hintKey: "diagnostics_hint_sandbox_membrane_unavailable",
     });
+  });
+
+  test("installed bwrap whose self-test fails → error row, never the optional 'unavailable' one", () => {
+    expect(classifyMembraneLaunch({ backend: null, agents: [], selfTestFailed: true })).toEqual({
+      id: "sandbox_membrane",
+      state: "error",
+      hintKey: "diagnostics_hint_sandbox_membrane_selftest_failed",
+    });
+    expect(
+      classifyMembraneLaunch({ backend: null, agents: [], selfTestFailed: false })?.state,
+    ).toBe("optional");
   });
 
   test("no agent CLI → no row (the claude/codex rows already say so)", () => {

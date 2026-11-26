@@ -2817,6 +2817,14 @@ function carriedSandboxProfile(
   return pickOverride(overrides?.sandboxProfile, submitted);
 }
 
+/** The sandbox profile a "Continue with…" replacement spawns under. It reuses the session row, so
+ *  — like resume — the profile the session ran under, never the (possibly weaker) repo default. A
+ *  Codex source's `trusted` is forced, not chosen, so that falls back to the submitted choice. */
+function replacementSandboxProfile(s: Session): SandboxProfile | null {
+  const fromCodex = (s.agentProvider ?? "claude") === "codex";
+  return (!fromCodex && s.sandboxApplied) || carriedSandboxProfile(s, undefined);
+}
+
 /** Epic-child identity (#2067) carried across a relaunch — but ONLY when the relaunch keeps both
  *  the repo and the base branch. The fact is stamped at spawn from the drain's epic decision, which
  *  a relaunch never re-runs, so a relaunch that re-points either one is no longer that child and
@@ -7003,6 +7011,7 @@ export class SessionService {
       issueRepoPath: s.homeIssueRepoPath ?? undefined, // #3245: routed issue lives in its home repo
       planGateEnabled: s.planGateEnabled,
       autopilotEnabled: s.autopilotEnabled,
+      sandboxProfile: replacementSandboxProfile(s),
       research: s.research,
       epicAuthoring: s.epicAuthoring,
       landingRepair: s.landingRepair,

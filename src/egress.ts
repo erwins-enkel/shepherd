@@ -888,6 +888,9 @@ export interface EgressOverrideDeps extends PathProbeDeps {
 
 const RESOLV_CONF = "/etc/resolv.conf";
 const NSSWITCH_CONF = "/etc/nsswitch.conf";
+/** systemd-resolved's runtime dir: bound by the base membrane (resolv.conf points into it on
+ *  resolved hosts); the egress membrane hides it so the per-session dnsmasq is the only resolver. */
+const SYSTEMD_RESOLVE_DIR = "/run/systemd/resolve";
 
 /**
  * Returns ADDITIVE bwrap flags to append AFTER the membrane flags.
@@ -896,6 +899,9 @@ const NSSWITCH_CONF = "/etc/nsswitch.conf";
  *   `unshare --map-root-user`, i.e. as uid 0. A nested user namespace maps the agent back to the
  *   operator's real ids; claude refuses `--dangerously-skip-permissions` as root and would exit
  *   at launch.
+ * - `--tmpfs /run/systemd/resolve` — an empty dir over the base membrane's bind, so the only
+ *   resolver inside is the per-session dnsmasq (the host resolver's sockets are not there).
+ *   Before the resolv.conf bind, whose target may live in it.
  * - `--ro-bind <tmpDir>/nsswitch.conf /etc/nsswitch.conf`
  * - `--ro-bind <tmpDir>/resolv.conf <realpath-of-/etc/resolv.conf>`
  *   (binding onto the symlink target avoids bwrap's inability to bind onto a
@@ -930,6 +936,8 @@ export function egressMembraneOverrideFlags(
     String(deps.uid ?? process.getuid?.() ?? 0),
     "--gid",
     String(deps.gid ?? process.getgid?.() ?? 0),
+    "--tmpfs",
+    SYSTEMD_RESOLVE_DIR,
     "--ro-bind",
     `${tmpDir}/nsswitch.conf`,
     NSSWITCH_CONF,

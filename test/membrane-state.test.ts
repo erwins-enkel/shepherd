@@ -106,11 +106,11 @@ describe("prepareMembraneClaudeState (F04/F06)", () => {
     expect(readFileSync(copy!, "utf8")).toBe("{not json");
   });
 
-  test("creates own transcript memory dir and the tmpfs mountpoints", async () => {
+  test("creates own transcript memory dir only, no host dirs for the membrane tmpfs mounts", async () => {
     await prepareMembraneClaudeState(inputs());
     expect(existsSync(join(home, ".claude", "projects", dashify(cwd), "memory"))).toBe(true);
-    for (const d of ["shell-snapshots", "todos", "statsig"])
-      expect(existsSync(join(home, ".claude", d))).toBe(true);
+    for (const d of ["shell-snapshots", "todos", "statsig", "session-env"])
+      expect(existsSync(join(home, ".claude", d))).toBe(false);
   });
 
   test("remove + sweep drop copies of dead sessions only", async () => {

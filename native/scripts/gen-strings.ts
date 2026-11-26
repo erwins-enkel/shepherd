@@ -2224,6 +2224,7 @@ export const KEYS_SETTINGS: readonly string[] = [
   "diagnostics_hint_sandbox_egress_uninspectable",
   "diagnostics_hint_sandbox_membrane_broken",
   "diagnostics_hint_sandbox_membrane_ok",
+  "diagnostics_hint_sandbox_membrane_selftest_failed",
   "diagnostics_hint_sandbox_membrane_uninspectable",
   "diagnostics_hint_sandbox_membrane_unavailable",
   "diagnostics_hint_tailscale_missing",

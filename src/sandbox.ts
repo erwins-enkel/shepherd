@@ -25,8 +25,11 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  mkdtempSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { basename, dirname, join, resolve } from "node:path";
@@ -77,15 +80,19 @@ export function isRepoSandboxSetting(v: unknown): v is RepoSandboxSetting {
 
 /**
  * The global default profile (#2100): the operator's explicit SHEPHERD_SANDBOX_DEFAULT_PROFILE
- * wins; unset, it is `standard` where the bwrap backend works and `trusted` where it doesn't
- * (macOS, missing bwrap, userns off) — so a host that can't sandbox doesn't flag every session
- * degraded. `detect` only runs when there is no explicit choice.
+ * wins; unset, it is `standard` where the bwrap backend works and `trusted` only where bwrap is
+ * not installed at all (macOS, no package) — so a host that can't sandbox doesn't flag every
+ * session degraded. An installed bwrap whose self-test fails stays `standard`: those sessions run
+ * degraded (flagged, auto held) rather than silently unconfined. `detect` only runs when there is
+ * no explicit choice, and before `selfTestFailed`, which reads the verdict it leaves behind.
  */
 export function effectiveDefaultProfile(
   explicit: SandboxProfile | null,
   detect: () => SandboxBackend,
+  selfTestFailed: () => boolean = backendSelfTestFailed,
 ): SandboxProfile {
-  return explicit ?? (detect() !== null ? "standard" : "trusted");
+  if (explicit) return explicit;
+  return detect() !== null || selfTestFailed() ? "standard" : "trusted";
 }
 
 /** Per-spawn override ?? repo setting ?? global default. Invalid/blank/"inherit" => fall through.
@@ -198,6 +205,8 @@ export interface BackendProbeDeps extends PathProbeDeps {
   home?: string;
   claudeDir?: string;
   nodeBinReal?: string;
+  /** Clock for re-probing a failed verdict; default `Date.now`. */
+  now?: () => number;
 }
 
 /** Default `run`: spawn via the regression-guarded wrapper, mapping to {status}. */
@@ -211,15 +220,33 @@ export function defaultRun(cmd: string, args: string[]): { status: number } {
   }
 }
 
-let _backendCache: SandboxBackend | undefined;
+/** How long a FAILED self-test verdict (bwrap installed) is reused before the next call probes
+ *  again. A working backend — or no bwrap at all — stays cached for the process. */
+export const BACKEND_RETRY_MS = 60_000;
+
+interface BackendVerdict {
+  backend: SandboxBackend;
+  /** `bwrap --version` ran: bwrap is installed, whatever the self-test said. */
+  installed: boolean;
+  at: number;
+}
+
+let _backendCache: BackendVerdict | undefined;
 
 /** Clear the per-process backend cache (tests). */
 export function resetBackendCache(): void {
   _backendCache = undefined;
 }
 
+/** bwrap is installed but its last self-test failed — sandboxing was expected, not available. */
+export function backendSelfTestFailed(): boolean {
+  return _backendCache?.installed === true && _backendCache.backend === null;
+}
+
 /**
- * Detect the sandbox backend with a real per-host SELF-TEST (cached per process).
+ * Detect the sandbox backend with a real per-host SELF-TEST. The verdict is cached for the process,
+ * except a failed self-test of an installed bwrap: that is reused for {@link BACKEND_RETRY_MS}, then
+ * probed again, so a transient failure does not pin the host to "no backend".
  *
  * Not merely `bwrap --version`: kernel/user-namespace policy can let bwrap exist
  * yet refuse to actually create a sandbox (e.g. unprivileged userns disabled). So
@@ -236,46 +263,62 @@ export function resetBackendCache(): void {
  * failure blocks the wrapped spawn and lights a DIAGNOSE row without touching confinement.
  */
 export function detectBackend(deps: BackendProbeDeps = {}): SandboxBackend {
-  if (_backendCache !== undefined) return _backendCache;
+  const now = deps.now ?? Date.now;
+  const cached = _backendCache;
+  if (cached && (!backendSelfTestFailed() || now() - cached.at < BACKEND_RETRY_MS)) {
+    return cached.backend;
+  }
+  _backendCache = probeBackend(deps, now());
+  return _backendCache.backend;
+}
 
+/** One uncached run of the two-step probe {@link detectBackend} describes. */
+function probeBackend(deps: BackendProbeDeps, at: number): BackendVerdict {
   const run = deps.run ?? defaultRun;
   // 1. bwrap present at all?
-  if (run("bwrap", ["--version"]).status !== 0) {
-    _backendCache = null;
-    return _backendCache;
-  }
+  if (run("bwrap", ["--version"]).status !== 0) return { backend: null, installed: false, at };
 
   // 2. Self-test: build a real membrane around a trivial node+git probe and run it.
-  // A small fixed probe input — a tmp dir stands in for worktree/repo. Anything
-  // exit-0 through the membrane proves the backend can actually create a sandbox.
+  // A fresh owner-only tmp dir stands in for worktree/repo, so the derived flags never depend on
+  // what a shared path like `/tmp` happens to hold. Anything exit-0 through the membrane proves
+  // the backend can actually create a sandbox.
   const home = deps.home ?? process.env.HOME ?? "/root";
   const claudeDir = deps.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? `${home}/.claude`;
   const nodeBinReal = deps.nodeBinReal ?? safeRealpath(resolveNodeBin());
-  const probeDir = "/tmp";
-  const membrane: MembraneInputs = {
-    worktreePath: probeDir,
-    gitCommonDir: probeDir,
-    isolated: false,
-    repoPath: probeDir,
-    claudeDir,
-    home,
-    nodeBinReal,
-  };
-  const flags = buildMembraneFlags(membrane, deps);
-  // chain `node --version && git --version` inside the sandbox via /bin/sh -c.
-  // The mkdir exercises the session-env carve-out specifically: if the --tmpfs for
-  // session-env is missing/regressed, the mkdir hits EROFS and the probe exits non-zero,
-  // degrading the backend to null and surfacing the regression loudly.
-  const probe = run("bwrap", [
-    ...flags,
-    "--",
-    "/bin/sh",
-    "-c",
-    `node --version && git --version && mkdir -p '${claudeDir}/session-env/.shepherd-probe'`,
-  ]);
-
-  _backendCache = probe.status === 0 ? "bwrap" : null;
-  return _backendCache;
+  let probeDir: string | null = null;
+  try {
+    probeDir = mkdtempSync(join(tmpdir(), "shepherd-backend-probe-"));
+    const membrane: MembraneInputs = {
+      worktreePath: probeDir,
+      gitCommonDir: probeDir,
+      isolated: false,
+      repoPath: probeDir,
+      claudeDir,
+      home,
+      nodeBinReal,
+    };
+    const flags = buildMembraneFlags(membrane, deps);
+    // chain `node --version && git --version` inside the sandbox via /bin/sh -c.
+    // The mkdir exercises the session-env carve-out specifically: if the --tmpfs for
+    // session-env is missing/regressed, the mkdir hits EROFS and the probe exits non-zero,
+    // degrading the backend to null and surfacing the regression loudly.
+    const probe = run("bwrap", [
+      ...flags,
+      "--",
+      "/bin/sh",
+      "-c",
+      `node --version && git --version && mkdir -p '${claudeDir}/session-env/.shepherd-probe'`,
+    ]);
+    return { backend: probe.status === 0 ? "bwrap" : null, installed: true, at };
+  } catch {
+    return { backend: null, installed: true, at }; // could not build the probe: no proven backend
+  } finally {
+    try {
+      if (probeDir) rmSync(probeDir, { recursive: true, force: true });
+    } catch {
+      // best-effort: probe tmp dir cleanup must not mask the verdict
+    }
+  }
 }
 
 // ── membrane flag construction ────────────────────────────────────────────────
@@ -320,10 +363,9 @@ export interface MembraneInputs {
    *  roles / disk redirect off), the membrane `/tmp` stays fully ephemeral. */
   scratchpadBind?: { host: string; dest: string } | null;
   /** api-key mode: present <claudeDir>/.credentials.json as GENUINELY ABSENT
-   *  inside the sandbox (not an empty /dev/null overlay) by binding every child
-   *  of claudeDir individually EXCEPT the credential file — matching the
-   *  credential-less CLAUDE_CONFIG_DIR mirror (auth-config-dir.ts). Also skips
-   *  the rw credentials bind. So no "Use custom API key?"/re-auth prompt fires. */
+   *  inside the sandbox (not an empty /dev/null overlay) by skipping the rw
+   *  credentials bind — matching the credential-less CLAUDE_CONFIG_DIR mirror
+   *  (auth-config-dir.ts). So no "Use custom API key?"/re-auth prompt fires. */
   maskCredentials?: boolean;
   /** Host dir to bind AS `<claudeDir>/projects` inside the sandbox. Default
    *  `<claudeDir>/projects` (source == dest — byte-identical). A plugin-redirected aux
@@ -882,35 +924,50 @@ function codexEnvFlags(home: string, codex?: CodexMembraneInputs): string[] {
 }
 
 /**
- * api-key mode base binds for the claude config dir, presenting
- * `.credentials.json` as GENUINELY ABSENT (not an empty /dev/null overlay).
- *
- * bwrap cannot hide a single child of a whole-dir bind, so instead of binding
- * `claudeDir` wholesale we `--dir` the mount point (so it exists even when the
- * dir is empty) then bind every child RO individually EXCEPT the credential
- * file. The OAuth token simply does not exist inside the sandbox — exactly the
- * shape of the credential-less CLAUDE_CONFIG_DIR mirror (auth-config-dir.ts),
- * so no "Use custom API key?"/re-auth prompt can fire on empty/invalid creds.
- * Entries are sorted for deterministic, testable output.
+ * The `<claudeDir>` entries a confined Claude reads from the host: user settings, memory, rules,
+ * commands, skills, agents, output styles, plugins, hooks, keybindings, themes and the status-line
+ * script. Everything else Claude keeps there (prompt history, file snapshots, IDE locks, backups,
+ * other projects' transcripts, plans, caches, …) is not part of the membrane.
  */
-function maskedClaudeDirBinds(claudeDir: string, readdir: (p: string) => string[]): string[] {
+export const CLAUDE_DIR_ENTRIES = [
+  "settings.json",
+  "settings.local.json",
+  "CLAUDE.md",
+  "rules",
+  "commands",
+  "skills",
+  "agents",
+  "output-styles",
+  "plugins",
+  "hooks",
+  "keybindings.json",
+  "themes",
+  "statusline-command.sh",
+] as const;
+
+/**
+ * Base binds for the claude config dir: `--dir` makes it an empty per-membrane dir (on the
+ * `$HOME` tmpfs, or bwrap's own root for a dir elsewhere), then each {@link CLAUDE_DIR_ENTRIES}
+ * entry is bound RO on top — `-try`, so an absent one is simply skipped. Claude's own writes to
+ * anything else land in that throwaway dir, never on the host. The OAuth token, the `.claude.json`
+ * copy and the spawn's own transcript dir are bound separately by the caller.
+ */
+function claudeDirBinds(claudeDir: string): string[] {
   const flags = ["--dir", claudeDir];
-  for (const entry of readdir(claudeDir)
-    .filter((e) => e !== ".credentials.json")
-    .sort()) {
+  for (const entry of CLAUDE_DIR_ENTRIES) {
     flags.push("--ro-bind-try", `${claudeDir}/${entry}`, `${claudeDir}/${entry}`);
   }
   return flags;
 }
 
 /** `<claudeDir>` children that get a per-membrane tmpfs instead of the shared host dir. */
-export const EPHEMERAL_CLAUDE_DIRS = ["shell-snapshots", "todos", "statsig"] as const;
+const EPHEMERAL_CLAUDE_DIRS = ["shell-snapshots", "todos", "statsig"] as const;
 
 /**
- * The spawn's own transcript dir (`projects/<dashify(cwd)>`) RW over the RO projects bind, with
- * its `memory/` kept read-only (or a tmpfs when absent, so nothing written there reaches the
- * host). Only when the host dir exists: a missing source could not be mounted under the RO
- * projects bind; prepareMembraneClaudeState creates it for real spawns.
+ * The spawn's own transcript dir (`projects/<dashify(cwd)>`) RW — the only project dir in the
+ * membrane — with its `memory/` kept read-only (or a tmpfs when absent, so nothing written there
+ * reaches the host). Only when the host dir exists (nothing to persist otherwise);
+ * prepareMembraneClaudeState creates it for real spawns.
  */
 function ownTranscriptFlags(
   projectsSrc: string,
@@ -1108,19 +1165,10 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   const term = inputs.term ?? "xterm-256color";
   const projectsSrc = inputs.projectsBindSource ?? `${claudeDir}/projects`;
 
-  // Claude config dir base bind(s). Two shapes:
-  //  - subscription/default: the whole dir RO in one bind — byte-for-byte unchanged.
-  //  - api-key (maskCredentials): per-child RO binds EXCEPT `.credentials.json`, so
-  //    the OAuth token is GENUINELY ABSENT inside the sandbox (matching the
-  //    credential-less CLAUDE_CONFIG_DIR mirror in auth-config-dir.ts) rather than
-  //    an empty overlay — an empty/invalid creds file could trip a re-auth prompt.
-  const claudeDirBaseBinds: string[] = inputs.maskCredentials
-    ? maskedClaudeDirBinds(claudeDir, readdir)
-    : ["--ro-bind", claudeDir, claudeDir];
-
   // Subscription/default: rw `--bind-try` so OAuth token refresh writes back.
-  // api-key (maskCredentials): EMPTY — the credential is absent (see above), there
-  // is no `.credentials.json` bind of any kind.
+  // api-key (maskCredentials): EMPTY — the OAuth token is GENUINELY ABSENT inside the sandbox
+  // (matching the credential-less CLAUDE_CONFIG_DIR mirror in auth-config-dir.ts) rather than an
+  // empty overlay, which could trip a re-auth prompt.
   const credentialFlags: string[] = inputs.maskCredentials
     ? []
     : ["--bind-try", `${claudeDir}/.credentials.json`, `${claudeDir}/.credentials.json`];
@@ -1161,31 +1209,19 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     "--ro-bind-try",
     "/run/systemd/resolve",
     "/run/systemd/resolve",
-    // ── claude config: base RO (auth + commands + skills) ────────────────
-    // Subscription: whole-dir RO. api-key: per-child RO minus `.credentials.json`.
-    ...claudeDirBaseBinds,
-    // projects/: RO so a hijacked agent cannot rewrite other sessions' transcripts or any
-    // project's memory (audit F06). Only this spawn's own transcript dir is re-bound RW below.
-    // The SOURCE defaults to `<claudeDir>/projects` but a plugin-redirected aux spawn (#1213)
-    // overrides it with the ACTIVE projects dir so the transcript lands where Shepherd's
-    // usage/activity readback looks even when claudeDir is a (pool) config dir.
-    "--ro-bind-try",
-    projectsSrc,
-    `${claudeDir}/projects`,
+    // ── claude config: allowlisted entries RO on a per-membrane dir ──────
+    ...claudeDirBinds(claudeDir),
+    // projects/: only this spawn's own transcript dir, RW (its memory RO) — no other project's
+    // transcripts or memory are in the membrane (audit F06). The SOURCE defaults to
+    // `<claudeDir>/projects` but a plugin-redirected aux spawn (#1213) overrides it with the
+    // ACTIVE projects dir so the transcript lands where Shepherd's usage/activity readback looks
+    // even when claudeDir is a (pool) config dir.
     ...ownTranscriptFlags(projectsSrc, `${claudeDir}/projects`, inputs.worktreePath, exists),
     // Shared state other (unconfined) Claude sessions execute or consume — shell-snapshots are
-    // SOURCED before every Bash command — gets per-membrane throwaway storage instead of the
-    // host dirs (audit F06). Guarded: bwrap cannot mkdir a mountpoint under the RO claudeDir
-    // bind; prepareMembraneClaudeState creates them host-side for real spawns.
-    ...EPHEMERAL_CLAUDE_DIRS.filter((d) => exists(`${claudeDir}/${d}`)).flatMap((d) => [
-      "--tmpfs",
-      `${claudeDir}/${d}`,
-    ]),
+    // SOURCED before every Bash command — gets per-membrane throwaway storage (audit F06).
+    ...EPHEMERAL_CLAUDE_DIRS.flatMap((d) => ["--tmpfs", `${claudeDir}/${d}`]),
     // session-env: claude 2.1.181+ mkdirs `<config-dir>/session-env/<id>` before EVERY
-    // Bash command. A tmpfs (not a host bind) makes it writable + ephemeral per-session
-    // scratch — no host pollution. MUST sit AFTER claudeDirBaseBinds so it overrides both
-    // the subscription whole-dir `--ro-bind` and the api-key maskCredentials per-child
-    // `--ro-bind-try` of session-env (else the mkdir fails EROFS and Bash dies).
+    // Bash command; a tmpfs keeps it writable + ephemeral per-session scratch.
     "--tmpfs",
     `${claudeDir}/session-env`,
     // OAuth credential: rw bind (subscription) or nothing (api-key mask: absent).

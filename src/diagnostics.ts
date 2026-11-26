@@ -915,10 +915,12 @@ export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
  * start inside the membrane, and until now nothing observed that — the backend self-test proves
  * node+git, not the agent.
  *
- * A host with no bwrap backend gets an `optional` row (#2100): the built-in default sandbox profile
+ * A host without bwrap gets an `optional` row (#2100): the built-in default sandbox profile
  * falls back to trusted there, so new repos run unconfined and an explicit standard/autonomous repo
- * runs degraded — said once here rather than as a banner on every session. `null` ⇒ push nothing
- * for a host with no agent CLI at all (the `claude` / `codex` rows already say so).
+ * runs degraded — said once here rather than as a banner on every session. An installed bwrap whose
+ * self-test fails is an `error`: the default stays standard there, so every such session runs
+ * degraded until the host is fixed. `null` ⇒ push nothing for a host with no agent CLI at all (the
+ * `claude` / `codex` rows already say so).
  *
  * GUIDANCE-ONLY, like `claude_install`: no `remediation`, no `fixActionKey`. The fix is host-side
  * toolchain surgery — which manager owns the binary, which path it rebuilds — not something
@@ -930,11 +932,17 @@ export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
  */
 export function classifyMembraneLaunch(f: MembraneLaunchFacts): DiagnosticCheck | null {
   if (f.backend === null) {
-    return {
-      id: "sandbox_membrane",
-      state: "optional",
-      hintKey: "diagnostics_hint_sandbox_membrane_unavailable",
-    };
+    return f.selfTestFailed
+      ? {
+          id: "sandbox_membrane",
+          state: "error",
+          hintKey: "diagnostics_hint_sandbox_membrane_selftest_failed",
+        }
+      : {
+          id: "sandbox_membrane",
+          state: "optional",
+          hintKey: "diagnostics_hint_sandbox_membrane_unavailable",
+        };
   }
   if (f.agents.length === 0) return null;
   const broken = f.agents.find((a) => a.state === "broken");

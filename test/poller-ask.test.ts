@@ -151,6 +151,42 @@ test("the clear of the block that carried the ask drops it — no ride on a late
   expect(r.blocks.at(-1)?.ask).toBeUndefined();
 });
 
+test("#4219: a block clear while the answer holds the ask keeps it open; release drops it", async () => {
+  const r = rig();
+  r.poller.ingestAsk(r.id, ASK);
+  await r.tick();
+  const release = r.poller.holdAsk(r.id, "toolu_1");
+  r.setStatus("working"); // the pane redraws under the typed keys
+  await r.tick();
+  expect(r.blocks.at(-1)).toBeNull();
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(true);
+  r.setStatus("blocked"); // back on the dialog: it re-announces with its ask
+  await r.tick();
+  expect(r.blocks.at(-1)?.ask).toEqual(ASK);
+  release();
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(true); // still announced → kept
+  const again = r.poller.holdAsk(r.id, "toolu_1");
+  r.setStatus("working");
+  await r.tick();
+  again();
+  // Released with no ask-carrying block: the dialog left, so the ask goes like an unheld clear.
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(false);
+  r.setStatus("blocked");
+  await r.tick();
+  expect(r.blocks.at(-1)?.ask).toBeUndefined();
+});
+
+test("#4219: a hold on another tool_use id does not keep the ask", async () => {
+  const r = rig();
+  r.poller.ingestAsk(r.id, ASK);
+  await r.tick();
+  const release = r.poller.holdAsk(r.id, "toolu_other");
+  r.setStatus("working");
+  await r.tick();
+  expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(false);
+  release();
+});
+
 test("an ask not yet announced is not dropped by a tick with nothing announced", async () => {
   const r = rig();
   r.setStatus("working"); // the PreToolUse lands before the dialog paints

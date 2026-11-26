@@ -10859,7 +10859,7 @@ test("typeKeys writes one key per send and re-checks stillValid AFTER each gap (
       open = false;
     },
   });
-  expect(await service.typeKeys(session.id, ["1", "\r"], 1, () => open)).toBe(false);
+  expect(await service.typeKeys(session.id, ["1", "\r"], 1, () => open)).toBe(1); // cut short after 1
   expect(sent).toEqual([{ target: "term_a", text: "1" }]);
 });
 

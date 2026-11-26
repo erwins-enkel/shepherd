@@ -8874,40 +8874,41 @@ export class SessionService {
    * Type a key sequence into a session's pane, ONE herdr write per entry with `gapMs` between them
    * (issue #3165 — the AskUserQuestion dialog reads one coalesced write as a paste). Resolves the
    * pane like `interrupt` and holds `#serializeSteer` for the whole sequence so no steer lands in
-   * the middle. `stillValid` is checked before every write: false aborts with `false` (e.g. the
+   * the middle. `stillValid` is checked before every write: false aborts the sequence (e.g. the
    * operator answered locally meanwhile, so the remaining keys would land in the prompt).
-   * Returns false when nothing could be typed or the sequence was cut short.
+   * Returns how many writes were sent: `writes.length` when complete, fewer when nothing could be
+   * typed (0) or the sequence was cut short (#4219 tells those two apart).
    */
   async typeKeys(
     id: string,
     writes: string[],
     gapMs: number,
     stillValid: () => boolean = () => true,
-  ): Promise<boolean> {
+  ): Promise<number> {
     const s = this.deps.store.get(id);
-    if (!s) return false;
+    if (!s) return 0;
     this.assertNotTerminal(s, "answer-ask");
     let agent: HerdrAgent | null;
     try {
       agent = await this.liveAgentFor(id);
     } catch {
-      return false;
+      return 0;
     }
-    if (!agent || !this.adoptLiveResumeAgent(s, agent)) return false;
+    if (!agent || !this.adoptLiveResumeAgent(s, agent)) return 0;
     const target = agent.terminalId;
     return this.#serializeSteer(s.id, async () => {
       for (const [i, w] of writes.entries()) {
         if (i > 0) await sleep(gapMs);
         // Checked AFTER the gap, right before the write: a local answer landing during the sleep
         // must stop the next key from reaching whatever prompt follows the dialog.
-        if (!stillValid()) return false;
+        if (!stillValid()) return i;
         try {
           await this.deps.herdr.send(target, w);
         } catch {
-          return false;
+          return i;
         }
       }
-      return true;
+      return writes.length;
     });
   }
 

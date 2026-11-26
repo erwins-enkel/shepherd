@@ -3316,14 +3316,20 @@ export async function answerPlanQuestions(
 }
 
 /** Answer the open AskUserQuestion dialog (#3165): the server types the answers into the pane and
- *  verifies them against PostToolUse (waits up to 10 s). Throws on 4xx/5xx (409 = no longer open,
- *  e.g. answered in the terminal first). An unknown future verdict reads as "unverified". */
+ *  verifies them against PostToolUse (waits up to 10 s). Throws on 4xx/5xx — an {@link ApiError}
+ *  whose `code` tells `ask_not_open` / `ask_in_flight` / `ask_interrupted` apart; classify with
+ *  `classifyAskFailure`. `requestId` is a correlation ref for the server log (#4219). An unknown
+ *  future verdict reads as "unverified". */
 export async function answerAsk(
   id: string,
   toolUseId: string,
   answers: RawAnswer[],
+  requestId?: string,
 ): Promise<AnswerAskResult> {
-  const r = await fetch(`/api/sessions/${id}/answer-ask`, JSON_POST({ toolUseId, answers }));
+  const r = await fetch(
+    `/api/sessions/${id}/answer-ask`,
+    JSON_POST({ toolUseId, answers, ...(requestId ? { requestId } : {}) }),
+  );
   if (!r.ok) throw await failed(r, "answer-ask");
   const body = (await r.json().catch(() => ({}))) as { result?: string };
   return body.result === "verified" || body.result === "mismatch" ? body.result : "unverified";

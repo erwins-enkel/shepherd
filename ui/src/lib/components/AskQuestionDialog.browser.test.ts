@@ -5,9 +5,16 @@ import "../../app.css";
 import type { AnswerAskResult, PendingAsk, Session } from "#lib/types.js";
 import type { AskEntry } from "#lib/ask-center.js";
 import { toasts } from "#lib/toasts.svelte.js";
+import { ApiError } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const answerAsk = vi.fn<
-  (id: string, toolUseId: string, answers: unknown[]) => Promise<AnswerAskResult>
+  (
+    id: string,
+    toolUseId: string,
+    answers: unknown[],
+    requestId?: string,
+  ) => Promise<AnswerAskResult>
 >(async () => "verified");
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -81,9 +88,12 @@ describe("AskQuestionDialog", () => {
   it("posts the answers keyed to the tool_use id, closes, and toasts the verified result", async () => {
     const onclose = await answer("verified", "toolu_9");
     expect(onclose).toHaveBeenCalledTimes(1);
-    expect(answerAsk).toHaveBeenCalledWith("s1", "toolu_9", [
-      { blockId: "toolu_9", questionId: "0", optionIndices: [1] },
-    ]);
+    expect(answerAsk).toHaveBeenCalledWith(
+      "s1",
+      "toolu_9",
+      [{ blockId: "toolu_9", questionId: "0", optionIndices: [1] }],
+      expect.stringMatching(/^[0-9a-f]{8}$/),
+    );
     await vi.waitFor(() => expect(toasts.items.at(-1)?.text).toMatch(/delivered|übermittelt/));
     expect(toasts.items).toHaveLength(1); // the "typing…" toast was refreshed, not stacked
   });
@@ -148,7 +158,7 @@ describe("AskQuestionDialog", () => {
       .toBeVisible();
 
     await pickSecondAndSubmit(container);
-    expect(answerAsk).toHaveBeenCalledWith("s1", first, expect.any(Array));
+    expect(answerAsk).toHaveBeenCalledWith("s1", first, expect.any(Array), expect.any(String));
     expect(onclose).not.toHaveBeenCalled();
     await expect.element(page.getByText("Export RRULE?", { exact: true })).toBeVisible();
     // The last open question keeps the same layout instead of jumping to a narrower one.
@@ -189,7 +199,7 @@ it("selects two requests from the same session independently", async () => {
     .getByRole("button", { name: /Second request/ })
     .click();
   await pickSecondAndSubmit(container);
-  expect(answerAsk).toHaveBeenCalledWith("same", "second", expect.any(Array));
+  expect(answerAsk).toHaveBeenCalledWith("same", "second", expect.any(Array), expect.any(String));
   await expect.element(page.getByText("First request?", { exact: true })).toBeVisible();
 });
 
@@ -265,3 +275,64 @@ it("keeps each question's unsent draft when switching between them", async () =>
   await page.getByRole("button", { name: /TASK-7/ }).click();
   expect(inputs("checkbox")[1]!.checked).toBe(true);
 });
+
+describe("#4219: failures are told apart, carry a ref, and keep the answer", () => {
+  const conflict = (code: string) => new ApiError(409, code, code, true);
+  it.each([
+    ["stale", conflict("ask_not_open"), () => m.ask_result_stale()],
+    ["interrupted", conflict("ask_interrupted"), () => m.ask_result_interrupted()],
+    ["network", new TypeError("Load failed"), () => m.ask_result_unknown()],
+    ["server", new ApiError(500, "boom", undefined, true), () => m.ask_result_unknown()],
+  ] as const)("%s", async (_name, err, text) => {
+    answerAsk.mockRejectedValueOnce(err);
+    const toolUseId = `toolu_${++seq}`;
+    const { container, onclose } = await mount([{ session: session("f1"), ask: ask(toolUseId) }]);
+    await pickSecondAndSubmit(container);
+    await vi.waitFor(() => expect(toasts.items.at(-1)?.text).toContain(text()));
+    const ref = answerAsk.mock.calls.at(-1)![3]!;
+    const toast = toasts.items.at(-1)!;
+    expect(toast.alert).toBe(true);
+    expect(toast.text).toContain(ref);
+    // Still on screen, editable, the choice kept, and not sent again.
+    expect(onclose).not.toHaveBeenCalled();
+    await expect
+      .element(page.elementLocator(container.querySelector<HTMLButtonElement>("button.primary")!))
+      .toBeEnabled();
+    expect(container.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]!.checked).toBe(
+      true,
+    );
+    expect(answerAsk).toHaveBeenCalledTimes(1);
+  });
+
+  it("a question changing mid-submit keeps the request on the original and frees the new form", async () => {
+    let settle!: (e: unknown) => void;
+    answerAsk.mockImplementationOnce(
+      () => new Promise<AnswerAskResult>((_ok, fail) => (settle = fail)),
+    );
+    const before = `toolu_${++seq}`;
+    const after = `toolu_${++seq}`;
+    const { container, rerender } = await mountWithRerender([
+      { session: session("chg"), ask: ask(before, "Old?") },
+    ]);
+    await pickSecondAndSubmit(container);
+    await rerender({ entries: [{ session: session("chg"), ask: ask(after, "New?") }] });
+    await expect.element(page.getByText("New?", { exact: true })).toBeVisible();
+    settle(new ApiError(409, "ask_not_open", "ask_not_open", true));
+    await vi.waitFor(() => expect(toasts.items.at(-1)?.text).toContain(m.ask_result_stale()));
+    expect(answerAsk).toHaveBeenCalledTimes(1);
+    expect(answerAsk.mock.calls[0]![1]).toBe(before);
+    // The new question's form is fresh and usable.
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    expect([...radios].some((r) => r.checked)).toBe(false);
+    await page.elementLocator(radios[0]!).click();
+    await expect
+      .element(page.elementLocator(container.querySelector<HTMLButtonElement>("button.primary")!))
+      .toBeEnabled();
+  });
+});
+
+async function mountWithRerender(entries: AskEntry[]) {
+  const onclose = vi.fn();
+  const r = await render(AskQuestionDialog, { entries, focusId: entries[0]!.session.id, onclose });
+  return { container: r.container, rerender: r.rerender, onclose };
+}

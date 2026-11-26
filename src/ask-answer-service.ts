@@ -26,20 +26,30 @@ export interface AskAnswerDeps {
   currentAsk: (id: string) => PendingAsk | null;
   /** Still open per the hooks (poller.askStillOpen) — checked before every typed key. */
   askStillOpen: (id: string, toolUseId: string) => boolean;
-  /** SessionService.typeKeys. */
+  /** poller.holdAsk (#4219): keep the ask open across a block clear while typing; returns release. */
+  holdAsk?: (id: string, toolUseId: string) => () => void;
+  /** SessionService.typeKeys — resolves to how many writes were sent. */
   typeKeys: (
     id: string,
     writes: string[],
     gapMs: number,
     stillValid: () => boolean,
-  ) => Promise<boolean>;
+  ) => Promise<number>;
   /** How long to wait for the verifying PostToolUse. */
   verifyTimeoutMs?: number;
   gapMs?: number;
 }
 
+/** 409 codes: `ask_not_open` — nothing was typed; `ask_in_flight` — another answer is being typed;
+ *  `ask_interrupted` — typing stopped after some keys reached the pane, so the outcome is unknown. */
 export type AnswerAskOutcome =
   { ok: true; result: AskAnswerResult } | { ok: false; status: 400 | 409; error: string };
+
+/** Per-request facts for the single redacted log line (#4219) — ids, counts, never answer text. */
+interface AnswerTrace {
+  provider: "claude" | "codex";
+  keys?: { sent: number; total: number };
+}
 
 interface Waiter {
   toolUseId: string;
@@ -53,9 +63,32 @@ export class AskAnswerService {
 
   constructor(private deps: AskAnswerDeps) {}
 
-  async answer(id: string, toolUseId: string, raw: RawAnswer[]): Promise<AnswerAskOutcome> {
+  /** `requestId` is the client's correlation ref (already sanitized by the route), logged only. */
+  async answer(
+    id: string,
+    toolUseId: string,
+    raw: RawAnswer[],
+    requestId = "-",
+  ): Promise<AnswerAskOutcome> {
+    const started = Date.now();
+    const trace: AnswerTrace = { provider: this.deps.codex?.isSession(id) ? "codex" : "claude" };
+    let out: AnswerAskOutcome | undefined;
+    try {
+      out = await this.#answer(id, toolUseId, raw, trace);
+      return out;
+    } finally {
+      logAnswer({ requestId, id, toolUseId, trace, out, ms: Date.now() - started });
+    }
+  }
+
+  async #answer(
+    id: string,
+    toolUseId: string,
+    raw: RawAnswer[],
+    trace: AnswerTrace,
+  ): Promise<AnswerAskOutcome> {
     if (this.#inflight.has(id)) return { ok: false, status: 409, error: "ask_in_flight" };
-    if (this.deps.codex?.isSession(id)) {
+    if (trace.provider === "codex" && this.deps.codex) {
       this.#inflight.add(id);
       try {
         return await this.deps.codex.answer(id, toolUseId, raw);
@@ -76,12 +109,11 @@ export class AskAnswerService {
     try {
       // Registered BEFORE typing: the PostToolUse can arrive the moment the last key lands.
       const verdict = this.#awaitPostToolUse(id, toolUseId);
-      const typed = await this.deps.typeKeys(id, keys, this.deps.gapMs ?? ASK_KEY_GAP_MS, () =>
-        this.deps.askStillOpen(id, toolUseId),
-      );
-      if (!typed) {
+      const sent = await this.#type(id, toolUseId, keys);
+      trace.keys = { sent, total: keys.length };
+      if (sent < keys.length) {
         this.#waiters.delete(id);
-        return { ok: false, status: 409, error: "ask_not_open" };
+        return { ok: false, status: 409, error: sent > 0 ? "ask_interrupted" : "ask_not_open" };
       }
       const actual = await verdict;
       if (actual === null) return { ok: true, result: "unverified" };
@@ -93,6 +125,18 @@ export class AskAnswerService {
       return { ok: true, result: "mismatch" };
     } finally {
       this.#inflight.delete(id);
+    }
+  }
+
+  /** Type under the poller's ask hold (#4219), so a redraw-induced block clear can't cut it short. */
+  async #type(id: string, toolUseId: string, keys: string[]): Promise<number> {
+    const release = this.deps.holdAsk?.(id, toolUseId);
+    try {
+      return await this.deps.typeKeys(id, keys, this.deps.gapMs ?? ASK_KEY_GAP_MS, () =>
+        this.deps.askStillOpen(id, toolUseId),
+      );
+    } finally {
+      release?.();
     }
   }
 
@@ -120,3 +164,31 @@ export class AskAnswerService {
     });
   }
 }
+
+/** One line per answer request (#4219): the client's ref joins a toast to this line. Ids and counts
+ *  only — question and answer text never reach it. A throw (no `out`) logs as `error`. */
+function logAnswer(e: {
+  requestId: string;
+  id: string;
+  toolUseId: string;
+  trace: AnswerTrace;
+  out: AnswerAskOutcome | undefined;
+  ms: number;
+}): void {
+  const outcome = !e.out
+    ? "error"
+    : e.out.ok
+      ? e.out.result
+      : e.out.status === 400
+        ? "invalid"
+        : e.out.error;
+  const keys = e.trace.keys ? ` keys=${e.trace.keys.sent}/${e.trace.keys.total}` : "";
+  const line =
+    `[ask] answer req=${e.requestId} session=${logSafe(e.id)} tool_use=${logSafe(e.toolUseId)} ` +
+    `provider=${e.trace.provider} outcome=${outcome}${keys} ms=${e.ms}`;
+  if (outcome === "verified") console.info(line);
+  else console.warn(line);
+}
+
+/** Client-supplied ids go into a log line: keep them to one bounded token. */
+const logSafe = (v: string): string => v.replace(/[^\w.:-]/g, "?").slice(0, 80);

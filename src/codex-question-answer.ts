@@ -31,6 +31,8 @@ export interface CodexQuestionAnswerDeps {
 }
 
 const closed = (): AnswerAskOutcome => ({ ok: false, status: 409, error: "ask_not_open" });
+/** #4219: stopped after at least one key reached the pane — the outcome is unknown, not "closed". */
+const interrupted = (): AnswerAskOutcome => ({ ok: false, status: 409, error: "ask_interrupted" });
 
 /** Codex owns its dialog; we only type into a freshly identified, still-open question. */
 export class CodexQuestionAnswerService {
@@ -42,6 +44,8 @@ export class CodexQuestionAnswerService {
     return (
       (await this.deps.withTerminal(id, s.providerSessionId, async (terminal) => {
         let activeIndex: number | null = null;
+        let sent = 0;
+        const stop = () => (sent > 0 ? interrupted() : closed());
         const read = async () => {
           const live = this.deps.session(id);
           if (
@@ -67,15 +71,16 @@ export class CodexQuestionAnswerService {
         const io = {
           read,
           send: async (key: string) => {
-            const sent = await terminal.send(key);
+            const ok = await terminal.send(key);
+            if (ok) sent++;
             await sleep(this.deps.gapMs ?? 180);
-            return sent;
+            return ok;
           },
         };
         for (const [i, answer] of answers.entries()) {
           activeIndex = ask.indices[i]!;
-          if (!(await this.show(io, ask, answer, i))) return closed();
-          if (!(await this.type(io, ask, answer))) return closed();
+          if (!(await this.show(io, ask, answer, i))) return stop();
+          if (!(await this.type(io, ask, answer))) return stop();
           if (ask.mode === "async") {
             const verdict = await this.verify(s, ask, i, answer);
             if (verdict !== "verified") return { ok: true, result: verdict };

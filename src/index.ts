@@ -1894,6 +1894,7 @@ const askAnswers = new AskAnswerService({
   },
   currentAsk: (id) => poller.currentAsk(id),
   askStillOpen: (id, toolUseId) => poller.askStillOpen(id, toolUseId),
+  holdAsk: (id, toolUseId) => poller.holdAsk(id, toolUseId),
   typeKeys: (id, writes, gapMs, stillValid) => service.typeKeys(id, writes, gapMs, stillValid),
 });
 

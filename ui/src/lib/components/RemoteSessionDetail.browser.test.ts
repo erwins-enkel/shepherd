@@ -596,9 +596,12 @@ describe("RemoteSessionDetail chat", () => {
     await page.getByRole("radio", { name: "Drop Remove it" }).click();
     await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
     await vi.waitFor(() =>
-      expect(api.answerAsk).toHaveBeenCalledWith("r1", "ask-1", [
-        { blockId: "ask-1", questionId: "0", optionIndices: [1] },
-      ]),
+      expect(api.answerAsk).toHaveBeenCalledWith(
+        "r1",
+        "ask-1",
+        [{ blockId: "ask-1", questionId: "0", optionIndices: [1] }],
+        expect.any(String),
+      ),
     );
   });
 

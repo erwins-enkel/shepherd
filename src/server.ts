@@ -1093,7 +1093,12 @@ export interface AppDeps {
   /** #3165: types an operator's panel answer into an open AskUserQuestion dialog and verifies it.
    *  Absent in tests/envs that skip it → `answer-ask` answers 409. */
   askAnswers?: {
-    answer(id: string, toolUseId: string, answers: RawAnswer[]): Promise<AnswerAskOutcome>;
+    answer(
+      id: string,
+      toolUseId: string,
+      answers: RawAnswer[],
+      requestId?: string,
+    ): Promise<AnswerAskOutcome>;
   };
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
   reviewCache?: {
@@ -7220,7 +7225,10 @@ async function handleSessionGo({ req, parts, deps }: Ctx): Promise<Response | nu
 // native-panel answer into the open AskUserQuestion dialog and verify it via PostToolUse (#3165).
 // `questionId` is the question's index; answers resolve against the HOOKED questions, never the
 // client's copy. 409 when the dialog is no longer open (answered locally first) or a sequence is
-// already in flight for the session; Claude-only.
+// already in flight for the session; `ask_interrupted` when typing stopped after some keys (#4219).
+// Optional `requestId` is the client's correlation ref, logged only; a malformed one is ignored.
+const ASK_REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
 async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "answer-ask" && !parts[4])) return null;
   const ctErr = requireJsonContentType(req);
@@ -7228,6 +7236,7 @@ async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Respon
   const body = (await readJsonBody(req)) as {
     toolUseId?: unknown;
     answers?: unknown;
+    requestId?: unknown;
   } | null;
   const answers = body?.answers;
   if (
@@ -7248,10 +7257,16 @@ async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Respon
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
   if (!["claude", "codex"].includes(s.agentProvider ?? "claude") || !deps.askAnswers) {
-    return json({ error: "ask_not_open" }, 409);
+    return json({ error: "ask_not_open", code: "ask_not_open" }, 409);
   }
-  const out = await deps.askAnswers.answer(s.id, body.toolUseId, answers as RawAnswer[]);
-  return out.ok ? json({ result: out.result }) : json({ error: out.error }, out.status);
+  const requestId =
+    typeof body.requestId === "string" && ASK_REQUEST_ID.test(body.requestId)
+      ? body.requestId
+      : "-";
+  const out = await deps.askAnswers.answer(s.id, body.toolUseId, answers as RawAnswer[], requestId);
+  return out.ok
+    ? json({ result: out.result })
+    : json({ error: out.error, code: out.error }, out.status);
 }
 
 // POST /api/sessions/:id/answer-plan-questions — steer the operator's answers to the gate's

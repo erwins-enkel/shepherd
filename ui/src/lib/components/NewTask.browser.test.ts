@@ -5515,6 +5515,60 @@ describe("NewTask shape round", () => {
     await expect.poll(() => shapeBtn()?.disabled).toBe(false);
   });
 
+  it("hints at Shape in epic mode too, where Shape runs", async () => {
+    mockPromptHint.mockResolvedValue("prescribing");
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo",
+        initialPrompt: PRESCRIBING,
+        initialEpicAuthoring: true,
+      }),
+    });
+    await expect
+      .poll(() => document.querySelector(".coach-hint")?.textContent, { timeout: 4000 })
+      .toContain(m.newtask_coach_hint());
+  });
+
+  it("shapes an epic idea and the brief still starts an epic-authoring task", async () => {
+    mockShapeTask.mockResolvedValue({ round });
+    mockComposeTaskBrief.mockResolvedValue("## Problem\nleaks\n");
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: base({
+        onsubmit,
+        initialRepoPath: "/repo",
+        initialPrompt: "an epic idea",
+        initialEpicAuthoring: true,
+      }),
+    });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    // Shape sits beside epic mode's own Next epic control, not in place of it.
+    expect(
+      document.querySelector(`button[aria-label="${m.newtask_epic_next_aria()}"]`),
+    ).toBeTruthy();
+    shapeBtn()!.click();
+    await expect.poll(() => mockShapeTask.mock.calls.length).toBe(1);
+    expect(mockShapeTask.mock.calls[0]![1]).toBe("an epic idea");
+
+    const radios = () => document.querySelectorAll<HTMLInputElement>('.shape input[type="radio"]');
+    await expect.poll(() => radios().length).toBe(2);
+    radios()[0]!.click();
+    await page.getByRole("button", { name: m.shape_use_brief() }).click();
+    await expect
+      .poll(() => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value)
+      .toContain("## Problem");
+
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      epicAuthoring: true,
+      prompt: "## Problem\nleaks",
+    });
+  });
+
   it("is disabled until there is a prompt to shape, and never runs by itself", async () => {
     render(NewTask, { props: base({ initialRepoPath: "/repo" }) });
     await expect.poll(() => shapeBtn()).toBeTruthy();

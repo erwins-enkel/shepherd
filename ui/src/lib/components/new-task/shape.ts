@@ -9,14 +9,21 @@ export type ShapeBlocker = "empty_prompt" | "no_repo" | "wrong_mode" | "running"
 export interface ShapeAvailability {
   promptEmpty: boolean;
   repoResolved: boolean;
-  /** The New Task mode. Shaping produces a brief for code and epic tasks; research has none. */
+  /** The New Task mode; see {@link shapeOffered}. */
   mode: ComposeMode;
   running: boolean;
 }
 
+/** Whether a mode takes a shaped brief: a code task starts from it, and an epic-authoring session
+ *  decomposes it. Research, plain and bootstrap tasks take none. The one rule for the Shape button,
+ *  its blocker and the coaching hint that points at it. */
+export function shapeOffered(mode: ComposeMode): boolean {
+  return mode === "code" || mode === "epic";
+}
+
 export function shapeBlocker(i: ShapeAvailability): ShapeBlocker | null {
   if (i.running) return "running";
-  if (i.mode !== "code" && i.mode !== "epic") return "wrong_mode";
+  if (!shapeOffered(i.mode)) return "wrong_mode";
   if (!i.repoResolved) return "no_repo";
   if (i.promptEmpty) return "empty_prompt";
   return null;
@@ -99,7 +106,7 @@ export function hintApplies(i: HintAvailability): boolean {
   return (
     i.shapeIdle &&
     !i.mobile &&
-    i.mode === "code" &&
+    shapeOffered(i.mode) &&
     i.repoResolved &&
     i.prompt.trim().length >= HINT_MIN_CHARS
   );

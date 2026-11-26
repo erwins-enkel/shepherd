@@ -9455,5 +9455,5 @@
   "feat_telemetry_removed_body": "Shepherd no longer sends any anonymous usage data. The opt-in prompt, the Settings toggle and the Aptabase integration are gone.",
   "diagnostics_hint_sandbox_membrane_selftest_failed": "bubblewrap is installed but cannot build a [[sandbox-membrane|sandbox membrane]] on this host. Repos on the default sandbox run Standard without confinement: every such session is flagged degraded and auto-drain holds. Fix the host (for example, allow unprivileged user namespaces), or set SHEPHERD_SANDBOX_DEFAULT_PROFILE=trusted to run unconfined on purpose.",
   "feat_shape_epic_title": "Shape works in Epic mode",
-  "feat_shape_epic_body": "The Shape button in New Task now also shows in Epic mode. It reads your rough epic prompt and the repo, asks the few questions only you can settle, and turns your answers into a brief before the epic-authoring session starts. Research mode still has no Shape button."
+  "feat_shape_epic_body": "The Shape button in New Task now also shows in Epic mode. It reads your rough epic prompt and the repo, asks the few questions only you can settle, and turns your answers into a brief before the epic-authoring session starts. With the decision model on, the hint about a prompt that names a fix first shows there too. Research mode still has no Shape button."
 }

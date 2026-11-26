@@ -47,9 +47,11 @@ import {
   estimateWaits,
   heavyEtaKey,
   heavyOomMessage,
+  isCompoundCommand,
   nextBrake,
   offerSteer,
   queuedMessage,
+  type AcquireOutcome,
   type BrakeState,
   type HeavyJob,
   type HeavySlotBudget,
@@ -70,6 +72,8 @@ const SCAN_EVERY_MS = 10_000;
 const SAMPLE_FRESH_MS = 5_000;
 /** Finished rows older than this are pruned at boot; they only feed wait estimates. */
 const PRUNE_AFTER_MS = 14 * 24 * 60 * 60_000;
+/** Longest session name the queued message quotes for a slot holder. */
+const HOLDER_NAME_MAX = 60;
 /** /proc reads in flight at once during a scan. */
 const SCAN_CONCURRENCY = 8;
 
@@ -162,6 +166,10 @@ export class HeavySlotService {
   #lastEmitted = "";
   /** Jobs started inside their own scope → the session that bound them, until the exit report. */
   #scoped = new Map<string, string>();
+  /** Queued jobs whose RAW command line is compound (#3626), for the offer steer: the ledger only
+   *  keeps the normalized command, which flattens heredocs and newlines. In memory: after a
+   *  restart the steer just omits the "heavy part only" hint. */
+  #compound = new Set<string>();
 
   constructor(deps: HeavySlotDeps) {
     this.#deps = deps;
@@ -390,6 +398,7 @@ export class HeavySlotService {
     );
     if (out.kind === "queued" && canWait) this.#renewPoll(out.job.id);
     if (out.kind === "run") this.#clearPoll(out.job.id);
+    const compound = this.#trackCompound(out, command);
     if (out.kind === "run" && holder !== OPERATOR_HOLDER) {
       // Bind the run to the source it starts on (#3554), before the runner is told to go. An
       // operator terminal has no session worktree to bind it to.
@@ -411,10 +420,36 @@ export class HeavySlotService {
       message: queuedMessage(out.job.command, {
         ...out,
         etaMs,
-        holders: this.#ledger.active(),
+        holders: this.#ledger
+          .active()
+          .map((j) => ({ ...j, label: this.#holderLabel(j.sessionId, holder) })),
         now: this.#now(),
+        compound,
+        operator: holder === OPERATOR_HOLDER,
       }),
     };
+  }
+
+  /** Whether the RAW command line is compound (normalizing flattens the newlines a heredoc
+   *  depends on); remembered for a queued job's offer steer, forgotten once it runs. */
+  #trackCompound(out: AcquireOutcome, command: string): boolean {
+    const compound = isCompoundCommand(command);
+    if (out.kind === "unmanaged") return compound;
+    if (out.kind === "queued" && compound) this.#compound.add(out.job.id);
+    else this.#compound.delete(out.job.id);
+    return compound;
+  }
+
+  /** Who a slot holder is, as the queued message names it to `requester` (#3626); null: unknown. */
+  #holderLabel(sessionId: string, requester: string): string | null {
+    if (sessionId === OPERATOR_HOLDER) return "an operator terminal";
+    if (sessionId === requester) return "this session";
+    const s = this.#deps.store.get(sessionId);
+    if (!s?.desig) return null;
+    // Defensive: naming a holder must never fail the acquire.
+    const name = (s.name ?? "").replace(/\s+/g, " ").trim();
+    const short = name.length > HOLDER_NAME_MAX ? `${name.slice(0, HOLDER_NAME_MAX - 1)}…` : name;
+    return short ? `${s.desig} (${short})` : s.desig;
   }
 
   #renewPoll(jobId: string): void {
@@ -596,6 +631,7 @@ export class HeavySlotService {
       this.#deps.store.upsertHeavySlotJob(job);
       if (job.state === "done" || job.state === "dropped") {
         this.#clearPoll(job.id);
+        this.#compound.delete(job.id);
         this.#procs.delete(job.id);
         const peak = this.#peaks.get(job.id);
         this.#peaks.delete(job.id);
@@ -629,8 +665,9 @@ export class HeavySlotService {
         for (const job of offered) {
           if ((this.#pollLease.get(job.id) ?? 0) > this.#now()) continue;
           this.#clearPoll(job.id);
+          const text = offerSteer(job, this.#compound.has(job.id));
           // best-effort: an unlanded offer is dropped as steer_missed below
-          const landed = await this.#deps.steer(job.sessionId, offerSteer(job)).catch(() => false);
+          const landed = await this.#deps.steer(job.sessionId, text).catch(() => false);
           if (!landed && this.#ledger.get(job.id)?.state === "offered") {
             this.#ledger.drop(job.id, "steer_missed", this.#now());
             this.#refill = true;

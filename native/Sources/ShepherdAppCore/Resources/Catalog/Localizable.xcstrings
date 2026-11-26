@@ -8286,13 +8286,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wartet · Platz %1$@"
+            "value": "Noch nicht gelaufen · wartet · Platz %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting · place %1$@"
+            "value": "Not run yet · waiting · place %1$@"
           }
         }
       }
@@ -8304,13 +8304,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wartet · Speicherdruck · Platz %1$@"
+            "value": "Noch nicht gelaufen · Speicherdruck · Platz %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting · memory pressure · place %1$@"
+            "value": "Not run yet · memory pressure · place %1$@"
           }
         }
       }

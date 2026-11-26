@@ -239,7 +239,7 @@ function unquote(word) {
  * Everything inside `$( … )` / backticks is left in its segment and still read as a command
  * position, which is correct — that IS a command position.
  */
-function segments(command) {
+export function segments(command) {
   const out = [];
   const lines = command.split(/\r?\n/);
   let cur = "";

@@ -481,8 +481,8 @@
 "heavyslot_source_agents" = "Shepherd agents";
 "heavyslot_source_foreign" = "Other load";
 "heavyslot_strip_brake" = "Brake on: memory pressure holds back new starts";
-"heavyslot_strip_wait" = "Waiting · place %1$@";
-"heavyslot_strip_wait_pressure" = "Waiting · memory pressure · place %1$@";
+"heavyslot_strip_wait" = "Not run yet · waiting · place %1$@";
+"heavyslot_strip_wait_pressure" = "Not run yet · memory pressure · place %1$@";
 "heavyslot_swap_row" = "Swap";
 "heavyslot_unknown_session" = "Unknown session";
 "herd_all_title" = "Show every session in the herd";

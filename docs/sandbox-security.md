@@ -311,7 +311,9 @@ the container's local socket, with SQL on stdin, so no password reaches argv.
 
 **In-membrane readability (accepted, like R3).** The DSN a session receives is
 readable by every tool call in that session. It grants that session's own clone
-and nothing else. Autonomous sessions do not get the tool yet (their netns
+and nothing else. The app contract has agents write it into their worktree's
+gitignored `.env`; a Standard membrane exposes no sibling worktree, and the clone
+it opens is dropped at archive. Autonomous sessions do not get the tool yet (their netns
 cannot reach the host loopback port).
 
 ## Reviewer roles (audit N10)

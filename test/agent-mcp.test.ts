@@ -1612,6 +1612,7 @@ describe("postgres_request", () => {
     expect(ready.isError).toBe(false);
     expect(ready.payload).toMatchObject({ status: "ready", ...CONN });
     expect(ready.payload.next).toContain("postgres_request");
+    expect(ready.payload.next).toContain("as DATABASE_URL");
     const starting = toolPayload(
       await call(
         withPg(h, { request: async () => ({ status: "starting" }) }),

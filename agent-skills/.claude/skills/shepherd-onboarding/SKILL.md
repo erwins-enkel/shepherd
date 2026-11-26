@@ -55,6 +55,13 @@ reaches GitHub only through the operator-approved epic draft (Stage 5).
   product slice on top of it.
 - **No concrete file paths in issue bodies** — point at stable anchors (module,
   exported symbol, route, glob).
+- **Database access is settled.** A project on Shepherd's on-demand Postgres reaches
+  it through `DATABASE_URL`, per its CLAUDE.md `## Database`: answer database-access
+  questions from that section, cut schema work as migration slices on that seam, and
+  leave provisioning to Shepherd (no slice sets up a local or Compose Postgres). If
+  this session has no `postgres_request` tool, say in the brief that drain sessions
+  need **Settings → Resources → Postgres** and **Repo settings → Agent → Postgres on
+  request** switched on (Autonomous and Codex sessions don't get the tool yet).
 
 ### 4. Approve (hard gate)
 

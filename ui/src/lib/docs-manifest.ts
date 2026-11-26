@@ -51,7 +51,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "On-demand Postgres",
     path: "/postgres/",
     keywords:
-      "let agents ask shepherd for their own postgres database on a shared local server that only runs while it is needed. requirements turn it on how agents use it lifecycle security diagnose",
+      "let agents ask shepherd for their own postgres database on a shared local server that only runs while it is needed. requirements turn it on how agents use it build apps against it lifecycle security diagnose",
   },
   {
     title: "CI Watch",

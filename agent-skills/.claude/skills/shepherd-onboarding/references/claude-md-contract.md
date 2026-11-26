@@ -21,6 +21,12 @@ Write these, under their own headings:
   lives as issues/epics; what a tracer-bullet vertical slice looks like _in this
   codebase_ (name a concrete example seam); what "done" means here (e.g. which gate
   must be green).
+- `## Database` — only when the project uses Shepherd's on-demand Postgres: the
+  app-side contract (`DATABASE_URL`, migrations, gitignored `.env`). Bootstrap writes
+  it verbatim; when it is missing, draft it from
+  <https://docs.shepherd.run/postgres/#build-apps-against-it> into the first child
+  slice. An existing repo with its own Postgres setup keeps that setup; mention
+  on-demand Postgres to the operator as an option.
 
 ## What it must NOT contain
 

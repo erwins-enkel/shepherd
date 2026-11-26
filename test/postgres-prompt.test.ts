@@ -76,8 +76,8 @@ function harness(
 const base = { repoPath: "/repo", baseBranch: "main", prompt: "build it", model: null, images: [] };
 const prompt = (argv: string[]) => argv.join("\n");
 
-test("Claude spawn carries the notice for trusted and standard sessions", async () => {
-  for (const profile of ["trusted", "standard"] as const) {
+test("Claude spawn carries the notice on every profile", async () => {
+  for (const profile of ["trusted", "standard", "autonomous"] as const) {
     const { svc, captured } = harness({ profile });
     await svc.create(base);
     expect(prompt(captured.argv!)).toContain(NOTICE);
@@ -95,21 +95,31 @@ test("a session in the shared checkout is never told to write .env", async () =>
   expect(text).not.toContain("`git check-ignore -q .env`");
 });
 
-test("no notice without the tool: global off, repo off, autonomous, plain, Codex", async () => {
+test("no notice when Postgres is off for the session: global off, repo off, plain", async () => {
   const cases: [Parameters<typeof harness>[0], Record<string, unknown>][] = [
     [{ enabled: false }, {}],
     [{ mode: "off" }, {}],
-    [{ profile: "autonomous" }, {}],
     [{}, { plain: true }],
-    [{}, { agentProvider: "codex" }],
   ];
   for (const [opts, extra] of cases) {
     const { svc, captured } = harness(opts);
-    const s = await svc.create({ ...base, ...extra });
-    if (opts?.profile) expect(s.sandboxApplied).toBe(opts.profile);
-    if (extra.agentProvider) expect(s.agentProvider).toBe("codex");
+    await svc.create({ ...base, ...extra });
     expect(prompt(captured.argv!)).not.toContain(NOTICE);
   }
+});
+
+test("Codex on a Postgres repo: no-tool notice, never the how-to", async () => {
+  const { svc, captured } = harness();
+  const s = await svc.create({ ...base, agentProvider: "codex" });
+  expect(s.agentProvider).toBe("codex");
+  const text = prompt(captured.argv!);
+  expect(text).toContain(NOTICE);
+  expect(text).toContain("this session has no `postgres_request` tool");
+  expect(text).toContain("Never substitute PGlite");
+  expect(text).not.toContain("call `postgres_request`");
+  const off = harness({ mode: "off" });
+  await off.svc.create({ ...base, agentProvider: "codex" });
+  expect(prompt(off.captured.argv!)).not.toContain(NOTICE);
 });
 
 test("Claude resume re-carries the notice while the capability holds", async () => {
@@ -159,4 +169,6 @@ test("composer: the notice rides only for a Claude, non-plain session with the t
   expect(names({})).not.toContain("postgres-notice");
   expect(names({ postgres: "worktree", plain: true })).not.toContain("postgres-notice");
   expect(names({ postgres: "worktree", agentProvider: "codex" })).not.toContain("postgres-notice");
+  expect(names({ postgres: "no-tool", agentProvider: "codex" })).toContain("postgres-notice");
+  expect(names({ postgres: "no-tool", plain: true })).not.toContain("postgres-notice");
 });

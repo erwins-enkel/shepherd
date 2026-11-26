@@ -9518,7 +9518,7 @@
   "tooltip_postgres_lifecycle": "Lifecycle",
   "tooltip_postgres_lifecycle_body": "The server starts when an agent asks and stops after the idle time with no connections. A session's database is dropped when the session is archived.",
   "tooltip_postgres_needs": "Needs",
-  "tooltip_postgres_needs_body": "Docker on this machine and Postgres turned on in Settings → Resources. Trusted and Standard Claude sessions only for now; sessions pick up the tool at their next spawn or resume.",
+  "tooltip_postgres_needs_body": "Docker on this machine and Postgres turned on in Settings → Resources. Claude sessions on any sandbox profile (not Codex yet); sessions pick up the tool at their next spawn or resume.",
   "postgres_settings_heading": "Postgres",
   "postgres_settings_scope": "One shared Postgres server Shepherd runs in Docker only while agents need it. Pick its repos below or under Repo settings → Agent.",
   "postgres_settings_unavailable": "Postgres settings are unavailable.",

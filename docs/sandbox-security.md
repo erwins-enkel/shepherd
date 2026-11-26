@@ -313,8 +313,11 @@ the container's local socket, with SQL on stdin, so no password reaches argv.
 readable by every tool call in that session. It grants that session's own clone
 and nothing else. The app contract has agents write it into their worktree's
 gitignored `.env`; a Standard membrane exposes no sibling worktree, and the clone
-it opens is dropped at archive. Autonomous sessions do not get the tool yet (their netns
-cannot reach the host loopback port).
+it opens is dropped at archive. Autonomous sessions reach the server through the
+slirp gateway: when Postgres is on for the machine and the repo, the spawn's nft
+ruleset opens exactly `10.0.2.2:<postgres port>` (beside the agent-ingress port),
+at spawn or resume only (#4239). The exposure is the Standard one: the
+session's own role and clone; the superuser password never leaves its 0600 file.
 
 ## Reviewer roles (audit N10)
 

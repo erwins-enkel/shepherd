@@ -29,15 +29,23 @@ export const POSTGRES_APP_CONTRACT = [
   "- Tests use the same `DATABASE_URL`; an agent session's database is its own and disposable.",
 ].join("\n");
 
-/** Where a session with the tool runs: its own worktree, or (isolation fallback) the shared checkout. */
-export type PostgresNoticeMode = "worktree" | "shared-checkout";
+/** Where a session with the tool runs: its own worktree, or (isolation fallback) the shared
+ *  checkout. `no-tool`: the repo uses Shepherd's Postgres but this session has no tool (#4239). */
+export type PostgresNoticeMode = "worktree" | "shared-checkout" | "no-tool";
+
+const NO_TOOL_NOTICE =
+  "This repo uses Shepherd's on-demand Postgres, but this session has no `postgres_request` " +
+  "tool. Never substitute PGlite, SQLite, an embedded or WASM Postgres, or a Postgres or Docker " +
+  "container of your own. Use `DATABASE_URL` only when it is already set; otherwise leave the " +
+  "database-backed checks (migrations, DB tests, e2e) to CI's `db` job and say so in your report.";
 
 /**
- * The `<postgres-notice>` body: rides only on a session that has the `postgres_request` tool. A
- * session in the shared repo checkout never gets the `.env` route — a second such session would
- * overwrite it and point the first at the wrong database.
+ * The `<postgres-notice>` body. With the tool: how to get and keep the DSN — a session in the shared
+ * repo checkout never gets the `.env` route (a second such session would overwrite it and point the
+ * first at the wrong database). Without it: never improvise a database.
  */
 export function postgresSessionNotice(mode: PostgresNoticeMode): string {
+  if (mode === "no-tool") return NO_TOOL_NOTICE;
   const keepIt =
     mode === "worktree"
       ? "write `DATABASE_URL=<dsn>` to `.env` only when `git check-ignore -q .env` succeeds, " +
@@ -79,7 +87,7 @@ export function postgresStatusLine(a: PostgresAvailability): string {
   if (a.globalEnabled && a.repoOn) {
     return (
       "Shepherd's Postgres is ON for this repo, but this session has no `postgres_request` tool " +
-      "(Codex and Autonomous sessions don't get it yet). Build against the contract anyway; CI's " +
+      "(Codex sessions don't get it yet). Build against the contract anyway; CI's " +
       "`db` job proves the migrations."
     );
   }

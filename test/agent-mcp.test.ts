@@ -1557,7 +1557,12 @@ describe("postgres_request", () => {
     opts: {
       enabled?: boolean;
       mode?: "off" | "on-request";
-      request?: () => Promise<PostgresRequestOutcome>;
+      request?: (
+        id: string,
+        signal?: AbortSignal,
+        host?: string,
+      ) => Promise<PostgresRequestOutcome>;
+      postgresHost?: AgentControlDeps["postgresHost"];
     } = {},
   ): AgentControlDeps => {
     h.store.setRepoConfig("/repo", {
@@ -1570,19 +1575,21 @@ describe("postgres_request", () => {
         settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: opts.enabled ?? true }),
         request: opts.request ?? (async () => ({ status: "ready", connection: CONN })),
       },
+      postgresHost: opts.postgresHost,
     };
   };
 
-  test("offered only with Postgres on globally, the repo on-request, and a host-net session", () => {
+  test("offered only with Postgres on globally and the repo on-request, on any profile", () => {
     const on = harness();
     expect(names(withPg(on), on.sessionId)).toEqual([...READ_TOOLS, "postgres_request"]);
-    const standard = harness({ sandboxApplied: "standard" });
-    expect(names(withPg(standard), standard.sessionId)).toContain("postgres_request");
+    for (const profile of ["standard", "autonomous"] as const) {
+      const h = harness({ sandboxApplied: profile });
+      expect(names(withPg(h), h.sessionId)).toContain("postgres_request");
+    }
     for (const [h, opts] of [
       [harness(), { enabled: false }],
       [harness(), { mode: "off" as const }],
       [harness({ plain: true }), {}],
-      [harness({ sandboxApplied: "autonomous" }), {}],
       [harness({ operatorAssistant: true }), {}],
     ] as const)
       expect(names(withPg(h, opts), h.sessionId)).not.toContain("postgres_request");
@@ -1598,7 +1605,6 @@ describe("postgres_request", () => {
     expect(
       postgresRequestAllowed({
         plain: false,
-        profile: "trusted",
         agentProvider: "codex",
         postgresMode: "on-request",
         globalEnabled: true,
@@ -1622,6 +1628,36 @@ describe("postgres_request", () => {
       ),
     );
     expect(starting.payload).toMatchObject({ status: "starting" });
+  });
+
+  test("the session's host goes into the request; an unreachable sandbox says resume", async () => {
+    const h = harness({ sandboxApplied: "autonomous" });
+    const hosts: Array<string | undefined> = [];
+    const request = async (_id: string, _signal?: AbortSignal, host?: string) => {
+      hosts.push(host);
+      return { status: "starting" as const };
+    };
+    await call(
+      withPg(h, { request, postgresHost: async () => "10.0.2.2" }),
+      h.sessionId,
+      "postgres_request",
+      {},
+    );
+    await call(withPg(h, { request }), h.sessionId, "postgres_request", {});
+    expect(hosts).toEqual(["10.0.2.2", "127.0.0.1"]);
+    const out = toolPayload(
+      await call(
+        withPg(h, { request, postgresHost: async () => null }),
+        h.sessionId,
+        "postgres_request",
+        {},
+      ),
+    );
+    expect(out.isError).toBe(false);
+    expect(out.payload).toMatchObject({ status: "unreachable" });
+    expect(out.payload.next).toContain("resume");
+    expect(out.payload.next).toContain("PGlite");
+    expect(hosts).toHaveLength(2);
   });
 
   test("a failure is an isError result the agent can read", async () => {

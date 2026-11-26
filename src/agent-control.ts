@@ -81,6 +81,7 @@ import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { PostgresError, type PostgresService } from "./postgres";
+import { POSTGRES_HOST_LOOPBACK } from "./postgres-core";
 import {
   BUILD_STEP_STATUSES,
   validateBuildStepStatus,
@@ -136,6 +137,9 @@ export interface AgentControlDeps {
   /** On-demand Postgres (#4232); absent ⇒ `postgres_request` answers "unavailable" and the
    *  capability is off. */
   postgres?: Pick<PostgresService, "request" | "settings">;
+  /** Where this session reaches Postgres (#4239): a host, or null when its sandbox can't (an
+   *  egress-confined spawn that did not open the port). Absent ⇒ the host loopback. */
+  postgresHost?: (sessionId: string) => Promise<string | null>;
 }
 
 /** `self_status.preview`: the HUD's `PreviewReach` plus the dev port the slot proxies to. */
@@ -501,6 +505,8 @@ const POSTGRES_READY_NEXT =
   "Use this dsn as DATABASE_URL for your app and tests; never commit it. If a connection is refused later, call postgres_request again.";
 const POSTGRES_STARTING_NEXT =
   "The Postgres server is still starting (first use may pull the image). Call postgres_request again.";
+const POSTGRES_UNREACHABLE_NEXT =
+  "Postgres is not reachable from this session's sandbox: it was started before Postgres was opened for it, or it cannot reach the host. Ask the operator to resume this session, then call postgres_request again. Until then, never substitute PGlite, SQLite, an embedded Postgres or a Postgres of your own: leave the database-backed checks to CI's db job and say so in your report.";
 
 /** Ensure this session's clone DB and hand back its credentials, or `starting`. */
 async function applyPostgresRequest(
@@ -510,7 +516,10 @@ async function applyPostgresRequest(
 ): Promise<ApplyResult<unknown>> {
   if (!deps.postgres) return { ok: false, status: 503, error: "postgres unavailable" };
   try {
-    const outcome = await deps.postgres.request(sessionId, signal);
+    const host = deps.postgresHost ? await deps.postgresHost(sessionId) : POSTGRES_HOST_LOOPBACK;
+    if (host === null)
+      return { ok: true, data: { status: "unreachable", next: POSTGRES_UNREACHABLE_NEXT } };
+    const outcome = await deps.postgres.request(sessionId, signal, host);
     return outcome.status === "ready"
       ? { ok: true, data: { status: "ready", ...outcome.connection, next: POSTGRES_READY_NEXT } }
       : { ok: true, data: { status: "starting", next: POSTGRES_STARTING_NEXT } };
@@ -883,7 +892,8 @@ const POSTGRES_REQUEST: McpTool = {
     "fresh clone of this repo's template, owned by your own role; it is dropped when the session " +
     "is archived. Idempotent: every call returns the same credentials. `ready` carries `dsn` " +
     "(also host/port/database/user/password) — pass it to your app and tests as DATABASE_URL, " +
-    "never commit it. `starting` means the server is still coming up: call again. If a " +
+    "never commit it. `starting` means the server is still coming up: call again. " +
+    "`unreachable` means this session must be resumed first (follow its `next`). If a " +
     "connection is later refused, the server was stopped while idle: call this again.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };
@@ -1122,23 +1132,18 @@ export function reviewFeedbackResolveAllowed(o: {
   return !o.plain && reviewFeedbackResolveOn(o.repoConfig);
 }
 
-/** The `postgresRequest` rule (#4232), shared by the spawn path (resolved profile) and the row
- *  path (`sandboxApplied`): Postgres is on globally and the repo opted in. The DSN points at the
- *  host loopback, which trusted and standard sessions share; autonomous sessions sit in their own
- *  netns (a follow-up), and Codex sessions get no MCP control plane. */
+/** The `postgresRequest` rule (#4232), shared by the spawn path and the row path: Postgres is on
+ *  globally and the repo opted in. Any profile: an egress-confined autonomous spawn opens the port
+ *  through the slirp gateway (#4239), and the tool resolves the session's host at call time. Codex
+ *  sessions get no MCP control plane. */
 export function postgresRequestAllowed(o: {
   plain: boolean | undefined;
-  profile: string | null;
   agentProvider?: string | null;
   postgresMode: string | undefined;
   globalEnabled: boolean;
 }): boolean {
   return (
-    o.globalEnabled &&
-    o.postgresMode === "on-request" &&
-    !o.plain &&
-    o.profile !== "autonomous" &&
-    o.agentProvider !== "codex"
+    o.globalEnabled && o.postgresMode === "on-request" && !o.plain && o.agentProvider !== "codex"
   );
 }
 
@@ -1182,7 +1187,6 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
     reviewFeedbackResolve: reviewFeedbackResolveAllowed({ plain: session.plain, repoConfig }),
     postgresRequest: postgresRequestAllowed({
       plain: session.plain,
-      profile: session.sandboxApplied,
       agentProvider: session.agentProvider,
       postgresMode: repoConfig.postgresMode,
       globalEnabled: deps.postgres?.settings().enabled ?? false,

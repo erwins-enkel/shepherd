@@ -9518,7 +9518,7 @@
   "tooltip_postgres_lifecycle": "Lebenszyklus",
   "tooltip_postgres_lifecycle_body": "Der Server startet, wenn ein Agent anfragt, und stoppt nach der Leerlaufzeit ohne Verbindungen. Die Datenbank einer Session wird beim Archivieren gelöscht.",
   "tooltip_postgres_needs": "Voraussetzungen",
-  "tooltip_postgres_needs_body": "Docker auf diesem Rechner und Postgres eingeschaltet unter Einstellungen → Ressourcen. Vorerst nur Claude-Sessions in Trusted und Standard; Sessions bekommen das Tool beim nächsten Start oder Fortsetzen.",
+  "tooltip_postgres_needs_body": "Docker auf diesem Rechner und Postgres eingeschaltet unter Einstellungen → Ressourcen. Claude-Sessions in jedem Sandbox-Profil (Codex noch nicht); Sessions bekommen das Tool beim nächsten Start oder Fortsetzen.",
   "postgres_settings_heading": "Postgres",
   "postgres_settings_scope": "Ein gemeinsamer Postgres-Server, den Shepherd in Docker nur betreibt, solange Agenten ihn brauchen. Wähle seine Repos unten oder unter Repo-Einstellungen → Agent.",
   "postgres_settings_unavailable": "Die Postgres-Einstellungen sind nicht verfügbar.",

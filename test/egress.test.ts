@@ -652,32 +652,47 @@ describe("buildEgressConfig", () => {
     expect(() => config({ nftSet: "" })).toThrow(/invalid nftSet/);
   });
 
-  test("hostGateway: emits one allow rule after the @allowed accept, before ipv6 reject", () => {
-    const { nftRuleset } = config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port: 7330 } });
-    expect(nftRuleset).toContain("ip daddr 10.0.2.2 tcp dport 7330 accept");
-    const idxRule = nftRuleset.indexOf("ip daddr 10.0.2.2 tcp dport 7330 accept");
+  test("hostGateways: one allow rule each, after the @allowed accept, before ipv6 reject", () => {
+    const { nftRuleset } = config({
+      hostGateways: [
+        { ip: SLIRP_HOST_GATEWAY, port: 7330 },
+        { ip: SLIRP_HOST_GATEWAY, port: 54318 },
+      ],
+    });
     const idxAllowed = nftRuleset.indexOf("ip daddr @allowed tcp dport 443 accept");
     const idxIpv6 = nftRuleset.indexOf("meta nfproto ipv6 reject");
     expect(idxAllowed).toBeGreaterThan(-1);
-    expect(idxRule).toBeGreaterThan(idxAllowed);
-    expect(idxRule).toBeLessThan(idxIpv6);
+    for (const port of [7330, 54318]) {
+      const rule = `ip daddr 10.0.2.2 tcp dport ${port} accept`;
+      expect(nftRuleset.split(rule)).toHaveLength(2);
+      expect(nftRuleset.indexOf(rule)).toBeGreaterThan(idxAllowed);
+      expect(nftRuleset.indexOf(rule)).toBeLessThan(idxIpv6);
+    }
   });
 
-  test("hostGateway absent: ruleset has no host gateway and is byte-identical to no-hostGateway", () => {
-    const withGw = config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port: 7330 } });
+  test("hostGateways absent or empty: ruleset has no host gateway and is byte-identical", () => {
+    const withGw = config({ hostGateways: [{ ip: SLIRP_HOST_GATEWAY, port: 7330 }] });
     const without = config();
     expect(without.nftRuleset).not.toContain("10.0.2.2");
-    // Default config (no hostGateway) must be unchanged vs. an explicitly-omitted one.
     expect(config({}).nftRuleset).toBe(without.nftRuleset);
+    expect(config({ hostGateways: [] }).nftRuleset).toBe(without.nftRuleset);
     expect(withGw.nftRuleset).not.toBe(without.nftRuleset);
   });
 
-  test("hostGateway: invalid port throws a clear error", () => {
+  test("hostGateways: an invalid port or ip in any entry throws a clear error", () => {
     for (const port of [0, -1, 70000, 1.5]) {
-      expect(() => config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port } })).toThrow(
-        /invalid hostGateway\.port/,
-      );
+      expect(() =>
+        config({
+          hostGateways: [
+            { ip: SLIRP_HOST_GATEWAY, port: 7330 },
+            { ip: SLIRP_HOST_GATEWAY, port },
+          ],
+        }),
+      ).toThrow(/invalid hostGateway\.port/);
     }
+    expect(() => config({ hostGateways: [{ ip: "10.0.2.2; flush", port: 7330 }] })).toThrow(
+      /invalid hostGateway\.ip/,
+    );
   });
 });
 

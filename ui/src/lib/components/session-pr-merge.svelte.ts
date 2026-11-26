@@ -1,3 +1,4 @@
+import { SvelteSet } from "svelte/reactivity";
 import { ApiError, MergeRefusedError, mergePr } from "#lib/api.js";
 import { basename } from "#lib/basename.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -44,8 +45,8 @@ function mergeFailureText(e: unknown, git: GitState | null | undefined): string 
 export class SessionPrMerge {
   /** Replaced when a different session merges while one is in flight — see merge(). */
   flow = $state(new MergeConfirmFlow());
-  /** The session whose merge request is in flight; null when none. */
-  #inFlight = $state<string | null>(null);
+  /** Sessions whose merge request is in flight — several, once the operator switches and merges on. */
+  readonly #inFlight = new SvelteSet<string>();
   #error = $state<{ sessionId: string; text: string } | null>(null);
   readonly #current: () => string;
 
@@ -55,7 +56,7 @@ export class SessionPrMerge {
   }
 
   get busy(): boolean {
-    return this.#inFlight !== null && this.#inFlight === this.#current();
+    return this.#inFlight.has(this.#current());
   }
 
   /** Why the current session's last merge failed; cleared when the next one opens. */
@@ -64,7 +65,7 @@ export class SessionPrMerge {
   }
 
   merge(target: SessionMergeTarget): void {
-    if (this.#inFlight === target.sessionId) return;
+    if (this.#inFlight.has(target.sessionId)) return;
     const ctx = mergeConfirmFromGit(target.git, basename(target.repoPath));
     if (!ctx) return;
     // Everything the merge and its toast act on is captured NOW, at dialog-open time: the
@@ -75,7 +76,7 @@ export class SessionPrMerge {
     // Another session's merge still holds the flow: give this one its own.
     if (this.flow.busy) this.flow = new MergeConfirmFlow();
     this.flow.open(ctx, async (confirm) => {
-      this.#inFlight = t.sessionId;
+      this.#inFlight.add(t.sessionId);
       try {
         await mergePr(t.sessionId, { deleteBranch: true, confirm });
         // Only a note: the merge row, now MERGED, carries the next step (Decommission).
@@ -88,7 +89,7 @@ export class SessionPrMerge {
         if (t.sessionId === this.#current()) this.#error = { sessionId: t.sessionId, text };
         else toasts.info(text, { alert: true, key: `pr-merge:${t.sessionId}` });
       } finally {
-        if (this.#inFlight === t.sessionId) this.#inFlight = null;
+        this.#inFlight.delete(t.sessionId);
       }
     });
   }

@@ -531,6 +531,27 @@ describe("PrActionRow — merge outcome", () => {
     );
     expect(h.querySelector(".pr-error")).toBeNull();
   });
+  it("two sessions' merges in flight each keep their own merging state", async () => {
+    mergePrFn.mockImplementation(() => new Promise<void>(() => {}));
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    await mergeThroughDialog(h);
+    await screen.rerender({ session: session({ id: "sess-B" }), git: readyGit, status: "idle" });
+    await vi.waitFor(() => expect(row(h)!.classList.contains("merging")).toBe(false));
+    await mergeThroughDialog(h);
+    await vi.waitFor(() => expect(mergePrFn).toHaveBeenCalledTimes(2));
+
+    // Back on A, whose merge is still pending: it reads as merging and cannot start a second one.
+    await screen.rerender({ session: session(), git: readyGit, status: "idle" });
+    await vi.waitFor(() => expect(row(h)!.classList.contains("merging")).toBe(true));
+    mergeBtn(h).click();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dialog(h)).toBeNull();
+    expect(mergePrFn).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("PrActionRow — running critic blocks merge", () => {

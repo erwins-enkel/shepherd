@@ -48,3 +48,18 @@ export function urgentPip(statuses: (SessionStatus | null)[]): "working" | "bloc
   if (statuses.includes("running")) return "working";
   return null;
 }
+
+/** The least height the open assistant's card keeps before the collapsed bars fold to one line. */
+export const MIN_OPEN_CARD = 480;
+const STRIP = 28;
+const GAP = 6;
+const BAR = 56;
+
+/** Whether the collapsed bars should fold to one line: true when full two-line bars would leave
+ *  the open card under MIN_OPEN_CARD. Reckoned on full bars always, so folding never un-folds
+ *  itself. An unmeasured dock (0) stays full. */
+export function compactBars(dockHeight: number, collapsed: number): boolean {
+  if (dockHeight <= 0 || collapsed <= 0) return false;
+  const open = dockHeight - STRIP - GAP * (collapsed + 1) - BAR * collapsed;
+  return open < MIN_OPEN_CARD;
+}

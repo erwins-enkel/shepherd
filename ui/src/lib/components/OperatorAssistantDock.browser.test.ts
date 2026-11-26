@@ -63,7 +63,15 @@ function mount(over: Record<string, unknown> = {}) {
     panel,
     ...over,
   };
-  return { props, view: render(OperatorAssistantDock, props as never) };
+  const view = render(OperatorAssistantDock, props as never);
+  dockTrack(900);
+  return { props, view };
+}
+
+/** Sizes the dock's parent like the page's assistant track: a column of a given height. */
+function dockTrack(height: number) {
+  const track = document.querySelector<HTMLElement>("[data-assistant-dock]")?.parentElement;
+  if (track) track.style.cssText = `display:flex;flex-direction:column;height:${height}px`;
 }
 
 /** Waits until the element's text contains every part. */
@@ -146,6 +154,31 @@ describe("OperatorAssistantDock", () => {
     await expect.element(page.getByText(m.assistant_dock_label())).toBeVisible();
     await expect.element(page.getByRole("button", { name: m.assistant_dock_add() })).toBeVisible();
     await vi.waitFor(() => expect(openPanel()?.dataset.repo).toBe("global"));
+  });
+
+  it("many bars fold to one line when they would squeeze the open chat", async () => {
+    const many: AssistantEntry[] = [
+      ...ENTRIES,
+      ...["a", "b", "c", "d", "e"].map((r) => ({
+        repo: `/p/${r}`,
+        session: row(`oa-${r}`, `/p/${r}`),
+      })),
+    ];
+    mount({ entries: many });
+    const bar = page.getByRole("button", { name: m.assistant_bar_open({ name: "calendar" }) });
+    const folded = () =>
+      [...document.querySelectorAll(".ab")].map((b) => b.hasAttribute("data-compact"));
+
+    dockTrack(1600);
+    await textOf(bar, "Checks are green. May I merge?");
+    expect(folded().every((f) => !f)).toBe(true);
+
+    dockTrack(900);
+    await vi.waitFor(() => expect(folded().every(Boolean)).toBe(true));
+    expect(folded()).toHaveLength(7);
+    // One line: the state stays, the preview goes.
+    await textOf(bar, m.assistant_bar_blocked());
+    expect(bar.element().textContent).not.toContain("May I merge?");
   });
 
   it("on a phone the stack becomes tabs handed to the open panel", async () => {

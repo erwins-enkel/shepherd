@@ -5,6 +5,7 @@
   import { listRepos } from "#lib/api.js";
   import { basename } from "#lib/basename.js";
   import { displayStatus } from "#lib/display-status.js";
+  import { compactBars } from "#lib/assistant-dock.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { AssistantEntry, AssistantLifecycle } from "#lib/operator-assistant.svelte.js";
   import AssistantBar from "./AssistantBar.svelte";
@@ -49,6 +50,9 @@
   } = $props();
 
   const openEntry = $derived(entries.find((e) => e.repo === open) ?? entries[0]);
+  // Many bars fold to one line so the open chat keeps room to talk in.
+  let dockHeight = $state(0);
+  const compactStack = $derived(compactBars(dockHeight, entries.length - 1));
   const nameOf = (e: AssistantEntry) =>
     e.repo === null ? m.operator_assistant_title() : basename(e.repo);
   const pipOf = (e: AssistantEntry) => {
@@ -132,8 +136,10 @@
       stroke="currentColor"
       stroke-width="2"
       stroke-linecap="round"
-      aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg
+      aria-hidden="true"
     >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
     {#if !compact}<span>{m.assistant_dock_add()}</span>{/if}
   </button>
 {/snippet}
@@ -198,13 +204,18 @@
 {#if mobile}
   {@render panel(openEntry, tabs)}
 {:else}
-  <section class="oad" data-assistant-dock aria-label={m.assistant_dock_label()}>
+  <section
+    class="oad"
+    bind:clientHeight={dockHeight}
+    data-assistant-dock
+    aria-label={m.assistant_dock_label()}
+  >
     <div class="oad-strip">
-      <span class="oad-label"
-        >{entries.length > 1
+      <span class="oad-label">
+        {entries.length > 1
           ? m.assistant_dock_count({ count: entries.length })
-          : m.assistant_dock_label()}</span
-      >
+          : m.assistant_dock_label()}
+      </span>
       {#if addable}{@render addButton(false)}{/if}
       <button
         type="button"
@@ -218,8 +229,10 @@
           stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
-          aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg
+          aria-hidden="true"
         >
+          <path d="M6 6l12 12M18 6 6 18" />
+        </svg>
       </button>
       {@render menu()}
     </div>
@@ -236,6 +249,7 @@
           failed={lifecycle.failedFor(e.repo)}
           {workingBlocked}
           {backgroundBusy}
+          compact={compactStack}
           onexpand={() => onopen(e.repo)}
         />
       {/if}

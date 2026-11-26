@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEntry } from "./assistant-chat";
 import {
+  compactBars,
+  MIN_OPEN_CARD,
   newestReply,
   previewLine,
   repoHue,
@@ -53,5 +55,21 @@ describe("urgentPip", () => {
     expect(urgentPip(["running", "blocked", null])).toBe("blocked");
     expect(urgentPip(["idle", "running"])).toBe("working");
     expect(urgentPip(["idle", "done", null])).toBeNull();
+  });
+});
+
+describe("compactBars", () => {
+  it("folds when full bars would squeeze the open card", () => {
+    expect(compactBars(926, 7)).toBe(true);
+    expect(compactBars(926, 3)).toBe(false);
+  });
+  it("stays full when unmeasured or alone", () => {
+    expect(compactBars(0, 7)).toBe(false);
+    expect(compactBars(400, 0)).toBe(false);
+  });
+  it("keeps exactly the floor as full", () => {
+    // strip 28 + 2 gaps of 6 + one 56px bar leave exactly the floor
+    expect(compactBars(MIN_OPEN_CARD + 28 + 12 + 56, 1)).toBe(false);
+    expect(compactBars(MIN_OPEN_CARD + 28 + 12 + 55, 1)).toBe(true);
   });
 });

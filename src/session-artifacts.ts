@@ -385,9 +385,9 @@ async function openInWorktree(root: string, rel: string): Promise<FileHandle | n
   if (process.platform === "darwin") return open(target, flags | DARWIN_O_NOFOLLOW_ANY);
   if (process.platform !== "linux") return null;
   const fh = await open(target, flags);
-  const opened = await readlink(`/proc/self/fd/${fh.fd}`).catch(() => "");
+  const opened = await readlink(`/proc/self/fd/${fh.fd}`).catch(() => ""); // best-effort: an unreadable link is not inside the worktree, so nothing is read
   if (within(opened, root)) return fh;
-  await fh.close().catch(() => {});
+  await fh.close().catch(() => {}); // best-effort: the read is over, a failed close changes nothing
   return null;
 }
 
@@ -409,7 +409,7 @@ async function scanWorktreeFile(
     if (!opened.isFile()) return null;
     return await titleFromHandle(fh, Math.min(opened.size, TITLE_READ_LIMITS.maxBytes), state);
   } finally {
-    await fh.close().catch(() => {});
+    await fh.close().catch(() => {}); // best-effort: the read is over, a failed close changes nothing
   }
 }
 
@@ -430,6 +430,7 @@ export async function readTitleInWorktree(
   });
   try {
     return await Promise.race([
+      // best-effort: an unreadable file has no title, the caller falls back to the shortened url
       scanWorktreeFile(worktreePath, filePath, state).catch(() => null),
       timeout,
     ]);

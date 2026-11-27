@@ -314,6 +314,17 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
     expect(startCall.argv.slice(-2)).toEqual(["claude", "go"]);
   });
 
+  it("start() pins the Fast hard-off unless allowFastMode (#4244)", async () => {
+    const argvOf = async (opts?: { allowFastMode?: boolean }) => {
+      const rec: { method: string; params: unknown }[] = [];
+      const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
+      await driver.start("TASK-01", "/repo/worktree", ["claude", "go"], undefined, opts);
+      return (rec.find((r) => r.method === "agent.start")!.params as { argv: string[] }).argv;
+    };
+    expect(await argvOf()).toContain("CLAUDE_CODE_DISABLE_FAST_MODE=1");
+    expect(await argvOf({ allowFastMode: true })).not.toContain("CLAUDE_CODE_DISABLE_FAST_MODE=1");
+  });
+
   it("start() keeps the root pane for a headless codex exec role", async () => {
     const rec: { method: string; params: unknown }[] = [];
     const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);

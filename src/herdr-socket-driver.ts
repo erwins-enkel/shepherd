@@ -185,7 +185,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       // ≤0.7.4 keeps the legacy `agent.start` path.
       herdrUsesExternalRegistrationSpawn()
         ? this.startImpl075(name, cwd, argv, env, opts)
-        : this.startImpl(name, cwd, argv, env),
+        : this.startImpl(name, cwd, argv, env, opts),
     );
   }
 
@@ -219,7 +219,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     try {
       if (!rootPaneId) throw new Error(`herdr: tab.create returned no root pane for ${name}`);
       recordPowerPane(rootPaneId);
-      await this.runInReadyPane(rootPaneId, buildWrappedArgv(argv, env));
+      await this.runInReadyPane(rootPaneId, buildWrappedArgv(argv, env, opts));
       // Second defined checkpoint — same rationale as the CLI driver: the sandboxed branch below
       // resolves without a poll loop, so this is where a cancel catches it. The catch closes the
       // tab, taking the just-launched process with it.
@@ -383,6 +383,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent> {
     await this.ensureWorkspace(cwd);
     const created = await this.client.request("tab.create", { cwd, label: name, focus: false });
@@ -397,7 +398,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
         name,
         tabId,
         cwd,
-        buildWrappedArgv(argv, env),
+        buildWrappedArgv(argv, env, opts),
       );
       const started = parseAgentInfo(agent);
       // Retain the authoritative spawn handle (#1852) — see the CLI driver's startImpl.

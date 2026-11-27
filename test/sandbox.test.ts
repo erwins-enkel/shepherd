@@ -1196,6 +1196,23 @@ describe("buildMembraneFlags renderer env", () => {
   });
 });
 
+describe("buildMembraneFlags Fast mode hard-off (#4244)", () => {
+  test("pinned after --clearenv and after extraEnv, so a passed-through value cannot undo it", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ extraEnv: { CLAUDE_CODE_DISABLE_FAST_MODE: "0" } }),
+      detDeps,
+    );
+    const last = f.lastIndexOf("CLAUDE_CODE_DISABLE_FAST_MODE");
+    expect(f.slice(last - 1, last + 2)).toEqual(["--setenv", "CLAUDE_CODE_DISABLE_FAST_MODE", "1"]);
+    expect(last).toBeGreaterThan(f.indexOf("--clearenv"));
+  });
+
+  test("allowFastMode (task sessions) emits no pin", () => {
+    const f = buildMembraneFlags(fakeMembrane({ allowFastMode: true }), detDeps);
+    expect(f).not.toContain("CLAUDE_CODE_DISABLE_FAST_MODE");
+  });
+});
+
 describe("collectPassthroughEnv", () => {
   test("excludes secrets, includes allowlisted locale/display vars", () => {
     const out = collectPassthroughEnv({

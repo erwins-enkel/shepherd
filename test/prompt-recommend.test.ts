@@ -4,6 +4,8 @@ import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { spawnFootprintBytes } from "../src/argv-limit";
 import { buildWrappedArgv } from "../src/herdr";
+import type { HerdrStartOptions } from "../src/herdr";
+import { fastModeOffValue } from "./helpers/fast-mode";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -34,8 +36,14 @@ function makeDeps(over: Partial<import("../src/prompt-recommend").RecommendDeps>
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
     herdr: {
-      start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
-        calls.started = { name, cwd, argv, env };
+      start: async (
+        name: string,
+        cwd: string,
+        argv: string[],
+        env?: Record<string, string>,
+        opts?: HerdrStartOptions,
+      ) => {
+        calls.started = { name, cwd, argv, env, opts };
         return { terminalId: "term_r", cwd } as any;
       },
       stop: async () => {
@@ -121,6 +129,14 @@ test("recommendPrompt: claude path spawns opus, Write-only, dontAsk last, return
   expect(calls.started.argv[pm + 1]).toBe("dontAsk");
   expect(calls.stopped).toBe(true);
   expect(calls.cleaned).toBe(true);
+});
+
+test("recommendPrompt: the claude spawn is hard-off for Fast mode (#4244)", async () => {
+  const { deps, calls } = makeDeps({ readSuggestion: () => ({ prompt: "x" }) });
+  await recommendPrompt(args(), deps);
+  const { argv, env, opts } = calls.started;
+  expect(argv[0]).toBe("claude");
+  expect(fastModeOffValue(argv, env, opts)).toBe("1");
 });
 
 test("recommendPrompt: claude path offers only Write under the built-in tool trim (#3778)", async () => {

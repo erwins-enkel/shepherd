@@ -771,3 +771,13 @@ test("stop (0.7.5): closes the recorded tab of a started agent", async () => {
   await d.stop("term_075");
   expect(calls.some((c) => c[0] === "tab" && c[1] === "close" && c[2] === "t_075")).toBe(true);
 });
+
+test("start (0.7.5): the Fast hard-off rides the spawn script unless allowFastMode (#4244)", async () => {
+  const pinned = mkDriver(route);
+  await pinned.d.start("x", "/wt/a", ["claude", "go"]);
+  const run = (calls: string[][]) => calls.find((c) => c[0] === "pane" && c[1] === "run")!;
+  expect(readTypedScript(run(pinned.calls)[3])).toContain("'CLAUDE_CODE_DISABLE_FAST_MODE=1'");
+  const open = mkDriver(route);
+  await open.d.start("x", "/wt/a", ["claude", "go"], undefined, { allowFastMode: true });
+  expect(readTypedScript(run(open.calls)[3])).not.toContain("CLAUDE_CODE_DISABLE_FAST_MODE");
+});

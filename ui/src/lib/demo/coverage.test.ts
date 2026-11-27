@@ -341,6 +341,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // Speed controls require a locally installed Codex and are absent from demo payloads.
   "local Codex speed": ["/api/settings/codex-speed", "/api/sessions/:p/codex-speed"],
 
+  // The tail's `{ok:true}` carries no `trimmed`, so the Artifact row stays hidden and its enable
+  // button is never offered (#4293) — the demo has no Claude process to restart.
+  "per-session Artifact access": ["/api/sessions/:p/artifact"],
+
   // Actions on a session that the scripted demo never drives. Each returns `{ok:true}`,
   // which every one of these callers either ignores or reads only for `ok`.
   "session lifecycle actions": [

@@ -9046,7 +9046,7 @@
   "automation_layers_not_shared": "Not shared yet",
   "automation_layers_file": "From .shepherd/config.json",
   "automation_layers_share": "Set for all machines",
-  "automation_layers_review": "Review rule changes",
+  "automation_layers_review": "Review and save changes",
   "automation_layers_save": "Save rules in one commit",
   "automation_layers_discard": "Discard rule changes",
   "automation_layers_confirm": "Confirm repository rules",
@@ -9566,5 +9566,17 @@
   "tooltip_postgres_env_body": "The connection is set as DATABASE_URL plus PGHOST, PGPORT, PGUSER, PGPASSWORD and PGDATABASE, the same values postgres_request returns. A session that asked for a database on request gets them at its next resume.",
   "postgres_repos_auto_tag": "auto",
   "feat_postgres_auto_title": "Postgres at every spawn",
-  "feat_postgres_auto_body": "Repo settings → Agent → Postgres on request now offers Database at every spawn: each task session gets its own database when it starts, with DATABASE_URL and the PG* variables already set. That gives Codex sessions a database too, and a preview started for the session gets the same DATABASE_URL."
+  "feat_postgres_auto_body": "Repo settings → Agent → Postgres on request now offers Database at every spawn: each task session gets its own database when it starts, with DATABASE_URL and the PG* variables already set. That gives Codex sessions a database too, and a preview started for the session gets the same DATABASE_URL.",
+  "automation_layers_bar_label": "Repository rule changes",
+  "automation_layers_pending_count": "Unsaved rule changes: {count}",
+  "automation_layers_commit_note": "Saving creates one commit on {branch} in origin. Machine values are already saved.",
+  "automation_layers_unshared_note": "These rules apply only to this machine until you set them for all machines with one commit.",
+  "automation_layers_saved": "Rules saved in commit {commit}.",
+  "automation_layers_saved_pr": "The default branch refused the commit, so Shepherd opened a pull request. The current rules apply until it merges.",
+  "automation_layers_dismiss": "Dismiss",
+  "automation_layers_shared_note": "Changes here stay drafts until you review and save them as one commit.",
+  "automation_layers_draft": "Unsaved draft · not committed yet",
+  "automation_layers_saved_value": "Saved: {field} {value}",
+  "feat_repo_rules_save_bar_title": "See and save pending repo rules",
+  "feat_repo_rules_save_bar_body": "In Backlog → Settings, rule changes now stay visible until you save them. A bar at the bottom counts unsaved changes and offers Review and save changes on every section. Changed settings show their saved value, and the bar confirms the commit or pull request afterwards."
 }

@@ -76,6 +76,8 @@ test("repository policy: method and full leaf must match, including normalized s
     ["POST", "/api/sessions/abc/review-feedback/send/extra"],
     ["GET", "/api/sessions/abc/review-feedback/send"],
     ["POST", "/api/review-feedback/pending"],
+    // #4293: a repository token cannot widen a session's tools.
+    ["POST", "/api/sessions/abc/artifact"],
   ] as const)
     expect(policy(method, path)).toBeNull();
 });

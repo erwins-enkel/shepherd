@@ -1391,6 +1391,24 @@ export async function putSessionCodexSpeed(id: string, speed: CodexSpeed): Promi
   return response.json();
 }
 
+/** Whether the built-in tool trim denies Claude's Artifact tool to this session (#4293). */
+export function getSessionArtifact(id: string): Promise<{ trimmed: boolean }> {
+  return getJson(`/api/sessions/${encodeURIComponent(id)}/artifact`, "Artifact");
+}
+
+/** "Enable Artifact for this session" (#4293): `restarted` when Claude was resumed in the same
+ *  session to pick the tool up. Throws an {@link ApiError}; code `resume-refused` means the opt-in
+ *  is saved but applies only at the session's next resume. */
+export async function enableSessionArtifact(
+  id: string,
+): Promise<{ session: Session; restarted: boolean }> {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/artifact`, {
+    method: "POST",
+  });
+  if (!response.ok) throw await failed(response, "Artifact");
+  return response.json();
+}
+
 export const putDefaultEffort = (effort: string): Promise<{ defaultEffort: string }> =>
   patchSettings<{ defaultEffort: string }>({ defaultEffort: effort });
 

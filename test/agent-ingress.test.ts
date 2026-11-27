@@ -58,6 +58,9 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/amendments`))).toBe(false);
   expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/amendments/a-1`))).toBe(false);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/amendments`))).toBe(false);
+  // Enabling Artifact (#4293) widens the session's own tool set: the operator's call, never the agent's.
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/artifact`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/artifact`))).toBe(false);
   // The human/autopilot approve gate — NOT an agent action.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/approve`))).toBe(false);
   // The epic-draft approve gate (the whole #1507 point: agent never triggers GitHub writes).

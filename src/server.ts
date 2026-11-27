@@ -54,6 +54,7 @@ import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import {
+  artifactTrimmed,
   emitSessionAmendments,
   OperatorAssistantNotFoundError,
   OperatorAssistantSessionError,
@@ -8205,6 +8206,30 @@ async function handleSessionResume({ req, parts, deps }: Ctx): Promise<Response 
   return json(s);
 }
 
+// GET|POST /api/sessions/:id/artifact — Claude's Artifact tool in one session (#4293). GET answers
+// whether the built-in tool trim denies it (`trimmed`); POST is the operator's "Enable Artifact for
+// this session" (SessionService.enableArtifact: persist, then resume the same session when the tool
+// was trimmed). Operator app only: absent from AGENT_LEAF_ROUTES and from the repository-token
+// session routes, so an agent can never widen its own tool set.
+async function handleSessionArtifact({
+  req,
+  parts,
+  deps,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  if (!(parts[2] && parts[3] === "artifact" && !parts[4])) return null;
+  if (req.method !== "GET" && req.method !== "POST") return null;
+  const s = agentIngress ? null : deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  if (req.method === "GET")
+    return json({ trimmed: s.status !== "archived" && artifactTrimmed(s) }, 200, NO_STORE);
+  const r = await deps.service.enableArtifact(s.id);
+  if (!r.ok) return json({ error: r.code, code: r.code }, r.code === "not-found" ? 404 : 409);
+  // Same nudge as a resume: clients re-attach to the fresh agent.
+  if (r.restarted) deps.events.emit("session:status", { id: s.id, status: r.session.status });
+  return json({ session: r.session, restarted: r.restarted });
+}
+
 // POST /api/sessions/:id/ready — toggle the manual "ready to merge" flag.
 async function handleSessionReady({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "ready")) return null;
@@ -10243,6 +10268,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionRename,
     handleSessionHeavySlot,
     handleSessionResume,
+    handleSessionArtifact,
     handleSessionReady,
     handleSessionShelve,
     handleSessionDismissStall,

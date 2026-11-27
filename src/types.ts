@@ -130,6 +130,9 @@ export interface Session {
    *  automation (no autonomous steers, pushes, holds, auto-archive) until unshelved. The agent
    *  stays alive. Optional so pre-shelve fixtures need not carry it; hydrate always sets it. */
   shelved?: boolean;
+  /** The operator enabled Claude's Artifact tool for this session (#4293): the built-in tool trim
+   *  leaves it off the deny list on every later resume, whatever the task prompt says. */
+  artifactEnabled?: boolean;
   usagePause?: UsagePause | null;
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,

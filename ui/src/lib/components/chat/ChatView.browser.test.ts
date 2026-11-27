@@ -8,12 +8,17 @@ import { steers } from "#lib/steers.svelte.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
-  return { ...actual, getSessionMessages: vi.fn(), getCommands: vi.fn() };
+  return {
+    ...actual,
+    getSessionMessages: vi.fn(),
+    getCommands: vi.fn(),
+    getSessionArtifact: vi.fn(),
+  };
 });
 vi.mock("#lib/visibility.js", () => ({ pollWhileVisible: () => () => {} }));
 
 const { default: ChatView, forgetChatDrafts } = await import("./ChatView.svelte");
-const { getCommands, getSessionMessages } = await import("#lib/api.js");
+const { getCommands, getSessionArtifact, getSessionMessages } = await import("#lib/api.js");
 const mockMessages = vi.mocked(getSessionMessages);
 const mockCommands = vi.mocked(getCommands);
 
@@ -714,5 +719,35 @@ describe("ChatView drafts", () => {
     await first.unmount();
     render(ChatView, props({ sessionId: "draft-d", status: "idle" }));
     await expect.element(input()).toHaveValue("");
+  });
+});
+
+describe("ChatView Artifact access (#4293)", () => {
+  const input = () => page.getByRole("textbox");
+  const row = () => document.querySelector("[data-testid=artifact-access]");
+
+  beforeEach(() => {
+    vi.mocked(getSessionArtifact).mockReset().mockResolvedValue({ trimmed: true });
+  });
+
+  it("typing /design into a trimmed session's composer explains it and offers the opt-in", async () => {
+    render(ChatView, props({ status: "idle", agentProvider: "claude" }));
+    await input().fill("use this reference");
+    expect(row()).toBeNull();
+    await input().fill("/design use this reference");
+    await expect
+      .element(page.getByRole("button", { name: m.artifact_access_enable() }))
+      .toBeVisible();
+    expect(getSessionArtifact).toHaveBeenCalledWith("s1");
+  });
+
+  it("never in the Operator Assistant or a Codex session", async () => {
+    const assistant = await render(ChatView, props({ status: "idle", variant: "assistant" }));
+    await input().fill("/design a hero");
+    await assistant.unmount();
+    render(ChatView, props({ status: "idle", agentProvider: "codex" }));
+    await input().fill("/design a hero");
+    expect(row()).toBeNull();
+    expect(getSessionArtifact).not.toHaveBeenCalled();
   });
 });

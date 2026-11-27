@@ -1493,3 +1493,17 @@ function claudeApprovalsRow(state: ChecksState): TooltipRow {
   if (state === "success") return { text: m.tooltip_claude_ship_approvals_ok(), tone: "ok" };
   return { text: m.tooltip_claude_ship_approvals_observe(), tone: "idle" };
 }
+
+/** Why Claude's Artifact tool is off in a session and what enabling it costs (#4293). */
+export function artifactTrimExplanation(): TooltipExplanation {
+  return {
+    title: m.artifact_access_title(),
+    summary: m.tooltip_artifact_summary(),
+    sections: [
+      { label: m.tooltip_artifact_restart_label(), text: m.tooltip_artifact_restart() },
+      { label: m.tooltip_artifact_cost_label(), text: m.tooltip_artifact_cost() },
+      { label: m.tooltip_artifact_permissions_label(), text: m.tooltip_artifact_permissions() },
+      { label: m.tooltip_scope(), text: m.tooltip_artifact_scope() },
+    ],
+  };
+}

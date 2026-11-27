@@ -810,12 +810,33 @@ const COMMAND_BUILTIN_TOOLS: Record<string, (typeof UNUSED_BUILTIN_TOOLS)[number
  * The trimmed built-ins a session's task text needs back (#3778): one per `/design`,
  * `/workflow-authoring` or `/loop` token in it (`/loop 5m /design …` keeps both). Keyed off the
  * operator's task text (`input.prompt` at spawn, `sessions.prompt` on resume), so a resume offers the
- * same tool list and the prompt cache survives. A command typed later in the session is not seen —
- * the documented case for `SHEPHERD_TRIM_BUILTIN_TOOLS=false`.
+ * same tool list and the prompt cache survives. A command typed later in the session is not seen:
+ * the operator enables Artifact for that one session instead (#4293, SessionService.enableArtifact),
+ * or sets `SHEPHERD_TRIM_BUILTIN_TOOLS=false` for every session.
  */
 export function builtinToolsNeededBy(taskPrompt: string): string[] {
   const names = [...taskPrompt.matchAll(/(?:^|\s)\/([a-z][\w-]*)(?=\s|$)/g)].map((m) => m[1]!);
   return [...new Set(names.flatMap((n) => COMMAND_BUILTIN_TOOLS[n] ?? []))];
+}
+
+/** {@link builtinToolsNeededBy} for a stored session: its task prompt's tools, plus Artifact once
+ *  the operator enabled it for the session (#4293) — what a resume keeps off the deny list. */
+function sessionBuiltinToolsNeeded(s: Session): string[] {
+  const tools = builtinToolsNeededBy(s.prompt);
+  return s.artifactEnabled && !tools.includes("Artifact") ? [...tools, "Artifact"] : tools;
+}
+
+/** Whether the built-in tool trim keeps Claude's Artifact tool from this task session (#4293):
+ *  the trim is on, it is a Claude task (not a terminal or the Operator Assistant), and neither its
+ *  task prompt (`/design`) nor the operator asked for the tool. */
+export function artifactTrimmed(s: Session): boolean {
+  return (
+    config.trimBuiltinTools &&
+    (s.agentProvider ?? "claude") === "claude" &&
+    !isOperatorAssistant(s) &&
+    !s.terminal &&
+    !sessionBuiltinToolsNeeded(s).includes("Artifact")
+  );
 }
 
 type OverlayPermissions = { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
@@ -5331,7 +5352,7 @@ export class SessionService {
             (!!s.scheduleId &&
               this.deps.store.getSchedule(s.scheduleId)?.usageLimit?.pauseAtStop === true),
           ciWatchAllowed: isMergeTrainDriver(s),
-          builtinToolsNeeded: builtinToolsNeededBy(s.prompt),
+          builtinToolsNeeded: sessionBuiltinToolsNeeded(s),
         },
         caps,
       )),
@@ -8400,6 +8421,39 @@ export class SessionService {
     const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
     this.resumeInFlight.set(id, p);
     return p;
+  }
+
+  /**
+   * The operator's "Enable Artifact for this session" (#4293). Persists the opt-in, then — when the
+   * built-in tool trim denied Artifact to this session — force-resumes the SAME session: Claude
+   * reads its `--settings` overlay only at startup, so the tool appears only in a fresh
+   * `claude --resume`, which keeps the worktree and the whole conversation (see resume()). A turn
+   * in progress is interrupted. Only Shepherd's own deny entry goes: the operator's own Claude
+   * settings and account still decide whether the tool runs.
+   *
+   * `restarted: false` → nothing was trimmed, so no restart. `resume-refused` → the opt-in is
+   * saved and applies at the session's next resume.
+   */
+  async enableArtifact(
+    id: string,
+  ): Promise<
+    | { ok: true; session: Session; restarted: boolean }
+    | { ok: false; code: "not-found" | "archived" | "resume-refused" }
+  > {
+    const s = this.deps.store.get(id);
+    if (!s || isOperatorAssistant(s) || s.terminal || (s.agentProvider ?? "claude") !== "claude")
+      return { ok: false, code: "not-found" };
+    if (s.status === "archived") return { ok: false, code: "archived" };
+    const trimmed = artifactTrimmed(s);
+    if (!s.artifactEnabled) this.deps.store.setArtifactEnabled(id);
+    if (!trimmed) return { ok: true, session: this.deps.store.get(id) ?? s, restarted: false };
+    // A resume already in flight read the session before the opt-in: let it land, then restart.
+    // best-effort: its own caller owns its failure; this only waits for it to settle
+    await this.resumeInFlight.get(id)?.catch(() => null);
+    const resumed = await this.resume(id, { force: true });
+    return resumed
+      ? { ok: true, session: resumed, restarted: true }
+      : { ok: false, code: "resume-refused" };
   }
 
   /** resume() body; serialized per session by the public resume() guard. */

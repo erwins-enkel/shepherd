@@ -609,6 +609,7 @@ import {
 import { CiDownloads } from "./ci-download";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { ASSISTANT_INGRESS_HEADER } from "./assistant-ingress";
+import { playwrightMirrorTokenSubject, relayPlaywrightBuild } from "./playwright-mirror";
 import {
   parseAssistantViewFrame,
   renderAssistantView,
@@ -994,6 +995,8 @@ export interface AppDeps {
   /** Agent-ingress key verifier (audit F08, every session since #3337); absent → the agent
    *  ingress refuses every call except the token-gated `browser` route. */
   assistantIngress?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
+  /** Test seam: the Playwright download relay's upstream fetch; default global `fetch`. */
+  playwrightMirrorFetch?: typeof fetch;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {
@@ -16520,8 +16523,37 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
  *  after the spawn). */
 function ingressKeyAllowed(deps: AppDeps, id: string, sub: string, req: Request): boolean {
   if (sub === "browser") return true;
-  if (deps.store.get(id)?.status === "archived" && !deps.service.isRestoring(id)) return false;
+  if (!sessionIngressLive(deps, id)) return false;
   return deps.assistantIngress?.verify(id, req.headers.get(ASSISTANT_INGRESS_HEADER)) === true;
+}
+
+/** An archived session's ingress credentials are dead (#3370), except while `restore()` respawns it. */
+function sessionIngressLive(deps: AppDeps, id: string): boolean {
+  return deps.store.get(id)?.status !== "archived" || deps.service.isRestoring(id);
+}
+
+/** `GET /api/sessions/<id>/playwright/<token>/builds/…` — the Playwright download relay
+ *  (src/playwright-mirror.ts). Playwright's downloader cannot send the ingress-key header, so the
+ *  token rides the path: HMAC of a dedicated subject, granting nothing but public builds. */
+function isPlaywrightMirrorPath(method: string, parts: string[]): boolean {
+  return (
+    method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "sessions" &&
+    !!parts[2] &&
+    parts[3] === "playwright" &&
+    !!parts[4] &&
+    parts[5] === "builds"
+  );
+}
+
+async function handlePlaywrightMirror(deps: AppDeps, url: URL, parts: string[]): Promise<Response> {
+  const id = parts[2]!;
+  const tokenOk =
+    deps.assistantIngress?.verify(playwrightMirrorTokenSubject(id), parts[4]) === true;
+  if (!tokenOk || !sessionIngressLive(deps, id)) return json({ error: "unauthorized" }, 401);
+  if (url.search) return json({ error: "not found" }, 404);
+  return relayPlaywrightBuild(parts.slice(5).join("/"), deps.playwrightMirrorFetch);
 }
 
 /** Restricted ingress app: 404 unless the request is an allowlisted agent→server route; otherwise
@@ -16537,6 +16569,8 @@ export function makeAgentIngressApp(deps: AppDeps) {
     async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
+      if (isPlaywrightMirrorPath(req.method, parts))
+        return handlePlaywrightMirror(deps, url, parts);
       if (!isAgentIngressRoute(req.method, parts)) return json({ error: "not found" }, 404);
       if (!ingressKeyAllowed(deps, parts[2]!, parts[3] ?? "", req))
         return json({ error: "unauthorized" }, 401);
@@ -16772,6 +16806,10 @@ export function pickTerminalBridgeKind(opts: {
 const MERGE_ROUTE_TIMEOUT_SEC = Math.ceil(MERGE_ASYNC_MAX_WAIT_MS / 1000) + 60;
 
 export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
+  // The Playwright download relay streams ~100 MB+ browser zips; an upstream stall past 10s must
+  // not sever an otherwise-healthy download.
+  if (req.method === "GET" && /^\/api\/sessions\/[^/]+\/playwright\//.test(url.pathname))
+    return 120;
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
   // answer-ask (#3165) types up to ~4 questions × ~8 keys at ASK_KEY_GAP_MS each (plus a queued

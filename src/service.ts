@@ -57,6 +57,7 @@ import {
   type PostgresNoticeMode,
 } from "./postgres-contract";
 import { POSTGRES_HOST_LOOPBACK, postgresEnv, postgresRepoOn } from "./postgres-core";
+import { playwrightMirrorTokenSubject } from "./playwright-mirror";
 import { bootstrapSessionPhase } from "./bootstrap";
 import {
   HOUSE_STACK_SETTING,
@@ -2846,6 +2847,8 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
  * it would only widen the surface.
  */
 const AGENT_API_URL_ENV = "SHEPHERD_AGENT_API_URL";
+/** Playwright's browser-download mirror override (src/playwright-mirror.ts). */
+const PLAYWRIGHT_DOWNLOAD_HOST_ENV = "PLAYWRIGHT_DOWNLOAD_HOST";
 /** Pin the server-selected origin separately so the runner can reject foreign non-loopback URLs. */
 const AGENT_API_ORIGIN_ENV = "SHEPHERD_AGENT_API_ORIGIN";
 
@@ -3688,6 +3691,25 @@ export class SessionService {
   }
 
   /**
+   * `PLAYWRIGHT_DOWNLOAD_HOST` for an egress-confined spawn that reaches the agent ingress via the
+   * slirp gateway: Playwright then downloads browsers through Shepherd's relay
+   * (src/playwright-mirror.ts) instead of needing `storage.googleapis.com` allowed. Empty otherwise
+   * (no firewall, no reachable ingress, or no signer for the path token).
+   */
+  private playwrightMirrorEnv(
+    sessionId: string,
+    agentApiUrl: string,
+    egressOn: boolean,
+  ): Record<string, string> {
+    const signer = this.deps.assistantIngress;
+    if (!egressOn || !signer || new URL(agentApiUrl).hostname !== SLIRP_HOST_GATEWAY) return {};
+    const token = signer.sign(playwrightMirrorTokenSubject(sessionId));
+    return {
+      [PLAYWRIGHT_DOWNLOAD_HOST_ENV]: `${agentApiUrl}/api/sessions/${sessionId}/playwright/${token}`,
+    };
+  }
+
+  /**
    * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. ALL agents are
    * routed through the restricted agent-ingress listener, which is exempt from the human auth gate
    * (issue #1079) so callbacks survive fail-closed without any credential in the agent's env:
@@ -4224,6 +4246,7 @@ export class SessionService {
     // #3337: the ingress key file; only its path rides the env, beside AGENT_API_URL_ENV.
     const ingress = await this.sessionIngressFiles(ctx.sessionId, ctx.operatorAssistant === true);
     const ingressEnv = ingress.env;
+    const playwrightEnv = this.playwrightMirrorEnv(ctx.sessionId, agentApiUrl, egressOn);
 
     // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
     // classic pin). Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped
@@ -4267,6 +4290,8 @@ export class SessionService {
           extraEnv: {
             ...passthroughEnv,
             ...rendererEnv,
+            // Before patchEnv: an operator/plugin-set PLAYWRIGHT_DOWNLOAD_HOST wins.
+            ...playwrightEnv,
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
             [AGENT_API_URL_ENV]: agentApiUrl,

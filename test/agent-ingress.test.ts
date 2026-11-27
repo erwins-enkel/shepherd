@@ -6,8 +6,10 @@ import {
   isAgentIngressRoute,
   makeAgentIngressApp,
   serveAgentIngress,
+  slowRequestTimeoutSec,
   type AppDeps,
 } from "../src/server";
+import { playwrightMirrorTokenSubject } from "../src/playwright-mirror";
 import { config } from "../src/config";
 import { BrowserTokenSigner } from "../src/browser-token";
 import type { CdpClient, CdpPipeClient } from "../src/cdp-pipe";
@@ -1059,4 +1061,83 @@ test("ingress: the operator resolving mid-wait answers the agent's call with don
 test("ingress: the operator-only resolve route is not reachable by agents", () => {
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/login-request`))).toBe(false);
   expect(isAgentIngressRoute("GET", ["api", "login-requests"])).toBe(false);
+});
+
+// ── Playwright download relay (src/playwright-mirror.ts) ─────────────────────────
+const CFT = "builds/cft/159.0.8154.6/linux64/chrome-headless-shell-linux64.zip";
+const GCS =
+  "https://storage.googleapis.com/chrome-for-testing-public/159.0.8154.6/linux64/chrome-headless-shell-linux64.zip";
+
+function mirrorDeps() {
+  const fetched: string[] = [];
+  const deps: AppDeps = {
+    ...makeDeps(),
+    playwrightMirrorFetch: (async (input: string | URL | Request) => {
+      const u = String(input);
+      fetched.push(u);
+      if (u === `https://cdn.playwright.dev/${CFT}`)
+        return new Response(null, { status: 307, headers: { location: GCS } });
+      if (u === GCS) return new Response("ZIP", { status: 200 });
+      return new Response(null, { status: 404 });
+    }) as typeof fetch,
+  };
+  return { deps, fetched };
+}
+
+const mirrorUrl = (id: string, token: string, path = CFT) =>
+  `http://x/api/sessions/${id}/playwright/${token}/${path}`;
+
+test("playwright relay: a valid session token streams the build via the GCS hop", async () => {
+  const { deps, fetched } = mirrorDeps();
+  const token = SIGNER.sign(playwrightMirrorTokenSubject(ID));
+  const res = await makeAgentIngressApp(deps).fetch(new Request(mirrorUrl(ID, token)));
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("ZIP");
+  expect(fetched).toEqual([`https://cdn.playwright.dev/${CFT}`, GCS]);
+});
+
+test("playwright relay: wrong token, the bare ingress key, or no signer → 401, nothing fetched", async () => {
+  const { deps, fetched } = mirrorDeps();
+  const app = makeAgentIngressApp(deps);
+  expect((await app.fetch(new Request(mirrorUrl(ID, "deadbeef")))).status).toBe(401);
+  // The ingress key itself (sign(id)) is not a relay token.
+  expect((await app.fetch(new Request(mirrorUrl(ID, SIGNER.sign(ID))))).status).toBe(401);
+  const unsigned = makeAgentIngressApp({ ...deps, assistantIngress: undefined });
+  const token = SIGNER.sign(playwrightMirrorTokenSubject(ID));
+  expect((await unsigned.fetch(new Request(mirrorUrl(ID, token)))).status).toBe(401);
+  expect(fetched).toEqual([]);
+});
+
+test("playwright relay: an archived session's token is dead", async () => {
+  const { deps, fetched } = mirrorDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  deps.store.archive(s.id);
+  const token = SIGNER.sign(playwrightMirrorTokenSubject(s.id));
+  const res = await makeAgentIngressApp(deps).fetch(new Request(mirrorUrl(s.id, token)));
+  expect(res.status).toBe(401);
+  expect(fetched).toEqual([]);
+});
+
+test("playwright relay: off-shape path or query → 404; non-GET never reaches it", async () => {
+  const { deps, fetched } = mirrorDeps();
+  const app = makeAgentIngressApp(deps);
+  const token = SIGNER.sign(playwrightMirrorTokenSubject(ID));
+  expect(
+    (await app.fetch(new Request(mirrorUrl(ID, token, "builds/x/1/../../evil.zip")))).status,
+  ).toBe(404);
+  expect((await app.fetch(new Request(`${mirrorUrl(ID, token)}?u=https://evil`))).status).toBe(404);
+  const post = await app.fetch(new Request(mirrorUrl(ID, token), { method: "POST" }));
+  expect(post.status).toBe(404);
+  expect(fetched).toEqual([]);
+});
+
+test("slowRequestTimeoutSec: relay GETs get a 120s idle budget", () => {
+  const u = new URL(mirrorUrl(ID, "t"));
+  expect(slowRequestTimeoutSec(new Request(u), u)).toBe(120);
 });

@@ -52,6 +52,7 @@ import {
 } from "../src/service";
 import { ModelUnavailableError } from "../src/claude-account-models";
 import { BrowserTokenSigner } from "../src/browser-token";
+import { playwrightMirrorTokenSubject } from "../src/playwright-mirror";
 import type { SandboxProfile } from "../src/sandbox";
 import { agentMcpConfigArg, agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
@@ -9831,8 +9832,10 @@ function baseUrlService(opts: {
   browserToken?: BrowserTokenSigner;
   browserAttachDir?: string;
   slotShimDir?: string;
+  assistantIngress?: BrowserTokenSigner;
 }) {
   return new SessionService({
+    assistantIngress: opts.assistantIngress,
     providerHandoffGit: async () => null,
     providerHandoffDeliver: async () => true,
     transcriptExists: () => true, // Fixture conversation is persisted.
@@ -12183,4 +12186,53 @@ test("new Codex sessions snapshot the Fast default without rewriting existing ch
   } finally {
     config.defaultCodexSpeed = savedDefault;
   }
+});
+
+// ── Playwright download relay env (src/playwright-mirror.ts) ─────────────────────
+async function playwrightSpawn(opts: {
+  profile: "autonomous" | "standard";
+  signer?: BrowserTokenSigner;
+}): Promise<{ id: string; argv?: string[]; env?: Record<string, string> }> {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: opts.profile });
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    detectEgressHostLoopback: () => true,
+    agentIngressPort: () => 7331,
+    assistantIngress: opts.signer,
+  });
+  try {
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    return { id: s.id, ...record };
+  } finally {
+    rmSync(shepherdRuntimeDir("egress"), { recursive: true, force: true });
+  }
+}
+
+test("playwright relay env: egress-confined spawn gets PLAYWRIGHT_DOWNLOAD_HOST at the ingress", async () => {
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 3));
+  const r = await playwrightSpawn({ profile: "autonomous", signer });
+  const token = signer.sign(playwrightMirrorTokenSubject(r.id));
+  expect(setenvValue(r.argv, "PLAYWRIGHT_DOWNLOAD_HOST")).toBe(
+    `http://10.0.2.2:7331/api/sessions/${r.id}/playwright/${token}`,
+  );
+});
+
+test("playwright relay env: absent for a non-confined spawn or without a signer", async () => {
+  const signer = new BrowserTokenSigner(Buffer.alloc(32, 3));
+  const standard = await playwrightSpawn({ profile: "standard", signer });
+  expect(setenvValue(standard.argv, "PLAYWRIGHT_DOWNLOAD_HOST")).toBeUndefined();
+  expect(standard.env?.PLAYWRIGHT_DOWNLOAD_HOST).toBeUndefined();
+  const unsigned = await playwrightSpawn({ profile: "autonomous" });
+  expect(setenvValue(unsigned.argv, "PLAYWRIGHT_DOWNLOAD_HOST")).toBeUndefined();
 });

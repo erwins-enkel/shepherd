@@ -440,6 +440,7 @@ const OVERLAY_MAPS = {
   reviewFeedbackBots: "reviewFeedbackBots",
   reviewFeedbackResolve: "reviewFeedbackResolve",
   postgresMode: "postgresMode",
+  postgresBypassRls: "postgresBypassRls",
   usageCeilingPct: "usageCeiling",
   automationConfirmed: "confirmed",
 } as const satisfies Partial<Record<keyof RepoConfigPatch, keyof RepoConfigStore>>;
@@ -494,6 +495,7 @@ export class RepoConfigStore {
   reviewFeedbackMode = $state<Record<string, ReviewFeedbackMode>>({}); // PR review feedback → agent (default "autopilot", #4126)
   reviewFeedbackBots = $state<Record<string, string[]>>({}); // review bots whose feedback counts (default preset, #4126)
   postgresMode = $state<Record<string, PostgresMode>>({}); // on-demand Postgres per repo (default off, #4232)
+  postgresBypassRls = $state<Record<string, boolean>>({}); // BYPASSRLS for the repo's session roles (default off)
   reviewFeedbackResolve = $state<Record<string, boolean>>({}); // reply + resolve addressed inline threads (default off, #4139)
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
   confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
@@ -604,9 +606,13 @@ export class RepoConfigStore {
     if (!this.loaded[repoPath]) this.loaded = { ...this.loaded, [repoPath]: true };
   }
 
-  /** #4232: an older server's absent `postgresMode` reads as off. */
+  /** #4232: an older server's absent `postgresMode` / `postgresBypassRls` reads as off. */
   private ingestPostgres(repoPath: string, c: RepoConfigResponse) {
     this.postgresMode = { ...this.postgresMode, [repoPath]: c.postgresMode ?? "off" };
+    this.postgresBypassRls = {
+      ...this.postgresBypassRls,
+      [repoPath]: c.postgresBypassRls ?? false,
+    };
   }
 
   /** The response fields a write may omit: absent leaves the stored value as-is. */
@@ -927,6 +933,11 @@ export class RepoConfigStore {
     await this.write(repoPath, { postgresMode: on ? "auto" : "on-request" });
   }
 
+  /** "RLS bypass": BYPASSRLS for the repo's session roles; optimistic, reverted on failure. */
+  async setPostgresBypassRls(repoPath: string, on: boolean) {
+    await this.write(repoPath, { postgresBypassRls: on });
+  }
+
   async toggleSharedBrowser(repoPath: string) {
     await this.write(repoPath, { sharedBrowserEnabled: !this.sharedBrowserOn(repoPath) });
   }
@@ -1081,6 +1092,10 @@ export class RepoConfigStore {
 
   postgresAuto(repoPath: string): boolean {
     return this.postgresMode[repoPath] === "auto";
+  }
+
+  postgresBypassRlsOn(repoPath: string): boolean {
+    return this.postgresBypassRls[repoPath] ?? false;
   }
 
   sharedBrowserOn(repoPath: string): boolean {

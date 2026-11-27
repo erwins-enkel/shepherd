@@ -260,6 +260,7 @@
            how they get a database. -->
       {#if repoConfig.postgresOn(repoPath)}
         {@const autoOn = repoConfig.postgresAuto(repoPath)}
+        {@const rlsOn = repoConfig.postgresBypassRlsOn(repoPath)}
         <div class="rs-choice" data-field="postgresAuto">
           <label class={["rs-choice-opt", { on: autoOn }]}>
             <input
@@ -275,6 +276,25 @@
               </span>
               <span class="rs-choice-desc" id="{pgAutoId}-desc">
                 {m.automation_postgres_auto_desc()}
+              </span>
+            </span>
+          </label>
+        </div>
+        <div class="rs-choice" data-field="postgresBypassRls">
+          <label class={["rs-choice-opt", { on: rlsOn }]}>
+            <input
+              type="checkbox"
+              checked={rlsOn}
+              aria-labelledby="{pgAutoId}-rls-name"
+              aria-describedby="{pgAutoId}-rls-desc"
+              onchange={(e) => repoConfig.setPostgresBypassRls(repoPath, e.currentTarget.checked)}
+            />
+            <span class="rs-choice-text">
+              <span class="rs-choice-name" id="{pgAutoId}-rls-name">
+                {m.automation_postgres_bypass_rls_name()}
+              </span>
+              <span class="rs-choice-desc" id="{pgAutoId}-rls-desc">
+                {m.automation_postgres_bypass_rls_desc()}
               </span>
             </span>
           </label>

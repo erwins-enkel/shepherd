@@ -804,6 +804,10 @@ export interface RepoConfig {
   /** #4232: on-demand Postgres for this repo's sessions — machine-local, never a committed rule
    *  (default "off"). Reads always fill it. Omitted on a write → unchanged. */
   postgresMode?: PostgresMode;
+  /** Session roles of this repo get BYPASSRLS, for test harnesses whose admin connection must
+   *  skip FORCE RLS — machine-local like postgresMode (default false). Reads always fill it.
+   *  Omitted on a write → unchanged. */
+  postgresBypassRls?: boolean;
 }
 
 export type PostgresLeaseState = "active" | "dropping";
@@ -1383,6 +1387,7 @@ type RepoCfgRow = {
   reviewFeedbackBots: string | null;
   reviewFeedbackResolve: number;
   postgresMode: string | null;
+  postgresBypassRls: number;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -1654,6 +1659,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
       reviewFeedbackResolve: false,
       postgresMode: "off",
+      postgresBypassRls: false,
     };
   }
   return {
@@ -1708,6 +1714,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     ],
     reviewFeedbackResolve: !!r.reviewFeedbackResolve,
     postgresMode: isPostgresMode(r.postgresMode) ? r.postgresMode : "off",
+    postgresBypassRls: !!r.postgresBypassRls,
   };
 }
 
@@ -1759,6 +1766,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     reviewFeedbackBotsJson(cfg.reviewFeedbackBots),
     Number(Boolean(cfg.reviewFeedbackResolve)),
     cfg.postgresMode ?? "off",
+    Number(Boolean(cfg.postgresBypassRls)),
     Date.now(),
   ];
 }
@@ -3171,7 +3179,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
-                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode
+                pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, postgresBypassRls
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -3188,8 +3196,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, claudeReviewSkipsCritic, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, epicClaimAutoRelease, claudeShipStewardDefer, mergeWithoutCi, epicStacksEnabled, labelDrainAlongsideEpics, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, postgresBypassRls, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -3235,15 +3243,26 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          reviewFeedbackBots = excluded.reviewFeedbackBots,
          reviewFeedbackResolve = excluded.reviewFeedbackResolve,
          postgresMode = excluded.postgresMode,
+         postgresBypassRls = excluded.postgresBypassRls,
          updatedAt = excluded.updatedAt`,
       repoConfigParams(repoPath, cfg),
     );
   }
 
-  /** #4232: a write that omits postgresMode keeps the stored value. */
+  /** #4232: a write that omits postgresMode (or postgresBypassRls) keeps the stored value. */
   private withStoredPostgresMode(repoPath: string, cfg: RepoConfig): RepoConfig {
-    if (cfg.postgresMode !== undefined) return cfg;
-    return { ...cfg, postgresMode: this.getLocalRepoConfig(repoPath).postgresMode };
+    if (cfg.postgresMode !== undefined && cfg.postgresBypassRls !== undefined) return cfg;
+    const stored = this.getLocalRepoConfig(repoPath);
+    return {
+      ...cfg,
+      postgresMode: cfg.postgresMode ?? stored.postgresMode,
+      postgresBypassRls: cfg.postgresBypassRls ?? stored.postgresBypassRls,
+    };
+  }
+
+  /** The repo's session roles get BYPASSRLS (PostgresService provision). Machine-local. */
+  postgresBypassRls(repoPath: string): boolean {
+    return this.getLocalRepoConfig(repoPath).postgresBypassRls === true;
   }
 
   /** #4126: a write that omits the review-feedback fields keeps the stored values. */
@@ -8547,6 +8566,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #4139: opt-in reply + resolve of inline threads the agent declares addressed.
     add("reviewFeedbackResolve", `reviewFeedbackResolve INTEGER NOT NULL DEFAULT 0`);
     add("postgresMode", `postgresMode TEXT NOT NULL DEFAULT 'off'`);
+    add("postgresBypassRls", `postgresBypassRls INTEGER NOT NULL DEFAULT 0`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

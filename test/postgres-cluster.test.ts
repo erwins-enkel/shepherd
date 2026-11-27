@@ -109,12 +109,12 @@ const leases: { db: string; role: string }[] = [];
 const verifiedDbs = new Set<string>();
 
 /** PostgresService.provision(), minus the store. */
-function provision(repo: string, id = randomUUID()): Sess {
+function provision(repo: string, id: string = randomUUID(), bypassRls = false): Sess {
   const s = { id, db: sessionDb(id), pw: pw(), repo };
   if (!leases.some((l) => l.db === s.db)) leases.push({ db: s.db, role: repoRole(repo) });
   su(baseScript(repo));
   su(adoptScript(leases) || "SELECT 1;");
-  const exists = su(roleScript(id, s.pw, repo, { verified: verifiedDbs.has(s.db) }))
+  const exists = su(roleScript(id, s.pw, repo, { verified: verifiedDbs.has(s.db), bypassRls }))
     .split("\n")
     .pop();
   verifiedDbs.add(s.db);
@@ -194,6 +194,22 @@ describe.skipIf(!AVAILABLE)("login guard on a real postgres:18 (#4270)", () => {
       "1",
     );
     expect(as("mvp_app_1", appPw, "mvp_test_1").ok).toBe(true);
+  }, 60_000);
+
+  it("repo RLS-bypass opt-in: the owner skips FORCE RLS; shared roles never keep BYPASSRLS", () => {
+    let D = provision("/repos/rlsbypass", randomUUID(), true);
+    const seed =
+      "CREATE TABLE t (id int);\nALTER TABLE t ENABLE ROW LEVEL SECURITY;\nALTER TABLE t FORCE ROW LEVEL SECURITY;\nINSERT INTO t VALUES (1);";
+    expect(as(D.db, D.pw, D.db, seed).err).toBe("");
+    // Opt-in off: the next provision takes the bypass back.
+    D = provision(D.repo, D.id);
+    const r = as(D.db, D.pw, D.db, "INSERT INTO t VALUES (2);");
+    expect(r.ok).toBe(false);
+    expect(r.err).toContain("row-level security");
+    D = provision(D.repo, D.id, true);
+    expect(as(D.db, D.pw, D.db, "CREATE ROLE rls_app NOLOGIN BYPASSRLS;").err).toBe("");
+    tick();
+    expect(su("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'rls_app';")).toBe("f");
   }, 60_000);
 
   it("(b) another session is refused", () => {

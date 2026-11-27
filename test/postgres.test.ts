@@ -387,6 +387,24 @@ describe("app roles", () => {
   });
 });
 
+describe("RLS bypass opt-in", () => {
+  it("provision grants BYPASSRLS only while the repo opts in", async () => {
+    const s = svc();
+    const id = mkSession();
+    const bypass = `ALTER ROLE ${sessionDb(id)} BYPASSRLS;`;
+    const roleCalls = () =>
+      docker.calls.map((c) => c.input ?? "").filter((i) => i.includes("AS shepherd_squatted"));
+    await s.request(id);
+    expect(roleCalls().at(-1)).not.toContain(bypass);
+    store.setRepoConfig("/repos/demo", {
+      ...store.getLocalRepoConfig("/repos/demo"),
+      postgresBypassRls: true,
+    });
+    await s.request(id);
+    expect(roleCalls().at(-1)).toContain(bypass);
+  });
+});
+
 describe("finish (#4270)", () => {
   it("a role script that failed leaves the lease unverified: the retry still treats an existing role as squatted", async () => {
     const s = svc();

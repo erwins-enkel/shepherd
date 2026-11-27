@@ -3618,6 +3618,7 @@ export type RepoConfigPatch = Partial<
     | "reviewFeedbackBots"
     | "reviewFeedbackResolve"
     | "postgresMode"
+    | "postgresBypassRls"
   >
 > & { automationConfirmed?: boolean; leitrechner?: string | null };
 

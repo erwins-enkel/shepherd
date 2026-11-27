@@ -43,6 +43,12 @@ get it.
    sets the connection in the session's environment. Codex sessions need this,
    since they have no `postgres_request` tool. Repos with it show an **auto**
    tag in the **Repos with Postgres** list.
+4. **Optional: Row-level security bypass.** Tick it under the same switch when
+   the repo's tests seed data through an admin connection that must skip
+   row-level security, as the superuser does in CI (tables with `FORCE ROW
+   LEVEL SECURITY`). The session's role then gets `BYPASSRLS`. It applies the
+   next time the session's database is set up: its next `postgres_request` or
+   `postgres_reset`, or its next spawn with **Database at every spawn**.
 
 ## How agents use it
 
@@ -178,8 +184,12 @@ The port is reachable from every Trusted and Standard sandbox on this machine;
 the boundary is the credentials. Each session's role can connect only to its own
 database, and the superuser password never leaves Shepherd. A session's role
 may create roles (`CREATEROLE`), so migrations can set up app roles. Postgres
-still refuses it superuser and `BYPASSRLS` roles, built-in `pg_*` roles, and
-changes to other sessions' roles. Logins to Shepherd's own databases are pinned
+still refuses it superuser roles, built-in `pg_*` roles, and changes to other
+sessions' roles, and `BYPASSRLS` unless the repo has **Row-level security
+bypass** on. That setting reaches no other data: the role owns its databases
+and could switch off row-level security there anyway. Roles the repo's
+migrations share are reset to `NOBYPASSRLS` about once a minute while the
+server runs, and whenever a session's database is set up. Logins to Shepherd's own databases are pinned
 to the database named like the user, so no role, however it was granted, opens
 another session's database. On Postgres 17 and newer the role may also create
 databases (`CREATEDB`). A login guard then lets into such a database only the

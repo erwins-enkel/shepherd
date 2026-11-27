@@ -302,12 +302,14 @@ export function baseScript(repoPath: string): string {
  *  repo's migrations create app roles (PG16+ limits it to roles it administers, no SUPERUSER /
  *  BYPASSRLS / CREATEDB); membership in the repo role inherits ADMIN on the roles sibling sessions
  *  created (`adoptScript`). Re-applied on every request, so older session roles get it too.
- *  PG16+ only (`PG16`); on older servers the role stays NOCREATEROLE. */
+ *  PG16+ only (`PG16`); on older servers the role stays NOCREATEROLE. `bypassRls` (the repo's
+ *  `postgresBypassRls` opt-in) adds BYPASSRLS after the NOBYPASSRLS reset: the role owns its
+ *  databases and could drop FORCE RLS there anyway; connection isolation is unchanged. */
 export function roleScript(
   sessionId: string,
   password: string,
   repoPath: string,
-  { verified = true }: { verified?: boolean } = {},
+  { verified = true, bypassRls = false }: { verified?: boolean; bypassRls?: boolean } = {},
 ): string {
   const db = sessionDb(sessionId);
   // A squatted session role (session ids are in agent env): it has a non-superuser ADMIN holder
@@ -339,6 +341,7 @@ export function roleScript(
     // INHERIT/SET grant syntax doesn't exist: an older configured image gets neither.
     `SELECT 'ALTER ROLE ${db} CREATEROLE' WHERE ${PG16}\\gexec`,
     `SELECT 'GRANT ${repoRole(repoPath)} TO ${db} WITH INHERIT TRUE, SET FALSE' WHERE ${PG16}\\gexec`,
+    ...(bypassRls ? [`ALTER ROLE ${db} BYPASSRLS;`] : []),
     `SELECT count(*) FROM pg_database WHERE datname = ${lit(db)};`,
     "",
   ].join("\n");
@@ -455,6 +458,14 @@ export function adoptScript(
       `AND NOT EXISTS (SELECT 1 FROM pg_auth_members x WHERE x.roleid = a.roleid AND x.member = h.oid AND x.admin_option)\\gexec`
     );
   });
+  // A repo-shared role never keeps BYPASSRLS: a session with the bypass opt-in could set it on a
+  // role its siblings use, and switching the opt-in off must leave no residue.
+  for (const role of new Set(leases.map((l) => l.role))) {
+    lines.push(
+      `SELECT format('ALTER ROLE %I NOBYPASSRLS', r.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid ` +
+        `WHERE a.member = ${roleOid(role)} AND a.admin_option AND r.rolbypassrls AND NOT r.rolsuper AND r.rolname !~ '^pg_'\\gexec`,
+    );
+  }
   return lines.length ? `${lines.join("\n")}\n` : "";
 }
 

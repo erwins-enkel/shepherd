@@ -145,6 +145,7 @@ const LOCAL_CONFIG_METADATA = {
     previewOpenMode: "rechner",
     pluginAllowlist: "rechner",
     postgresMode: "rechner",
+    postgresBypassRls: "rechner",
     skillAllowlist: "rechner",
     reviewFeedbackMode: "rechner",
     reviewFeedbackBots: "rechner",
@@ -209,6 +210,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
     automationConfirmed: false,
     automationRowExists: false,
   });
@@ -335,6 +337,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -392,6 +395,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -459,6 +463,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
     automationConfirmed: false,
     automationRowExists: true,
   });

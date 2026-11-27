@@ -90,3 +90,18 @@ test("a non-GET request is not answered with the list", async () => {
   const res = await app().fetch(new Request("http://x/api/postgres/repos", { method: "POST" }));
   expect(res.status).toBe(404);
 });
+
+test("PUT postgresBypassRls persists machine-locally and rejects a non-boolean", async () => {
+  await put(repoA, { postgresMode: "on-request", postgresBypassRls: true });
+  expect(store.postgresBypassRls(realpathSync(repoA))).toBe(true);
+  await put(repoA, { postgresMode: "off" });
+  expect(store.postgresBypassRls(realpathSync(repoA))).toBe(true);
+  const res = await app().fetch(
+    new Request(`http://x/api/repo-config?repo=${encodeURIComponent(repoA)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ postgresBypassRls: "yes" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+});

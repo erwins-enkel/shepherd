@@ -1216,6 +1216,23 @@ test("postgresAuto / setPostgresAuto flip on-request ↔ auto; togglePostgres tu
   expect(repoConfig.postgresAuto("/w-pg-auto")).toBe(false);
 });
 
+test("setPostgresBypassRls writes optimistically and reverts on failure; absent reads off", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "on-request" }));
+  await repoConfig.ensure("/w-pg-rls");
+  expect(repoConfig.postgresBypassRlsOn("/w-pg-rls")).toBe(false);
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(
+    rc({ postgresMode: "on-request", postgresBypassRls: true }),
+  );
+  await repoConfig.setPostgresBypassRls("/w-pg-rls", true);
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-pg-rls", { postgresBypassRls: true });
+  expect(repoConfig.postgresBypassRlsOn("/w-pg-rls")).toBe(true);
+
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.setPostgresBypassRls("/w-pg-rls", false);
+  expect(repoConfig.postgresBypassRlsOn("/w-pg-rls")).toBe(true); // reverted
+});
+
 test("the list setters PUT the whole list and overlay it optimistically", async () => {
   let resolve!: (v: RepoConfig) => void;
   vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));

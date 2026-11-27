@@ -407,6 +407,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -495,6 +496,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -583,6 +585,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     reviewFeedbackBots: [...REVIEW_FEEDBACK_PRESET_BOTS],
     reviewFeedbackResolve: false,
     postgresMode: "off",
+    postgresBypassRls: false,
   });
 });
 

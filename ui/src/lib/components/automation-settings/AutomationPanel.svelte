@@ -13,6 +13,7 @@
     useAutomationLeaveGuard,
   } from "../repo-settings/repo-config-editor.svelte.js";
   import AutomationRulesDialog from "./AutomationRulesDialog.svelte";
+  import AutomationRulesBar, { type RulesSaved } from "./AutomationRulesBar.svelte";
   import AutomationLeader from "./AutomationLeader.svelte";
   import InfoTip from "../InfoTip.svelte";
   import { automationLayersExplanation } from "#lib/tooltips/explanations.js";
@@ -42,6 +43,14 @@
   let confirming = $state(false);
   let error = $state("");
   let preparing = $state(false);
+  let saved = $state<RulesSaved | null>(null);
+  // A new edit replaces the last save's outcome with the pending state.
+  $effect(() => {
+    if (editor.dirty) untrack(() => (saved = null));
+  });
+  const barShown = $derived(
+    editor.shareable && (editor.dirty || editor.view?.repoConfigCommit === null || !!saved),
+  );
   const cachedOnOpen = untrack(() => repoConfig.isConfigLoaded(repoPath));
   let refreshFailed = $state(false);
   async function load() {
@@ -90,6 +99,7 @@
           label={m.automation_layers_explanation_title()}
         />
       </h2>
+      {#if editor.shareable}<p>{m.automation_layers_shared_note()}</p>{/if}
       {#if editor.view?.repoConfigCommit}<p class="source">
           <span>.shepherd/config.json</span> · <span>{editor.view.repoConfigCommit}</span>
         </p>
@@ -103,30 +113,6 @@
       <SettingsLayer layer="repo">
         <RepoSettingsSection section={active} {repoPath} {sessionId} {drain} {globals} />
       </SettingsLayer>
-      {#if editor.shareable}<div class="actions">
-          <button
-            class="gbtn primary"
-            disabled={preparing ||
-              editor.saving ||
-              (!editor.dirty && !!editor.view?.repoConfigCommit)}
-            onclick={review}
-          >
-            {editor.view?.repoConfigCommit
-              ? m.automation_layers_review()
-              : m.automation_layers_share()}
-          </button>
-          {#if editor.dirty}<button
-              class="gbtn"
-              disabled={editor.saving}
-              onclick={() => editor.discard()}
-            >
-              {m.automation_layers_discard()}
-            </button>{/if}
-        </div>{/if}
-      {#if error}<p role="alert">{error}</p>{/if}
-      {#if editor.view?.notifications?.some((result) => !result.ok)}<p role="status">
-          {m.automation_layers_notify()}
-        </p>{/if}
     </section>
     <section data-settings-layer="leader" aria-label={m.automation_layers_leader()}>
       <h2>{m.automation_layers_leader()}</h2>
@@ -145,6 +131,15 @@
       </SettingsLayer>
     </section>
   {/if}
+  <!-- Last in the column, outside both layers: it sticks on every section and scroll (#4274). -->
+  {#if barShown}<AutomationRulesBar
+      {editor}
+      {preparing}
+      {error}
+      {saved}
+      onreview={review}
+      ondismiss={() => (saved = null)}
+    />{/if}
 {/snippet}
 
 <RepoSettingsBody
@@ -157,7 +152,11 @@
   {onsetupci}
   sectionView={layered}
 />
-{#if confirming}<AutomationRulesDialog {editor} onclose={() => (confirming = false)} />{/if}
+{#if confirming}<AutomationRulesDialog
+    {editor}
+    onclose={() => (confirming = false)}
+    onsaved={(result) => (saved = result)}
+  />{/if}
 
 <style>
   h2 {
@@ -176,11 +175,5 @@
   }
   .source span {
     font-family: var(--font-mono);
-  }
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px;
   }
 </style>

@@ -342,3 +342,102 @@ it("unknown rule target shows retry and locks rules without claiming they are lo
     .not.toBeInTheDocument();
   expect(puts).toEqual([]);
 });
+
+const bar = () => page.getByRole("region", { name: m.automation_layers_bar_label(), exact: true });
+
+it("Full Auto stays a visible draft until reviewed and saved (#4274)", async () => {
+  setup();
+  await expect.element(page.getByText("abc123", { exact: true })).toBeVisible();
+  await open("autonomy");
+  await expect.element(bar()).not.toBeInTheDocument();
+  const full = page.getByRole("radio", { name: m.reposettings_autonomy_full(), exact: true });
+  await full.click();
+  await expect.element(full).toBeChecked();
+  expect(puts).toEqual([]);
+  await expect
+    .element(bar().getByText(m.automation_layers_pending_count({ count: 3 })))
+    .toBeVisible();
+  const row = page.getByText(m.automation_layers_draft(), { exact: true });
+  await expect.element(row).toBeVisible();
+  await expect
+    .element(
+      page.getByText(
+        m.automation_layers_saved_value({
+          field: m.automation_autopilot_name(),
+          value: m.reposettings_pending_off(),
+        }),
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await bar().getByRole("button", { name: m.automation_layers_review(), exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect
+    .element(dialog.getByText(m.automation_layers_commit_note({ branch: "trunk" })))
+    .toBeVisible();
+  await dialog.getByRole("button", { name: m.automation_layers_save(), exact: true }).click();
+  await vi.waitFor(() =>
+    expect(puts).toEqual([
+      { autoAddressEnabled: true, autopilotEnabled: true, autoMergeEnabled: true },
+    ]),
+  );
+  await expect
+    .element(bar().getByRole("status"))
+    .toHaveTextContent(m.automation_layers_saved({ commit: "saved123" }));
+  await expect.element(row).not.toBeInTheDocument();
+  await expect.element(full).toBeChecked();
+  await bar().getByRole("button", { name: m.automation_layers_dismiss(), exact: true }).click();
+  await expect.element(bar()).not.toBeInTheDocument();
+});
+
+/** The primary action is on screen and on top at its center — not scrolled or covered away. */
+function reachable(button: HTMLElement) {
+  const r = button.getBoundingClientRect();
+  expect(r.height).toBeGreaterThan(0);
+  expect(r.top).toBeGreaterThanOrEqual(0);
+  expect(r.bottom).toBeLessThanOrEqual(window.innerHeight);
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  expect(hit && button.contains(hit)).toBe(true);
+}
+
+for (const [width, height] of [
+  [1280, 900],
+  [390, 844],
+] as const) {
+  it(`save action stays reachable while scrolling and switching sections at ${width}px (#4274)`, async () => {
+    await page.viewport(width, height);
+    try {
+      // The Backlog gives the tab a bounded height; the panel scrolls inside it.
+      const { container } = await setup();
+      container.style.height = `${height}px`;
+      container.style.display = "flex";
+      await expect.element(page.getByText("abc123", { exact: true })).toBeVisible();
+      await open("review");
+      await page.getByRole("switch", { name: m.automation_critic_name(), exact: true }).click();
+      const review = () =>
+        bar()
+          .getByRole("button", { name: m.automation_layers_review(), exact: true })
+          .element() as HTMLElement;
+      await expect.element(bar()).toBeVisible();
+      const scroller = [".pane", ".scroll"]
+        .map((sel) => document.querySelector<HTMLElement>(sel))
+        .find((el) => el && el.scrollHeight > el.clientHeight + 1);
+      expect(scroller).toBeTruthy();
+      for (const top of [0, scroller!.scrollHeight]) {
+        scroller!.scrollTop = top;
+        await new Promise((r) => requestAnimationFrame(r));
+        reachable(review());
+      }
+      for (const section of ["display", "agent"] as const) {
+        await open(section);
+        await expect.element(bar()).toBeVisible();
+        reachable(review());
+      }
+      await bar().getByRole("button", { name: m.automation_layers_discard(), exact: true }).click();
+      await expect.element(bar()).not.toBeInTheDocument();
+      expect(puts).toEqual([]);
+    } finally {
+      await page.viewport(1280, 900);
+    }
+  });
+}

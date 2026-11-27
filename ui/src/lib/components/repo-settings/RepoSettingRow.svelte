@@ -14,11 +14,13 @@
   import {
     usePendingConfig,
     rowPendingChanges,
+    rowRuleFields,
     proposedValue,
     proposedRuleName,
   } from "./pending-config-context.svelte.js";
   import { useRepoEditor, useSettingsLayer, fieldLayer } from "./repo-config-editor.svelte.js";
   import { isRuleField } from "#lib/repo-config-fields.js";
+  import { ruleName } from "../automation-settings/rule-labels.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { Snippet } from "svelte";
   import type { TooltipExplanation } from "#lib/tooltips/content.js";
@@ -100,6 +102,15 @@
       (editor.saving || !editor.view || editor.view.repoConfigBranch === undefined),
   );
   const visible = $derived(!layer || layer === fieldLayer(field));
+  // Staged rule edits this row shows (#4274): the control already shows the draft, so name the
+  // saved values it differs from. The chain only mirrors the Autonomy row above it.
+  const draftKeys = $derived(
+    editor && field !== "autonomyChain" && fieldLayer(field) === "repo"
+      ? rowRuleFields(field)
+          .filter(isRuleField)
+          .filter((key) => key in editor.draft)
+      : [],
+  );
   const fromFile = $derived(
     field
       .split(" ")
@@ -125,9 +136,9 @@
   <div class={["rs-row", { disabled: off, indent }]} data-field={field} use:coachTarget={coach}>
     <div class="rs-meta">
       <div class="rs-name">
-        {#if icon || glyph}<span class="rs-glyph" aria-hidden="true"
-            >{#if icon}{@render icon()}{:else}{glyph}{/if}</span
-          >{/if}{name}
+        {#if icon || glyph}<span class="rs-glyph" aria-hidden="true">
+            {#if icon}{@render icon()}{:else}{glyph}{/if}
+          </span>{/if}{name}
         {#if detail}
           <AutomationInfoTip
             id={detail.id}
@@ -138,7 +149,19 @@
         {/if}
         {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
       </div>
-      {#if editor && field}
+      {#if draftKeys.length}
+        <span class="rs-source rs-draft">{m.automation_layers_draft()}</span>
+        <div class="rs-saved">
+          {#each draftKeys as key (key)}
+            <div>
+              {m.automation_layers_saved_value({
+                field: ruleName(key),
+                value: proposedValue(editor?.view?.[key]),
+              })}
+            </div>
+          {/each}
+        </div>
+      {:else if editor && field}
         <span class="rs-source">{sourceLabel}</span>
       {/if}
       {#if desc}<div class="rs-desc">{desc}</div>{/if}
@@ -148,8 +171,10 @@
           <a
             href={firstSafeHttpUrl(proposal()!.url) ?? undefined}
             target="_blank"
-            rel="noopener noreferrer">{m.reposettings_pending_status()} · #{proposal()!.number}</a
+            rel="noopener noreferrer"
           >
+            {m.reposettings_pending_status()} · #{proposal()!.number}
+          </a>
           <!-- eslint-enable svelte/no-navigation-without-resolve -->
           {#each ruleChanges as [key, value] (key)}
             <div>
@@ -222,6 +247,14 @@
   .rs-source {
     font-size: var(--fs-micro);
     color: var(--color-muted);
+  }
+  .rs-draft {
+    color: var(--color-amber);
+  }
+  .rs-saved {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    overflow-wrap: anywhere;
   }
   .rs-row {
     display: flex;

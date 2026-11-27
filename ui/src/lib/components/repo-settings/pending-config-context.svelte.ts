@@ -12,24 +12,27 @@ export function usePendingConfig(): Proposal {
 }
 
 /** Summary rows name several rules without becoming the navigation target of each rule. */
+export function rowRuleFields(field: string): string[] {
+  return field === "autonomyLevel" || field === "autonomyChain"
+    ? [
+        "criticEnabled",
+        "autoAddressEnabled",
+        "autopilotEnabled",
+        "autoDrainEnabled",
+        "autoMergeEnabled",
+        "planGateEnabled",
+      ]
+    : field.split(/\s+/);
+}
 export function rowPendingChanges(
   field: string,
   proposal: PendingRepoConfig | null,
 ): [string, unknown][] {
-  const fields =
-    field === "autonomyLevel" || field === "autonomyChain"
-      ? [
-          "criticEnabled",
-          "autoAddressEnabled",
-          "autopilotEnabled",
-          "autoDrainEnabled",
-          "autoMergeEnabled",
-          "planGateEnabled",
-        ]
-      : field.split(/\s+/);
+  const fields = rowRuleFields(field);
   return Object.entries(proposal?.changes ?? {}).filter(([key]) => fields.includes(key));
 }
 export function proposedValue(value: unknown): string {
+  if (Array.isArray(value)) return value.length ? value.join(", ") : m.reposettings_pending_none();
   if (value === true) return m.reposettings_pending_on();
   if (value === false) return m.reposettings_pending_off();
   if (value === null) return m.reposettings_pending_none();

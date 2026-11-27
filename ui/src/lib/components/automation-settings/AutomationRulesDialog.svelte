@@ -2,7 +2,13 @@
   import { m } from "#lib/paraglide/messages.js";
   import type { RepoConfigEditor } from "../repo-settings/repo-config-editor.svelte.js";
   import { ruleName } from "./rule-labels.js";
-  let { editor, onclose }: { editor: RepoConfigEditor; onclose: () => void } = $props();
+  import type { RulesSaved } from "./AutomationRulesBar.svelte";
+  let {
+    editor,
+    onclose,
+    onsaved,
+  }: { editor: RepoConfigEditor; onclose: () => void; onsaved?: (result: RulesSaved) => void } =
+    $props();
   let dialog = $state<HTMLDialogElement>();
   let heading = $state<HTMLHeadingElement>();
   let error = $state("");
@@ -54,6 +60,11 @@
     error = "";
     try {
       if (await editor.save()) {
+        const pr = editor.view?.pendingRepoConfig;
+        onsaved?.({
+          commit: editor.view?.repoConfigCommit ?? null,
+          pr: pr ? { number: pr.number, url: pr.url } : null,
+        });
         dialog?.close();
         onclose();
       } else error = m.automation_layers_changed();
@@ -80,6 +91,9 @@
     <dt>{m.automation_layers_commit()}</dt>
     <dd>chore(shepherd): set repo rules</dd>
   </dl>
+  <p class="note">
+    {m.automation_layers_commit_note({ branch: editor.view?.repoConfigBranch ?? "" })}
+  </p>
   <table>
     <thead>
       <tr>
@@ -100,7 +114,7 @@
         </tr>{/each}
     </tbody>
   </table>
-  {#if error}<p role="alert">{error}</p>{/if}
+  {#if error}<p class="err" role="alert">{error}</p>{/if}
   <footer>
     <button class="gbtn" disabled={editor.saving} onclick={() => dialog?.close()}>
       {m.common_cancel()}
@@ -161,7 +175,39 @@
     gap: 8px;
     margin-top: 16px;
   }
-  p {
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .gbtn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .note {
+    margin: 0 0 12px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .err {
     color: var(--color-red);
   }
 </style>

@@ -9046,7 +9046,7 @@
   "automation_layers_not_shared": "Noch nicht geteilt",
   "automation_layers_file": "Aus .shepherd/config.json",
   "automation_layers_share": "Für alle Rechner festlegen",
-  "automation_layers_review": "Regeländerungen prüfen",
+  "automation_layers_review": "Änderungen prüfen und speichern",
   "automation_layers_save": "Regeln mit einem Commit speichern",
   "automation_layers_discard": "Regeländerungen verwerfen",
   "automation_layers_confirm": "Repo-Regeln bestätigen",
@@ -9566,5 +9566,17 @@
   "tooltip_postgres_env_body": "Die Verbindung ist als DATABASE_URL plus PGHOST, PGPORT, PGUSER, PGPASSWORD und PGDATABASE gesetzt, mit denselben Werten, die postgres_request liefert. Eine Session, die auf Anfrage eine Datenbank angefordert hat, bekommt sie beim nächsten Fortsetzen.",
   "postgres_repos_auto_tag": "auto",
   "feat_postgres_auto_title": "Postgres bei jedem Start",
-  "feat_postgres_auto_body": "Repo-Einstellungen → Agent → Postgres auf Anfrage bietet jetzt „Datenbank bei jedem Start“: Jede Task-Session bekommt beim Start ihre eigene Datenbank, DATABASE_URL und die PG*-Variablen sind bereits gesetzt. So bekommen auch Codex-Sessions eine Datenbank, und eine für die Session gestartete Vorschau erhält dieselbe DATABASE_URL."
+  "feat_postgres_auto_body": "Repo-Einstellungen → Agent → Postgres auf Anfrage bietet jetzt „Datenbank bei jedem Start“: Jede Task-Session bekommt beim Start ihre eigene Datenbank, DATABASE_URL und die PG*-Variablen sind bereits gesetzt. So bekommen auch Codex-Sessions eine Datenbank, und eine für die Session gestartete Vorschau erhält dieselbe DATABASE_URL.",
+  "automation_layers_bar_label": "Änderungen an Repo-Regeln",
+  "automation_layers_pending_count": "Ungespeicherte Regeländerungen: {count}",
+  "automation_layers_commit_note": "Speichern erstellt einen Commit auf {branch} in origin. Maschinenwerte sind bereits gespeichert.",
+  "automation_layers_unshared_note": "Diese Regeln gelten nur auf diesem Rechner, bis du sie mit einem Commit für alle Rechner festlegst.",
+  "automation_layers_saved": "Regeln in Commit {commit} gespeichert.",
+  "automation_layers_saved_pr": "Der Default-Branch hat den Commit abgelehnt, deshalb hat Shepherd einen Pull Request geöffnet. Bis zum Merge gelten die bisherigen Regeln.",
+  "automation_layers_dismiss": "Ausblenden",
+  "automation_layers_shared_note": "Änderungen hier bleiben Entwürfe, bis du sie prüfst und als einen Commit speicherst.",
+  "automation_layers_draft": "Ungespeicherter Entwurf · noch nicht committet",
+  "automation_layers_saved_value": "Gespeichert: {field} {value}",
+  "feat_repo_rules_save_bar_title": "Ausstehende Repo-Regeln sehen und speichern",
+  "feat_repo_rules_save_bar_body": "Unter Backlog → Einstellungen bleiben Regeländerungen jetzt sichtbar, bis du sie speicherst. Eine Leiste am unteren Rand zählt ungespeicherte Änderungen und bietet in jedem Abschnitt „Änderungen prüfen und speichern“. Geänderte Einstellungen zeigen ihren gespeicherten Wert, und die Leiste bestätigt danach den Commit oder Pull Request."
 }

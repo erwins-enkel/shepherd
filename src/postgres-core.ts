@@ -553,6 +553,13 @@ export function promoteRestoreScript(repoPath: string, sessionId: string): strin
 export const UNTEMPLATE_SQL =
   "SELECT format('ALTER DATABASE %I IS_TEMPLATE false', d.datname) FROM pg_database d JOIN pg_roles o ON o.oid = d.datdba WHERE d.datistemplate AND NOT o.rolsuper\\gexec\n";
 
+/** PG17+ lets every unreserved database name through hba to the login guard, but a database
+ *  without the guard (one an operator made before this, or any `CREATE DATABASE … TEMPLATE
+ *  template0`, e.g. `pg_restore --create`) would then be open to every login. Superuser-owned
+ *  databases are never a session's: PUBLIC loses CONNECT/TEMPORARY on all of them (#4270). */
+export const REVOKE_PUBLIC_SQL =
+  "SELECT format('REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC', d.datname) FROM pg_database d JOIN pg_roles o ON o.oid = d.datdba WHERE o.rolsuper AND d.datallowconn\\gexec\n";
+
 /** A database handed to a role AFTER that role was adopted (another non-superuser holds ADMIN on
  *  it) goes back to the session that created the owner. Runs before adoption on every idle tick. */
 export const RECLAIM_SQL =
@@ -573,6 +580,7 @@ export const HARDEN_SQL = [
   "ALTER DATABASE template0 IS_TEMPLATE false;",
   `DO $$ BEGIN IF ${PG17} THEN ${hbaCopy(HBA_LINES_PG17)} ELSE ${hbaCopy(POSTGRES_HBA_LINES)} END IF; END $$;`,
   "SELECT pg_reload_conf();",
+  REVOKE_PUBLIC_SQL.trimEnd(),
   UNTEMPLATE_SQL.trimEnd(),
   "\\connect template1",
   GUARD_SQL,

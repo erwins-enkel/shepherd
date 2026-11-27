@@ -18,6 +18,7 @@ import {
   HARDEN_SQL,
   LIST_SESSION_OBJECTS_SQL,
   RECLAIM_SQL,
+  REVOKE_PUBLIC_SQL,
   UNTEMPLATE_SQL,
   POSTGRES_DATA_DIR,
   POSTGRES_LABEL_IMAGE,
@@ -696,7 +697,7 @@ export class PostgresService {
     // Bounds how long a running session waits for a role a sibling just created. Reclaim before
     // adopting (#4270): a database handed to an already-adopted role goes back to its session.
     await this.admin(async () => {
-      await this.psql(RECLAIM_SQL + UNTEMPLATE_SQL).catch((e: unknown) =>
+      await this.psql(RECLAIM_SQL + UNTEMPLATE_SQL + REVOKE_PUBLIC_SQL).catch((e: unknown) =>
         this.log(`reclaim failed: ${(e as Error).message}`),
       );
       await this.adoptNow(this.activeLeases());

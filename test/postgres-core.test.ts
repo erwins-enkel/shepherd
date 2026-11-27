@@ -5,6 +5,7 @@ import {
   GUARD_SQL,
   HARDEN_SQL,
   RECLAIM_SQL,
+  REVOKE_PUBLIC_SQL,
   UNTEMPLATE_SQL,
   postgresInstanceNames,
   adoptScript,
@@ -266,6 +267,8 @@ it("hardening: PG17+ pins Shepherd's names, lets other names through to the guar
 it("hardening: template0 uncopyable, IS_TEMPLATE reset, guard installed in template1", () => {
   expect(HARDEN_SQL).toContain("ALTER DATABASE template0 IS_TEMPLATE false;");
   expect(HARDEN_SQL).toContain(UNTEMPLATE_SQL.trimEnd());
+  expect(HARDEN_SQL).toContain(REVOKE_PUBLIC_SQL.trimEnd());
+  expect(REVOKE_PUBLIC_SQL).toContain("WHERE o.rolsuper AND d.datallowconn");
   expect(HARDEN_SQL.trimEnd().endsWith(`\\connect template1\n${GUARD_SQL}`)).toBe(true);
 });
 

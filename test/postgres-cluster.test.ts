@@ -8,6 +8,7 @@ import {
   ADMIN_PGOPTIONS,
   HARDEN_SQL,
   RECLAIM_SQL,
+  REVOKE_PUBLIC_SQL,
   UNTEMPLATE_SQL,
   adoptScript,
   baseScript,
@@ -130,7 +131,7 @@ function drop(s: Sess) {
 }
 
 const tick = () => {
-  su(RECLAIM_SQL + UNTEMPLATE_SQL);
+  su(RECLAIM_SQL + UNTEMPLATE_SQL + REVOKE_PUBLIC_SQL);
   su(adoptScript(leases) || "SELECT 1;");
 };
 
@@ -586,6 +587,19 @@ describe.skipIf(!AVAILABLE)("login guard on a real postgres:18 (#4270)", () => {
     const S = provision(REPO_B, id);
     expect(as(S.db, S.pw, S.db, "CREATE DATABASE t_u2;").ok).toBe(true);
     refused(as("spy_u", spyPw, "t_u2"));
+  }, 60_000);
+
+  it("(v) an unguarded superuser database (operator-made, template0 copy) stays closed", () => {
+    su("CREATE DATABASE op_restore TEMPLATE template0;");
+    // Default PUBLIC CONNECT and no guard: open until the tick (HARDEN at start covers older ones).
+    tick();
+    const r = as(B.db, B.pw, "op_restore");
+    expect(r.ok).toBe(false);
+    expect(r.err).toContain("permission denied for database");
+    su("DROP DATABASE op_restore;");
+    su("CREATE DATABASE op_preexisting TEMPLATE template0;");
+    su(HARDEN_SQL);
+    expect(as(B.db, B.pw, "op_preexisting").ok).toBe(false);
   }, 60_000);
 
   it("(i) archiving drops every database the session or its roles own; nothing adopted owns one", () => {

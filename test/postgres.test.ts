@@ -7,6 +7,7 @@ import {
   ADMIN_PGOPTIONS,
   POSTGRES_SETTING,
   RECLAIM_SQL,
+  REVOKE_PUBLIC_SQL,
   UNTEMPLATE_SQL,
   dropOwnedDbsSql,
   finishScript,
@@ -362,7 +363,7 @@ describe("app roles", () => {
     const from = docker.calls.length;
     await s.idleTick();
     const after = inputs().slice(from);
-    const reclaim = after.findIndex((i) => i === RECLAIM_SQL + UNTEMPLATE_SQL);
+    const reclaim = after.findIndex((i) => i === RECLAIM_SQL + UNTEMPLATE_SQL + REVOKE_PUBLIC_SQL);
     expect(reclaim).toBeGreaterThanOrEqual(0);
     expect(reclaim).toBeLessThan(after.findIndex((i) => ADOPT.test(i)));
   });

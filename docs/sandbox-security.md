@@ -338,8 +338,13 @@ session's clone, whatever privileges it was granted or inherits. On PG17+ two
 more lines follow: a `reject` for Shepherd's own names (`s_<id>`,
 `r_<repo>_base|next|old`, `postgres`, `template1`) and `host all all all
 scram-sha-256` for every other name, i.e. databases sessions create (below).
+So that this fails closed, PUBLIC also loses `CONNECT`/`TEMPORARY` on every
+connectable superuser-owned database (`REVOKE_PUBLIC_SQL`, at every start and
+every idle tick), covering operator-made databases and `TEMPLATE template0`
+copies that carry no guard. A non-superuser role an operator wants in such a
+database needs an explicit `GRANT CONNECT`.
 
-**Session-created databases (`CREATEDB`, #4270).** On PG17+ a session role gets
+**Session-created databases (`CREATEDB`, #4271).** On PG17+ a session role gets
 `CREATEDB` (last in each provision, after the guard is in place), so test
 harnesses can create a database and login role per run. Such a database has
 default `PUBLIC` `CONNECT`, so the boundary is a **login guard**: a

@@ -3633,6 +3633,23 @@ export class SessionService {
     return this.postgresEgressGateway(repoPath, agentProvider) ? SLIRP_HOST_GATEWAY : null;
   }
 
+  /** {@link spawnPostgresHost} for a spawn whose prompt is composed before `prepareSpawn` runs: the
+   *  same (cached) preflight inputs, so `<postgres-notice>` says `injected` only when that spawn
+   *  injects. */
+  private predictedPostgresHost(
+    profileOverride: string | null | undefined,
+    repoPath: string,
+    agentProvider: string | undefined,
+  ): string | null {
+    const repoProfile = this.deps.store.getRepoConfig(repoPath).sandboxProfile;
+    const { profile, backend, egressBackend } = this.resolveSpawnPreflight(
+      profileOverride,
+      repoProfile,
+    );
+    const egressOn = willEgressConfine(profile, backend, egressBackend ?? null);
+    return this.spawnPostgresHost(egressOn, repoPath, agentProvider);
+  }
+
   /**
    * Which host this session's `postgres_request` DSN must use (#4239): the host loopback for a
    * session sharing the host net (trusted, standard, egress-degraded autonomous); the slirp gateway
@@ -4885,10 +4902,12 @@ export class SessionService {
     trimmed: boolean;
     agentProvider: AgentProvider;
     postgresTool: boolean;
+    profileOverride: string | null | undefined;
   }): string {
     const { input, sessionId } = args;
     const blocks = this.directiveBlocks(input, {
       sessionId,
+      profileOverride: args.profileOverride,
       baseUrl: args.baseUrl,
       planGateOn: args.planGateOn === true,
       isolated: args.isolated,
@@ -4943,6 +4962,8 @@ export class SessionService {
       /** The session's `postgresRequest` capability (#4232): drives `<postgres-notice>` and the
        *  bootstrap directives' Postgres status, so both match the tool list. */
       postgresTool: boolean;
+      /** The spawn's `prepareSpawn` profile override: decides whether it injects Postgres (#4238). */
+      profileOverride: string | null | undefined;
     },
   ): PromptBlock[] {
     const { sessionId, baseUrl, planGateOn, autopilotActive } = ctx;
@@ -4951,6 +4972,7 @@ export class SessionService {
       sessionId,
       repoPath: input.repoPath,
       plain: input.plain,
+      host: this.predictedPostgresHost(ctx.profileOverride, input.repoPath, ctx.agentProvider),
     });
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled
@@ -5024,18 +5046,19 @@ export class SessionService {
   }
 
   /** What a session sees of Shepherd's Postgres (#4232 follow-up), for the bootstrap directives and
-   *  `<postgres-notice>`. `injected` follows {@link postgresInjects} (the spawn host is not
-   *  considered); at create there is no lease yet, so only `auto` injects. */
+   *  `<postgres-notice>`. `injected` = the spawn's rule: {@link postgresInjects} AND a reachable
+   *  spawn host (null: egress-confined without the Postgres gateway — nothing injected). At create
+   *  there is no lease yet, so only `auto` injects. */
   private postgresAvailability(
     repoConfig: Pick<RepoConfig, "postgresMode">,
     tool: boolean,
-    session: { sessionId: string; repoPath: string; plain?: boolean },
+    session: { sessionId: string; repoPath: string; plain?: boolean; host: string | null },
   ): PostgresAvailability {
     return {
       tool,
       globalEnabled: this.deps.postgres?.settings().enabled ?? false,
       repoOn: postgresRepoOn(repoConfig.postgresMode),
-      injected: this.postgresInjects(session),
+      injected: session.host !== null && this.postgresInjects(session),
     };
   }
 
@@ -5152,6 +5175,7 @@ export class SessionService {
         trimmed: trim.trimmed,
         agentProvider: "claude",
         postgresTool: caps.postgresRequest === true,
+        profileOverride: profile,
       }),
     );
     this.pushModelFlag(argv, input.model);
@@ -5187,6 +5211,7 @@ export class SessionService {
     planGateOn: boolean | undefined;
     isolated: boolean;
     baseUrl: string;
+    profileOverride: string | null | undefined;
   }): string[] {
     const { input, sessionId, launchId, promptArg, planGateOn, isolated, baseUrl } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
@@ -5222,6 +5247,7 @@ export class SessionService {
       // Codex sessions get no MCP control plane, so no `postgres_request` (an `auto` repo injects
       // the env instead — directiveBlocks derives `injected` itself, #4238).
       postgresTool: false,
+      profileOverride: args.profileOverride,
     });
     argv.push(
       `${codexLaunchMarker(launchId)}${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`,
@@ -5310,6 +5336,7 @@ export class SessionService {
           agentProvider: "claude",
           branchRename: false,
           postgresTool: caps.postgresRequest === true,
+          profileOverride: s.sandboxApplied ?? undefined,
         }),
       ),
     );
@@ -5898,6 +5925,7 @@ export class SessionService {
             planGateOn,
             isolated: wt.isolated,
             baseUrl,
+            profileOverride,
           })
         : await this.buildSpawnArgv(
             spawnInput,
@@ -7559,6 +7587,7 @@ export class SessionService {
         // Read after the replacement row is persisted (target provider + profile), so this matches
         // the tool list the target agent is served.
         postgresTool: sessionCapabilities(this.deps, id).postgresRequest === true,
+        profileOverride,
       }),
     );
     const mode =

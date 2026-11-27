@@ -21,6 +21,7 @@ function harness(
     profile?: SandboxProfile;
     isolated?: boolean;
     lease?: boolean;
+    hostLoopback?: boolean;
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -66,6 +67,7 @@ function harness(
     },
     detectBackend: () => "bwrap" as const,
     detectEgressBackend: () => "slirp4netns" as const,
+    detectEgressHostLoopback: () => opts.hostLoopback ?? true,
     readCodexAuthMode: () => "unknown" as const,
     readCodexHelp: () => "",
     transcriptExists: () => true,
@@ -199,7 +201,9 @@ test("injected notice: names postgres_request only with the tool", () => {
     expect(text).toContain("never write the DSN to `.env`");
   }
   expect(withTool).toContain("call `postgres_request`");
+  expect(withTool).toContain("If `DATABASE_URL` is not set after all, get the connection from");
   expect(without).not.toContain("postgres_request");
+  expect(without).toContain("If `DATABASE_URL` is not set after all, leave");
   expect(without).toContain("leave the database-backed checks");
 });
 
@@ -223,6 +227,18 @@ test("Codex spawn on an auto repo: injected notice without the tool; on-request 
   const plain = harness({ mode: "auto" });
   await plain.svc.create({ ...base, agentProvider: "codex", plain: true });
   expect(prompt(plain.captured.argv!)).not.toContain(NOTICE);
+});
+
+test("autonomous auto spawn without the Postgres gateway: no injected claim, tool notice", async () => {
+  const { svc, captured } = harness({ mode: "auto", profile: "autonomous", hostLoopback: false });
+  await svc.create(base);
+  const text = prompt(captured.argv!);
+  expect(text).toContain(NOTICE);
+  expect(text).not.toContain(INJECTED);
+  expect(text).toContain("`git check-ignore -q .env`");
+  const open = harness({ mode: "auto", profile: "autonomous" });
+  await open.svc.create(base);
+  expect(prompt(open.captured.argv!)).toContain(INJECTED);
 });
 
 test("on-request with an active lease: resume gets the injected notice", async () => {

@@ -59,13 +59,17 @@ function injectedNotice(tool: boolean): string {
     : "If a connection is refused, retry after a short wait (the database may still be " +
       "starting); if it stays refused, leave the database-backed checks (migrations, DB tests, " +
       "e2e) to CI's `db` job and say so in your report: the next resume restarts the server.";
+  const unset = tool
+    ? "If `DATABASE_URL` is not set after all, get the connection from `postgres_request` instead."
+    : "If `DATABASE_URL` is not set after all, leave the database-backed checks to CI's `db` job " +
+      "and say so in your report.";
   return (
     "This repo uses Shepherd's on-demand Postgres, and Shepherd already set this session's " +
     "connection in the environment: `DATABASE_URL` plus `PGHOST`, `PGPORT`, `PGUSER`, " +
     "`PGPASSWORD` and `PGDATABASE`. Use them as they are: the process environment wins over " +
     "`.env`, so never write the DSN to `.env`, never commit it or hardcode credentials. Never add " +
     "a Docker Compose Postgres, PGlite, SQLite or a Postgres of your own. " +
-    `${refused} The database is this session's own copy of the repo's template (it may be ` +
+    `${refused} ${unset} The database is this session's own copy of the repo's template (it may be ` +
     "empty), dropped when the session is archived: run the repo's migrations before use. " +
     MIGRATION_ROLES +
     (tool ? ` ${RESET_STATUS}` : "")

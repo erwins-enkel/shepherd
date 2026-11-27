@@ -400,7 +400,9 @@ export class PostgresService {
   /** Ensure the server, the repo template and this session's clone; answer within the budget.
    *  Idempotent: a repeat call returns the same DSN. Past the budget it answers `starting` while
    *  the work continues, so the agent's next call picks up the result. `host` is where the session
-   *  reaches the server: the host loopback, or the slirp gateway from an Autonomous netns (#4239). */
+   *  reaches the server: the host loopback, or the slirp gateway from an Autonomous netns (#4239).
+   *  Joined in-flight work (e.g. the #4238 spawn kick, on loopback) is answered for THIS caller's
+   *  host: the DSN is deterministic, only the host differs. */
   async request(
     sessionId: string,
     signal?: AbortSignal,
@@ -409,7 +411,9 @@ export class PostgresService {
     const repoPath = this.liveRepo(sessionId);
     let work = this.requests.get(sessionId);
     if (!work) work = this.track(sessionId, this.provision(sessionId, repoPath, host));
-    return this.within(work, signal);
+    const forHost = (c: PostgresConnection): PostgresConnection =>
+      c.host === host ? c : connectionFor(host, c.port, sessionId, c.password);
+    return this.within(work.then(forHost), signal);
   }
 
   /** `postgres_reset` (#4240): drop this session's clone and re-clone it from the repo template.

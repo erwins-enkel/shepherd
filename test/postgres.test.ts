@@ -475,6 +475,26 @@ describe("connection (#4238)", () => {
     });
   });
 
+  it("answers a joined in-flight request for the joining caller's host", async () => {
+    const id = mkSession();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow: DockerRun = async (args, opts) => {
+      if (args[0] === "pull") await gate;
+      return docker.run(args, opts);
+    };
+    docker.imagePresent = false;
+    const s = svc({ docker: slow });
+    const kick = s.request(id); // loopback, like the spawn kick
+    const joined = s.request(id, undefined, "10.0.2.2");
+    release();
+    const [a, b] = await Promise.all([kick, joined]);
+    if (a.status !== "ready" || b.status !== "ready") throw new Error("not ready");
+    expect(a.connection.host).toBe("127.0.0.1");
+    expect(b.connection).toEqual(await s.connection(id, "10.0.2.2"));
+    expect(docker.sqlCalls(/CREATE DATABASE s_\w+ TEMPLATE/)).toBe(1);
+  });
+
   it("throws disabled when Postgres is off and never touches docker", async () => {
     store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
     await expect(svc().connection(mkSession(), "127.0.0.1")).rejects.toMatchObject({

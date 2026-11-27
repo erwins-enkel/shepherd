@@ -65,6 +65,19 @@ repo's allowlist when its `egressIncludeStandard` resolves on (`inherit` follows
 to the list, the default or a repo's pick live-applies the same way. **Muted hosts**
 (`egressMutedHosts`, seeded with telemetry hosts) stay blocked: muting only drops the reporting
 (signal, toast, agent note, Blocked hosts row), never opens anything.
+**Playwright browser downloads** go through a relay instead of an allowed host
+(`src/playwright-mirror.ts`). Chromium (Chrome for Testing) is only served from
+`storage.googleapis.com/chrome-for-testing-public/…` (307 from `cdn.playwright.dev`), and a
+host-level allow there would open every GCS bucket. So an egress-confined spawn gets
+`PLAYWRIGHT_DOWNLOAD_HOST=http://10.0.2.2:<ingressPort>/api/sessions/<id>/playwright/<token>`
+(`token` = HMAC of `playwright-mirror:<id>`, distinct from the ingress key, dead once the
+session is archived). The agent-ingress route takes only GET Playwright build shapes
+(`builds/cft/<ver>/<plat>/<file>.zip`, `builds/<name>/<rev>/<file>.zip`), fetches them from
+`cdn.playwright.dev`, follows redirects only to `cdn.playwright.dev`,
+`playwright.download.prss.microsoft.com/dbazure/download/playwright/` and
+`storage.googleapis.com/chrome-for-testing-public/`, and streams the zip back (no disk cache).
+An operator-set `PLAYWRIGHT_DOWNLOAD_HOST` (agent secret) or per-browser
+`PLAYWRIGHT_<BROWSER>_DOWNLOAD_HOST` overrides it. Running sessions pick it up on restart.
 Without the backend every unattended autonomous spawn is refused. The DIAGNOSE
 row `sandbox_egress` (#3459) reports it, naming the missing tools and the
 affected autonomous repos. Each DIAGNOSE check re-runs the self-test async

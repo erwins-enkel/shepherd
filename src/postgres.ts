@@ -13,9 +13,12 @@ import { join } from "node:path";
 import { dockerChildEnv, resolveDockerEndpoint, runDocker } from "./docker-cli";
 import { writeSecretsFile } from "./plugins/secrets";
 import {
+  ADMIN_PGOPTIONS,
   CLIENT_CONNECTIONS_SQL,
   HARDEN_SQL,
   LIST_SESSION_OBJECTS_SQL,
+  RECLAIM_SQL,
+  UNTEMPLATE_SQL,
   POSTGRES_DATA_DIR,
   POSTGRES_LABEL_IMAGE,
   POSTGRES_LABEL_KIND,
@@ -26,7 +29,9 @@ import {
   baseScript,
   cloneScript,
   connectionFor,
+  dropOwnedDbsSql,
   dropScript,
+  finishScript,
   isSessionDbName,
   promoteRestoreScript,
   promoteScript,
@@ -58,7 +63,8 @@ export interface PostgresStore {
   get(id: string): Pick<Session, "repoPath" | "archivedAt"> | null | undefined;
   getPostgresLease(sessionId: string): PostgresLease | null;
   listPostgresLeases(): PostgresLease[];
-  upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt">): void;
+  upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt" | "roleVerified">): void;
+  markPostgresRoleVerified(sessionId: string): void;
   setPostgresLeaseState(sessionId: string, state: PostgresLeaseState): void;
   deletePostgresLease(sessionId: string): void;
 }
@@ -366,6 +372,8 @@ export class PostgresService {
       [
         "exec",
         "-i",
+        "-e",
+        `PGOPTIONS=${ADMIN_PGOPTIONS}`,
         this.container,
         "psql",
         "-X",
@@ -487,15 +495,22 @@ export class PostgresService {
     await this.admin(async () => {
       await this.psql(baseScript(repoPath));
       await this.adoptNow(this.activeLeases());
-      let exists = (await this.psql(roleScript(sessionId, connection.password, repoPath)))
+      // A role Shepherd hasn't verified for this lease yet (first provision, or one that failed
+      // part-way) that already exists is a squat (#4270); only success marks it verified.
+      const verified = this.store.getPostgresLease(sessionId)?.roleVerified === 1;
+      let exists = (
+        await this.psql(roleScript(sessionId, connection.password, repoPath, { verified }))
+      )
         .trim()
         .split("\n")
         .pop();
+      this.store.markPostgresRoleVerified(sessionId);
       if (reset && exists !== "0") {
         await this.psql(resetScript(sessionId));
         exists = "0";
       }
       if (exists === "0") await this.psql(cloneScript(repoPath, sessionId));
+      await this.psql(finishScript(sessionId));
     });
     this.lastBusyAt = this.now();
     return connection;
@@ -524,9 +539,12 @@ export class PostgresService {
 
   /** Hand roles the sessions created to their repo roles (`adoptScript`). Callers already hold the
    *  admin queue. Never fails its caller: a missed adoption is retried by the next tick. */
-  private async adoptNow(leases: readonly PostgresLease[]): Promise<void> {
+  private async adoptNow(leases: readonly PostgresLease[], includeLogin = false): Promise<void> {
     try {
-      const sql = adoptScript(leases.filter((l) => isSessionDbName(l.db)));
+      const sql = adoptScript(
+        leases.filter((l) => isSessionDbName(l.db)),
+        { includeLogin },
+      );
       if (sql) await this.psql(sql);
     } catch (e) {
       this.log(`adopting app roles failed: ${(e as Error).message}`);
@@ -587,8 +605,11 @@ export class PostgresService {
       return;
     }
     await this.admin(async () => {
-      // Adopt first: roles this session created would otherwise lose their only admin holder.
-      await this.adoptNow([lease]);
+      // Its databases go first (#4270), so no adopted role ever owns one. Then adopt — LOGIN roles
+      // too — before the drop: roles this session created would otherwise lose their only admin
+      // holder.
+      await this.psql(dropOwnedDbsSql(lease.db));
+      await this.adoptNow([lease], true);
       await this.psql(dropScript(lease.db));
     });
     this.store.deletePostgresLease(lease.sessionId);
@@ -632,7 +653,10 @@ export class PostgresService {
         await this.adoptNow(this.activeLeases());
         const names = (await this.psql(LIST_SESSION_OBJECTS_SQL)).split("\n").map((n) => n.trim());
         for (const name of names)
-          if (isSessionDbName(name) && !claimed.has(name)) await this.psql(dropScript(name));
+          if (isSessionDbName(name) && !claimed.has(name))
+            await this.psql(dropScript(name)).catch((e: unknown) =>
+              this.log(`drop ${name} failed: ${(e as Error).message}`),
+            );
       });
     } catch (e) {
       this.log(`reconcile failed: ${(e as Error).message}`);
@@ -669,8 +693,14 @@ export class PostgresService {
       this.disarmIdle(); // container gone or stopped elsewhere; the next ensure re-arms
       return;
     }
-    // Bounds how long a running session waits for a role a sibling just created.
-    await this.admin(() => this.adoptNow(this.activeLeases()));
+    // Bounds how long a running session waits for a role a sibling just created. Reclaim before
+    // adopting (#4270): a database handed to an already-adopted role goes back to its session.
+    await this.admin(async () => {
+      await this.psql(RECLAIM_SQL + UNTEMPLATE_SQL).catch((e: unknown) =>
+        this.log(`reclaim failed: ${(e as Error).message}`),
+      );
+      await this.adoptNow(this.activeLeases());
+    });
     if (count > 0) this.lastBusyAt = this.now();
     else if (shouldIdleStop(this.now(), this.lastBusyAt, this.settings().idleMinutes))
       await this.stop("idle");

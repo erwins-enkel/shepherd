@@ -330,15 +330,61 @@ its own container and volume, so neither reconciles the other's clones.
 The template (`r_<repo>_base`) is owned by the superuser; nobody connects to it.
 
 **Logins are pinned to their own database.** At every start Shepherd rewrites
-the cluster's `pg_hba.conf` to two lines: `local all postgres trust` (its own
+the cluster's `pg_hba.conf` to `local all postgres trust` (its own
 `docker exec psql`) and `host sameuser all all scram-sha-256`. Over TCP a login
-only works when the database is named like the user, and a session's clone and
-login role share the name `s_<id>`. So no role can open another session's
-database, whatever privileges it was granted or inherits.
+to a clone only works when the database is named like the user, and a session's
+clone and login role share the name `s_<id>`. So no role can open another
+session's clone, whatever privileges it was granted or inherits. On PG17+ two
+more lines follow: a `reject` for Shepherd's own names (`s_<id>`,
+`r_<repo>_base|next|old`, `postgres`, `template1`) and `host all all all
+scram-sha-256` for every other name, i.e. databases sessions create (below).
+
+**Session-created databases (`CREATEDB`, #4270).** On PG17+ a session role gets
+`CREATEDB` (last in each provision, after the guard is in place), so test
+harnesses can create a database and login role per run. Such a database has
+default `PUBLIC` `CONNECT`, so the boundary is a **login guard**: a
+superuser-owned `ON login` event trigger (`shepherd.login_guard()`,
+`SECURITY DEFINER`, `search_path = pg_catalog, pg_temp`). Superusers pass. A
+tenant is an `s_<id>` role no non-superuser administers. Anyone else passes only
+if one tenant covers both the database owner and the user: each is the tenant,
+or a role the tenant created that nobody else administers. "Created" means
+the `pg_auth_members` ADMIN row with a superuser grantor that PG16+ writes for a
+role's creator; the creator can't revoke it, and later grants record the
+granting role. New databases copy event triggers from their template, so the
+guard sits in every database a session can copy: template1 (`HARDEN_SQL`), each
+repo base (clones inherit it) and each clone (`finishScript`). `template0` is
+set `IS_TEMPLATE false`, and other databases need ownership to copy. A
+`shepherd` schema or function not owned by a superuser (pre-created in an
+older clone) is dropped, CASCADE, before the guard is (re)created. Every admin
+psql connection, including each `\connect` into a session-owned clone or
+`_next`, starts with `PGOPTIONS=-c search_path=pg_catalog,pg_temp -c role=none`
+(`ADMIN_PGOPTIONS`). Client options override the `ALTER DATABASE … SET` values a
+database owner can plant, so the superuser never resolves a name to, binds or
+runs a session-owned function. The guard can't be
+disabled by non-superusers: `event_triggers` is superuser-only, and the trigger,
+schema and function aren't theirs.
+
+Adoption never takes a role that owns a database, and takes a LOGIN role only
+when its creating session is dropped. So a sibling never inherits ADMIN on a
+role the guard trusts or on a database owner. Dropping a session first
+force-drops every database it or a role it created owns (`dropOwnedDbsSql`),
+then adopts, then drops the role. Promote hands the session's other databases
+back inside the same transaction as its `REASSIGN OWNED`, so `r_<repo>` never
+owns a database. Each idle tick resets `IS_TEMPLATE` on non-superuser databases
+(`UNTEMPLATE_SQL`) and hands a database given to an already-adopted role back to
+its creating session (`RECLAIM_SQL`).
+
+**Accepted (self-exposure):** a session that sets `IS_TEMPLATE` on its own
+database, or hands one to an already-adopted role, exposes it to other
+`CREATEDB` roles or siblings for up to a minute, until the next idle tick. A
+database owned by a role that a session-created role in turn created is never
+reclaimed. Reaching it needs the session to grant `CREATEROLE` to its own
+role.
 
 **App roles (`CREATEROLE`).** Session roles hold `CREATEROLE` so migrations can
 create roles (e.g. a non-owner RLS role). Postgres 16+ limits that to roles the
-session administers: no `SUPERUSER`/`BYPASSRLS`/`CREATEDB`/`REPLICATION` roles,
+session administers: no `SUPERUSER`/`BYPASSRLS`/`REPLICATION` roles (`CREATEDB` only
+on PG17+, where the session role has it itself),
 no granting `pg_*` or any role it lacks ADMIN on, no altering other session
 roles. Older servers (a configured pre-16 image) never grant it: there
 `CREATEROLE` is close to superuser. Each session role is a member of its repo
@@ -360,7 +406,22 @@ session holding it, out of the other repo's clones.
 with no template yet, or `s_<id>` for another session (ids are in the agent
 env). `baseScript` and `roleScript` revoke, with CASCADE, every non-superuser
 holding ADMIN on the role, then reset its attributes (and, for `s_<id>`, its
-settings and password) before the clone exists. The hourly reconcile also drops
+settings and password) before the clone exists. A role counts as squatted when it has a non-superuser ADMIN holder, or when it
+already exists while its lease is not yet verified (its creator may have been
+dropped). The lease's `roleVerified` flag lives in Shepherd's store and is set
+only after a `roleScript` succeeds, so a cleanup that failed part-way is
+re-detected on the retry. Leases from before the flag count as verified.
+Shepherd never leaves a session role behind a deleted lease. For a squatted `s_<id>`,
+`roleScript` also force-drops every database the role or a role made through it
+owns, then revokes all of its ADMIN memberships. The creator rows of roles made
+while squatting go with them, so the login guard stops trusting those roles.
+There is no `DROP ROLE`: leftovers in databases Shepherd never visits can't
+block provisioning. A database named like a clone that its role doesn't own,
+or a base that isn't superuser-owned, is force-dropped before use. Every
+superuser force-drop first gives the database to the superuser and clears
+`IS_TEMPLATE`. Postgres refuses to drop a template database, and its owner
+could otherwise re-set the flag to block provisions, promotes, drops or
+reconcile. The hourly reconcile also drops
 `s_<id>` roles no lease claims.
 
 **Accepted:** a session can disturb roles it administers but doesn't own the data

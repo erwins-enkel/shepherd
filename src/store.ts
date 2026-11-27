@@ -817,6 +817,9 @@ export interface PostgresLease {
   role: string;
   state: PostgresLeaseState;
   createdAt: number;
+  /** 1 once a provision's `roleScript` succeeded for this lease (#4270): until then an existing
+   *  session role is a squat. Leases from before the column count as verified. */
+  roleVerified: number;
 }
 
 /** A repo's own coding CLI, default model, effort and execution effort (#3447), as stored —
@@ -2116,6 +2119,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS postgres_leases (
       sessionId TEXT PRIMARY KEY, repoPath TEXT NOT NULL, db TEXT NOT NULL, role TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'active', createdAt INTEGER NOT NULL)`);
+    // #4270: existing leases were provisioned before squat checks depended on it → verified.
+    if (
+      !(this.db.query(`PRAGMA table_info(postgres_leases)`).all() as { name: string }[]).some(
+        (c) => c.name === "roleVerified",
+      )
+    )
+      this.db.run(`ALTER TABLE postgres_leases ADD COLUMN roleVerified INTEGER NOT NULL DEFAULT 1`);
     // Project-bootstrap state (#3105). Its own table, NOT repo_config columns: creating a
     // repo_config row for a new project would flip automationRowExists and skip the new-repo
     // default seeding. `off` = no row, so the table holds only bootstrapped repos (no prune).
@@ -3504,14 +3514,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** Insert or re-activate the session's lease. */
-  upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt">): void {
+  upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt" | "roleVerified">): void {
     this.db.run(
-      `INSERT INTO postgres_leases (sessionId, repoPath, db, role, state, createdAt)
-         VALUES (?, ?, ?, ?, 'active', ?)
+      `INSERT INTO postgres_leases (sessionId, repoPath, db, role, state, createdAt, roleVerified)
+         VALUES (?, ?, ?, ?, 'active', ?, 0)
        ON CONFLICT(sessionId) DO UPDATE SET repoPath = excluded.repoPath, db = excluded.db,
          role = excluded.role, state = 'active'`,
       [lease.sessionId, lease.repoPath, lease.db, lease.role, Date.now()],
     );
+  }
+
+  /** #4270: the lease's session role passed `roleScript` (squat check + cleanup) once. */
+  markPostgresRoleVerified(sessionId: string): void {
+    this.db.run(`UPDATE postgres_leases SET roleVerified = 1 WHERE sessionId = ?`, [sessionId]);
   }
 
   setPostgresLeaseState(sessionId: string, state: PostgresLeaseState): void {

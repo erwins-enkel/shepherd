@@ -175,23 +175,127 @@ function revokeAdminHolders(role: string): string {
   return `SELECT format('REVOKE %I FROM %I CASCADE', r.rolname, m.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member WHERE r.rolname = ${lit(role)} AND a.admin_option AND NOT m.rolsuper\\gexec`;
 }
 
+const PG16 = "pg_catalog.current_setting('server_version_num')::int >= 160000";
+const PG17 = "pg_catalog.current_setting('server_version_num')::int >= 170000";
+
+/** #4270: startup options for EVERY admin psql connection (env `PGOPTIONS`, so each `\\connect`
+ *  gets them too). Shepherd connects as the superuser into session-owned databases (clones,
+ *  `_next`); their owner can `ALTER DATABASE … SET search_path` / `role` and plant functions
+ *  that would otherwise resolve before pg_catalog. Client options override those settings. */
+export const ADMIN_PGOPTIONS = "-c search_path=pg_catalog,pg_temp -c role=none";
+const SESSION_ROLE_PATTERN = "^s_[0-9a-f]{32}$";
+
+/** The role row of `name`, or NULL — so a missing role matches nothing (no `::regrole` error). */
+const roleOid = (name: string) => `(SELECT oid FROM pg_roles WHERE rolname = ${lit(name)})`;
+
+/** Force-drop every database `where` selects (alias `d`), one `\\gexec` row each. Postgres refuses
+ *  to drop a template database — even for a superuser, even WITH (FORCE) — and an owner can set
+ *  IS_TEMPLATE at will (#4270). So each one is parked on the superuser first (its owner can no
+ *  longer re-set the flag), un-templated, then dropped. A missing database matches nothing. */
+function forceDropSql(where: string): string {
+  return (
+    `SELECT format('ALTER DATABASE %I OWNER TO postgres', d.datname), ` +
+    `format('ALTER DATABASE %I IS_TEMPLATE false', d.datname), ` +
+    `format('DROP DATABASE %I WITH (FORCE)', d.datname) FROM pg_database d WHERE ${where}\\gexec`
+  );
+}
+
+/** {@link forceDropSql} for one database name. */
+const forceDropNamedSql = (name: string) => forceDropSql(`d.datname = ${lit(name)}`);
+
+/** SQL boolean: role `r` belongs to tenant `t` (both oid expressions). `r = t`, or `t` created `r`
+ *  (its ADMIN row with a superuser grantor: PG16+ records the creator's self-grant that way, the
+ *  creator can't revoke it, later grants carry the granting role) AND no other non-superuser
+ *  holds ADMIN on `r` (no repo-role adoption, no grant by another session). */
+function trustedSql(r: string, t: string): string {
+  return (
+    `(${r} = ${t} OR (EXISTS (SELECT 1 FROM pg_auth_members a JOIN pg_roles g ON g.oid = a.grantor ` +
+    `WHERE a.roleid = ${r} AND a.member = ${t} AND a.admin_option AND g.rolsuper) ` +
+    `AND NOT EXISTS (SELECT 1 FROM pg_auth_members a JOIN pg_roles m ON m.oid = a.member ` +
+    `WHERE a.roleid = ${r} AND a.admin_option AND NOT m.rolsuper AND m.oid <> ${t})))`
+  );
+}
+
+/** #4270: the login guard. On PG17+ a session role holds CREATEDB, and a database it creates gets
+ *  default PUBLIC CONNECT; hba lets every name that isn't Shepherd's through (`HBA_LINES_PG17`).
+ *  This superuser-owned `ON login` event trigger is then the boundary: it admits superusers, and
+ *  `session_user` only when some TENANT `t` — a session role (`s_<id>`) no non-superuser
+ *  administers — has both the database owner and the user (`trustedSql`). New databases copy it
+ *  from their template, so it is installed in every database a session can copy: template1, each
+ *  repo base (clones inherit it) and each clone (`finishScript`). */
+const GUARD_FUNCTION = `CREATE OR REPLACE FUNCTION shepherd.login_guard() RETURNS event_trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $guard$
+DECLARE
+  u oid := (SELECT oid FROM pg_roles WHERE rolname = session_user);
+  o oid := (SELECT datdba FROM pg_database WHERE datname = current_database());
+BEGIN
+  IF (SELECT rolsuper FROM pg_roles WHERE oid = u) THEN RETURN; END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles t WHERE t.rolname ~ '${SESSION_ROLE_PATTERN}'
+      AND NOT EXISTS (SELECT 1 FROM pg_auth_members a JOIN pg_roles m ON m.oid = a.member
+        WHERE a.roleid = t.oid AND a.admin_option AND NOT m.rolsuper)
+      AND ${trustedSql("o", "t.oid")} AND ${trustedSql("u", "t.oid")}) THEN
+    RETURN;
+  END IF;
+  RAISE EXCEPTION 'role % may not connect to database %', session_user, current_database();
+END
+$guard$;`;
+
+/** Install the guard in the CURRENT database (run as the superuser after `\\connect`). PG17+ only
+ *  (login event triggers). A `shepherd` schema or function a session owns (pre-created in its
+ *  own clone) is dropped first, CASCADE taking any event trigger bound to it: the superuser
+ *  never binds or runs a session-owned function. Idempotent. */
+export const GUARD_SQL = [
+  `SELECT ${PG17} AS shepherd_pg17 \\gset`,
+  "\\if :shepherd_pg17",
+  "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_roles o ON o.oid = n.nspowner WHERE n.nspname = 'shepherd' AND NOT o.rolsuper) " +
+    "OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace JOIN pg_catalog.pg_roles o ON o.oid = p.proowner WHERE n.nspname = 'shepherd' AND NOT o.rolsuper) " +
+    "AS shepherd_tainted \\gset",
+  "\\if :shepherd_tainted",
+  "DROP SCHEMA shepherd CASCADE;",
+  "\\endif",
+  "CREATE SCHEMA IF NOT EXISTS shepherd AUTHORIZATION postgres;",
+  "REVOKE ALL ON SCHEMA shepherd FROM PUBLIC;",
+  GUARD_FUNCTION,
+  "REVOKE ALL ON FUNCTION shepherd.login_guard() FROM PUBLIC;",
+  "SELECT 'CREATE EVENT TRIGGER shepherd_login_guard ON login EXECUTE FUNCTION shepherd.login_guard()' WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger WHERE evtname = 'shepherd_login_guard')\\gexec",
+  "\\endif",
+].join("\n");
+
+/** Force-drop every database owned by session role `db` or by a role it created (its ADMIN row
+ *  with a superuser grantor), the clone included. Used by `dropScript`, the squat cleanup in
+ *  `roleScript`, and first in `PostgresService.drop()` — before adoption, so no adopted role ever
+ *  owns a database of the session. A missing role matches nothing. */
+export function dropOwnedDbsSql(db: string): string {
+  if (!isSessionDbName(db)) throw new Error(`refusing to sweep non-session role: ${db}`);
+  const r = roleOid(db);
+  return forceDropSql(
+    `d.datdba = ${r} OR d.datdba IN (SELECT a.roleid FROM pg_auth_members a JOIN pg_roles g ON g.oid = a.grantor ` +
+      `WHERE a.member = ${r} AND a.admin_option AND g.rolsuper)`,
+  );
+}
+
 /** Repo role + template. The template is owned by the superuser: the repo role owns NO database,
- *  so `REASSIGN OWNED` in a clone only moves objects inside that clone. */
+ *  so `REASSIGN OWNED` in a clone only moves objects inside that clone. A base a session created
+ *  first (CREATEDB, #4270) is not superuser-owned: it is dropped and re-created. Ends in the base
+ *  with the login guard installed, so every clone inherits it. */
 export function baseScript(repoPath: string): string {
   const role = repoRole(repoPath);
   const base = repoBaseDb(repoPath);
   return [
     `SELECT 'CREATE ROLE ${role} NOLOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(role)})\\gexec`,
+    forceDropSql(
+      `d.datname = ${lit(base)} AND NOT (SELECT o.rolsuper FROM pg_roles o WHERE o.oid = d.datdba)`,
+    ),
     `SELECT 'CREATE DATABASE ${base}' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = ${lit(base)})\\gexec`,
     `REVOKE CONNECT, TEMPORARY ON DATABASE ${base} FROM PUBLIC;`,
     // A squatted repo role: drop its admin holders and any attributes they gave it.
     revokeAdminHolders(role),
     `ALTER ROLE ${role} NOLOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS PASSWORD NULL;`,
+    `\\connect ${base}`,
+    GUARD_SQL,
     "",
   ].join("\n");
 }
-
-const PG16 = "current_setting('server_version_num')::int >= 160000";
 
 /** Login role (password always (re)set) + clone of the template when the clone is missing. The
  *  clone path ends in the clone DB (`\connect`), so it is a separate script. CREATEROLE lets the
@@ -199,16 +303,38 @@ const PG16 = "current_setting('server_version_num')::int >= 160000";
  *  BYPASSRLS / CREATEDB); membership in the repo role inherits ADMIN on the roles sibling sessions
  *  created (`adoptScript`). Re-applied on every request, so older session roles get it too.
  *  PG16+ only (`PG16`); on older servers the role stays NOCREATEROLE. */
-export function roleScript(sessionId: string, password: string, repoPath: string): string {
+export function roleScript(
+  sessionId: string,
+  password: string,
+  repoPath: string,
+  { verified = true }: { verified?: boolean } = {},
+): string {
   const db = sessionDb(sessionId);
+  // A squatted session role (session ids are in agent env): it has a non-superuser ADMIN holder
+  // (a creator can't revoke its own ADMIN), or — its creator since dropped — it already exists
+  // while its lease is not yet VERIFIED (no roleScript succeeded for it: Shepherd never leaves a
+  // role behind a deleted lease, and a failed cleanup leaves the lease unverified for the retry).
+  const preexisting = verified ? "" : ` OR ${roleOid(db)} IS NOT NULL`;
   return [
+    `SELECT EXISTS (SELECT 1 FROM pg_auth_members a JOIN pg_roles m ON m.oid = a.member WHERE a.roleid = ${roleOid(db)} AND a.admin_option AND NOT m.rolsuper)${preexisting} AS shepherd_squatted \\gset`,
     `SELECT 'CREATE ROLE ${db} LOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
-    // A squatted session role (session ids are in agent env): drop its admin holders, then reset
-    // everything a holder could have set, before the password and before the clone exists.
+    // Drop its admin holders, then reset everything a holder could have set, before the password
+    // and before the clone exists.
     revokeAdminHolders(db),
     `ALTER ROLE ${db} WITH LOGIN NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS INHERIT CONNECTION LIMIT -1 VALID UNTIL 'infinity' PASSWORD ${literalPassword(password)};`,
     `ALTER ROLE ${db} RESET ALL;`,
     `SELECT format('ALTER ROLE %I IN DATABASE %I RESET ALL', ${lit(db)}, d.datname) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase WHERE s.setrole = (SELECT oid FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
+    // #4270: what the squatter made AS the role survives the revoke. Drop the databases it (or a
+    // role it created) owns, then every ADMIN membership of the role — the creator rows of roles
+    // made while squatting, which the login guard would trust. No DROP ROLE: grants or objects
+    // the squatter left in databases this psql never visits could block it.
+    "\\if :shepherd_squatted",
+    dropOwnedDbsSql(db),
+    forceDropNamedSql(db),
+    `SELECT format('REVOKE %I FROM %I GRANTED BY %I CASCADE', r.rolname, ${lit(db)}, g.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles g ON g.oid = a.grantor WHERE a.member = ${roleOid(db)} AND a.admin_option\\gexec`,
+    "\\endif",
+    // A database named like the clone that the role doesn't own was made by someone else.
+    forceDropSql(`d.datname = ${lit(db)} AND d.datdba IS DISTINCT FROM ${roleOid(db)}`),
     // Before PG16, CREATEROLE is close to superuser (any role's password, any grant) and the
     // INHERIT/SET grant syntax doesn't exist: an older configured image gets neither.
     `SELECT 'ALTER ROLE ${db} CREATEROLE' WHERE ${PG16}\\gexec`,
@@ -284,7 +410,20 @@ export function cloneScript(repoPath: string, sessionId: string): string {
   ].join("\n");
 }
 
-const SESSION_ROLE_PATTERN = "^s_[0-9a-f]{32}$";
+/** End of every provision (#4270): the login guard in the clone (older clones predate it), then —
+ *  PG17+ only, and only now that template1 (HARDEN) and the clone carry the guard — CREATEDB.
+ *  `roleScript` resets the role to NOCREATEDB at the start of each provision. */
+export function finishScript(sessionId: string): string {
+  const db = sessionDb(sessionId);
+  return [
+    `\\connect ${db}`,
+    GUARD_SQL,
+    "\\connect postgres",
+    `SELECT 'ALTER ROLE ${db} CREATEDB' WHERE ${PG17}\\gexec`,
+    "",
+  ].join("\n");
+}
+
 const REPO_ROLE_PATTERN = "^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$";
 
 /** Hand the roles a session created to its repo role WITH ADMIN, so every session of that repo
@@ -295,7 +434,15 @@ const REPO_ROLE_PATTERN = "^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$";
  *  and is never adopted (#4272: cross-repo role injection). Never `pg_*`, superusers or Shepherd's
  *  own session/repo role names; a missing session or repo role is a no-op. Empty input → ""
  *  (nothing to run). */
-export function adoptScript(leases: readonly { db: string; role: string }[]): string {
+export function adoptScript(
+  leases: readonly { db: string; role: string }[],
+  { includeLogin = false }: { includeLogin?: boolean } = {},
+): string {
+  // #4270: a role that owns a database is never adopted (a sibling inheriting ADMIN could grant it
+  // to itself, re-own or copy the database), and a LOGIN role only once its creator is being
+  // dropped (`includeLogin`, after `dropOwnedDbsSql`): the login guard trusts roles only their
+  // creating session administers.
+  const login = includeLogin ? "" : "AND NOT r.rolcanlogin ";
   const lines = leases.map(({ db, role }) => {
     if (!isSessionDbName(db)) throw new Error(`invalid session role: ${db}`);
     return (
@@ -304,6 +451,7 @@ export function adoptScript(leases: readonly { db: string; role: string }[]): st
       `JOIN pg_roles g ON g.oid = a.grantor JOIN pg_roles h ON h.rolname = ${lit(role)} ` +
       `WHERE m.rolname = ${lit(db)} AND a.admin_option AND g.rolsuper AND NOT r.rolsuper AND r.rolname !~ '^pg_' ` +
       `AND r.rolname !~ '${SESSION_ROLE_PATTERN}' AND r.rolname !~ '${REPO_ROLE_PATTERN}' ` +
+      `AND NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datdba = r.oid) ${login}` +
       `AND NOT EXISTS (SELECT 1 FROM pg_auth_members x WHERE x.roleid = a.roleid AND x.member = h.oid AND x.admin_option)\\gexec`
     );
   });
@@ -319,10 +467,22 @@ const POSTGRES_HBA_LINES = [
   "host sameuser all all scram-sha-256",
 ] as const;
 
+/** PG17+ (#4270): Shepherd's own database names stay pinned to `sameuser` (the reject line); every
+ *  other name — a database a session created — falls through to password auth, and the login
+ *  guard (`GUARD_SQL`) decides. */
+const HBA_LINES_PG17 = [
+  ...POSTGRES_HBA_LINES,
+  "host /^s_[0-9a-f]{32}$,/^r_[a-z0-9_]*[0-9a-f]{8}_(base|next|old)$,postgres,template1 all all reject",
+  "host all all all scram-sha-256",
+] as const;
+
+const hbaCopy = (lines: readonly string[]) =>
+  `EXECUTE format('COPY (VALUES ${lines.map(() => "(%L)").join(", ")}) TO %L', ${lines.map((l) => `'${l}'`).join(", ")}, current_setting('hba_file'));`;
+
 /** `postgres_reset` (#4240): drop the clone (force-closing its connections) so `cloneScript` can
  *  re-create it from the template; the login role and its password stay. */
 export function resetScript(sessionId: string): string {
-  return `DROP DATABASE IF EXISTS ${sessionDb(sessionId)} WITH (FORCE);\n`;
+  return `${forceDropNamedSql(sessionDb(sessionId))}\n`;
 }
 
 /** Scratch names for the template swap in {@link promoteScript}. */
@@ -344,8 +504,13 @@ export function promoteScript(repoPath: string, sessionId: string): string {
   const next = repoNextDb(repoPath);
   const old = repoOldDb(repoPath);
   return [
-    `DROP DATABASE IF EXISTS ${next};`,
-    `DROP DATABASE IF EXISTS ${old};`,
+    // #4270: a superuser-owned guard in the clone first, so the copy never carries a
+    // session-owned `shepherd` schema into the template.
+    `\\connect ${db}`,
+    GUARD_SQL,
+    "\\connect postgres",
+    forceDropNamedSql(next),
+    forceDropNamedSql(old),
     `ALTER DATABASE ${db} ALLOW_CONNECTIONS false;`,
     `SELECT count(pg_terminate_backend(pid, 5000)) FROM pg_stat_activity WHERE datname = ${lit(db)} AND pid <> pg_backend_pid();`,
     "SET file_copy_method = clone;",
@@ -353,7 +518,12 @@ export function promoteScript(repoPath: string, sessionId: string): string {
     `REVOKE CONNECT, TEMPORARY ON DATABASE ${next} FROM PUBLIC;`,
     `ALTER DATABASE ${db} OWNER TO postgres;`,
     `\\connect ${next}`,
+    // The session's other databases (#4270) move with REASSIGN; hand them back in the same
+    // transaction, so the repo role never owns a database even if a later step fails.
+    "BEGIN;",
     `REASSIGN OWNED BY ${db} TO ${role};`,
+    `SELECT format('ALTER DATABASE %I OWNER TO ${db}', datname) FROM pg_database WHERE datdba = ${roleOid(role)}\\gexec`,
+    "COMMIT;",
     clearDefaultAclsSql(role),
     copyDefaultAclsSql(db, role),
     `DROP OWNED BY ${db};`,
@@ -373,28 +543,50 @@ export function promoteRestoreScript(repoPath: string, sessionId: string): strin
   return [
     `ALTER DATABASE ${db} OWNER TO ${db};`,
     `ALTER DATABASE ${db} ALLOW_CONNECTIONS true;`,
-    `DROP DATABASE IF EXISTS ${repoNextDb(repoPath)};`,
+    forceDropNamedSql(repoNextDb(repoPath)),
     "",
   ].join("\n");
 }
 
+/** A session marking its own database IS_TEMPLATE would let every CREATEDB role copy it; owners
+ *  copy their own databases without the flag. Reset on every non-superuser-owned database. */
+export const UNTEMPLATE_SQL =
+  "SELECT format('ALTER DATABASE %I IS_TEMPLATE false', d.datname) FROM pg_database d JOIN pg_roles o ON o.oid = d.datdba WHERE d.datistemplate AND NOT o.rolsuper\\gexec\n";
+
+/** A database handed to a role AFTER that role was adopted (another non-superuser holds ADMIN on
+ *  it) goes back to the session that created the owner. Runs before adoption on every idle tick. */
+export const RECLAIM_SQL =
+  "SELECT format('ALTER DATABASE %I OWNER TO %I', d.datname, c.rolname) FROM pg_database d " +
+  "JOIN pg_auth_members a ON a.roleid = d.datdba AND a.admin_option " +
+  "JOIN pg_roles g ON g.oid = a.grantor AND g.rolsuper " +
+  `JOIN pg_roles c ON c.oid = a.member AND c.rolname ~ '${SESSION_ROLE_PATTERN}' ` +
+  "WHERE EXISTS (SELECT 1 FROM pg_auth_members x JOIN pg_roles h ON h.oid = x.member " +
+  "WHERE x.roleid = d.datdba AND x.admin_option AND NOT h.rolsuper AND h.oid <> c.oid)\\gexec\n";
+
 /** Session roles may connect only to their own clone: PUBLIC loses CONNECT/TEMPORARY on the
- *  cluster's built-in databases too (template0 already refuses connections), and the cluster's
- *  hba file is rewritten to `POSTGRES_HBA_LINES` + reloaded. Run at every ready. */
+ *  cluster's built-in databases too, template0 can no longer be copied by non-superusers, and the
+ *  cluster's hba file is rewritten (`POSTGRES_HBA_LINES`; PG17+ `HBA_LINES_PG17`) + reloaded.
+ *  Ends in template1 with the login guard installed. Run at every ready. */
 export const HARDEN_SQL = [
   "REVOKE CONNECT, TEMPORARY ON DATABASE postgres FROM PUBLIC;",
   "REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC;",
-  `DO $$ BEGIN EXECUTE format('COPY (VALUES (%L), (%L)) TO %L', '${POSTGRES_HBA_LINES[0]}', '${POSTGRES_HBA_LINES[1]}', current_setting('hba_file')); END $$;`,
+  "ALTER DATABASE template0 IS_TEMPLATE false;",
+  `DO $$ BEGIN IF ${PG17} THEN ${hbaCopy(HBA_LINES_PG17)} ELSE ${hbaCopy(POSTGRES_HBA_LINES)} END IF; END $$;`,
   "SELECT pg_reload_conf();",
+  UNTEMPLATE_SQL.trimEnd(),
+  "\\connect template1",
+  GUARD_SQL,
   "",
 ].join("\n");
 
-/** Drop the clone and its role. `DROP OWNED` first clears anything the role still holds in the
- *  admin database (grants, default ACLs) so `DROP ROLE` cannot fail on a dependency. */
+/** Drop the clone, every other database the role or a role it created owns (#4270), and the role.
+ *  `DROP OWNED` first clears anything the role still holds in the admin database (grants, default
+ *  ACLs) so `DROP ROLE` cannot fail on a dependency. */
 export function dropScript(db: string): string {
   if (!isSessionDbName(db)) throw new Error(`refusing to drop non-session database: ${db}`);
   return [
-    `DROP DATABASE IF EXISTS ${db} WITH (FORCE);`,
+    forceDropNamedSql(db),
+    dropOwnedDbsSql(db),
     `SELECT 'DROP OWNED BY ${db}' WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${lit(db)})\\gexec`,
     `DROP ROLE IF EXISTS ${db};`,
     "",

@@ -30,7 +30,10 @@
   } = $props();
 
   const count = $derived(Object.keys(editor.draft).length);
-  const unshared = $derived(editor.view?.repoConfigCommit === null);
+  // A first share the default branch refused is already proposed in a PR: not "unshared" any more.
+  const unshared = $derived(
+    editor.view?.repoConfigCommit === null && !editor.view.pendingRepoConfig,
+  );
   const branch = $derived(editor.view?.repoConfigBranch ?? "");
   const busy = $derived(preparing || editor.saving);
   const notifyFailed = $derived(editor.view?.notifications?.some((result) => !result.ok) ?? false);
@@ -41,7 +44,7 @@
   role="region"
   aria-label={m.automation_layers_bar_label()}
 >
-  {#if editor.dirty || unshared}
+  {#if editor.dirty || (unshared && !saved)}
     <div class="text">
       {#if editor.dirty}
         <strong class="count">

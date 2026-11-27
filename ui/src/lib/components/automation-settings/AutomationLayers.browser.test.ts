@@ -8,6 +8,8 @@ import { repoConfig } from "#lib/reviews.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { RepoSettingsSection } from "../repo-settings/sections.js";
 let puts: Record<string, unknown>[];
+/** The default branch refuses the rule commit: the server opens a PR instead. */
+let prFallback = false;
 function setup(commit: string | null = "abc123", offline = false, metadataFailed = false) {
   repoConfig.loaded = {};
   repos.loaded = false;
@@ -56,7 +58,16 @@ function setup(commit: string | null = "abc123", offline = false, metadataFailed
         if (init?.method === "PUT") {
           const patch = JSON.parse(init.body);
           puts.push(patch);
-          config = { ...config, ...patch, repoConfigCommit: "saved123" };
+          config = prFallback
+            ? {
+                ...config,
+                pendingRepoConfig: {
+                  number: 77,
+                  url: "https://github.com/owner/repo/pull/77",
+                  changes: patch,
+                },
+              }
+            : { ...config, ...patch, repoConfigCommit: "saved123" };
         }
         return Response.json(config);
       }
@@ -93,7 +104,10 @@ function setup(commit: string | null = "abc123", offline = false, metadataFailed
   );
   return render(AutomationPanel, { repoPath: "/layers-test" });
 }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  prFallback = false;
+});
 /** Switch to `section` by its rail tab: the panel shows one section at a time. */
 async function open(section: RepoSettingsSection) {
   const tab = () => document.querySelector<HTMLElement>(`[role="tab"][id$="-tab-${section}"]`);
@@ -441,3 +455,24 @@ for (const [width, height] of [
     }
   });
 }
+
+it("a first share the default branch refuses reports its PR, not an unshared repo (#4274)", async () => {
+  setup(null);
+  prFallback = true;
+  await bar().getByRole("button", { name: m.automation_layers_share(), exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: m.automation_layers_save(), exact: true })
+    .click();
+  await vi.waitFor(() => expect(puts).toHaveLength(1));
+  await expect
+    .element(bar().getByRole("status"))
+    .toHaveTextContent(
+      `${m.automation_layers_saved_pr({ number: 77 })} ${m.reposettings_pending_link({ number: 77 })}`,
+    );
+  await expect
+    .element(bar().getByRole("button", { name: m.automation_layers_share(), exact: true }))
+    .not.toBeInTheDocument();
+  await bar().getByRole("button", { name: m.automation_layers_dismiss(), exact: true }).click();
+  await expect.element(bar()).not.toBeInTheDocument();
+});

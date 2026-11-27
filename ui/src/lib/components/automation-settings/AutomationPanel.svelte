@@ -49,7 +49,10 @@
     if (editor.dirty) untrack(() => (saved = null));
   });
   const barShown = $derived(
-    editor.shareable && (editor.dirty || editor.view?.repoConfigCommit === null || !!saved),
+    editor.shareable &&
+      (editor.dirty ||
+        (editor.view?.repoConfigCommit === null && !editor.view.pendingRepoConfig) ||
+        !!saved),
   );
   const cachedOnOpen = untrack(() => repoConfig.isConfigLoaded(repoPath));
   let refreshFailed = $state(false);

@@ -696,6 +696,11 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
 
 // #3542 — iOS merge card above the steer capsule (web: viewport/pr-action-row.ts).
 export const KEYS_IOS_MERGE_CARD: readonly string[] = [
+  "artifactrow_aria",
+  "artifactrow_copy",
+  "artifactrow_label",
+  "artifactrow_menu_facts",
+  "artifactrow_more_aria",
   "gitrail_decommission_action",
   "gitrail_merge_blocked_busy",
   "gitrail_merge_blocked_pending",
@@ -704,10 +709,16 @@ export const KEYS_IOS_MERGE_CARD: readonly string[] = [
   "gitrail_review",
   "gitrail_review_failed",
   "gitrail_review_skipped",
+  "native_ios_artifact_open",
+  "native_ios_artifact_open_hint",
+  "native_ios_artifact_share",
   "native_ios_merge_hold_hint",
   "native_ios_merge_opens_confirmation",
   "native_ios_merge_with_options",
   "prrow_aria",
+  "prrow_artifact_aria",
+  "prrow_artifact_link",
+  "prrow_artifact_tip_status",
   "prrow_fact_base_behind",
   "prrow_fact_base_current",
   "prrow_fact_ci_failed",

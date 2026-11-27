@@ -9188,5 +9188,8 @@
   "artifactrow_pr_menu_show": "Show artifact in Chat",
   "artifactrow_pr_menu_hide": "Hide artifact for this session",
   "feat_artifact_menu_title": "Every artifact of a session in one menu",
-  "feat_artifact_menu_body": "When the agent published several artifacts, the bar shows the newest and “All N” lists every one, newest first: open it, copy its link or jump to its tool call in the Chat. “Hide for this session” removes the artifact row on all your devices; a new artifact brings it back."
+  "feat_artifact_menu_body": "When the agent published several artifacts, the bar shows the newest and “All N” lists every one, newest first: open it, copy its link or jump to its tool call in the Chat. “Hide for this session” removes the artifact row on all your devices; a new artifact brings it back.",
+  "native_ios_artifact_open": "Open",
+  "native_ios_artifact_open_hint": "Opens claude.ai outside the app.",
+  "native_ios_artifact_share": "Share …"
 }

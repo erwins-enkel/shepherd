@@ -15,6 +15,8 @@ struct IOSMergeCard: View {
     let canMerge: Bool
     /// The herd's swept agent liveness; nil while unknown.
     var alive: Bool?
+    /// The session's newest artifact (#3878), nil without one.
+    var artifact: SessionArtifact?
     var rendersStaticFixture = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.openURL) private var openURL
@@ -45,6 +47,7 @@ struct IOSMergeCard: View {
                 Text(L.t("native_ios_actions_read_only")).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            artifactRow
         }
         .foregroundStyle(SessionListStyle.ink)
         .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 8)
@@ -109,6 +112,37 @@ struct IOSMergeCard: View {
             Text(verbatim: reason).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("merge-card-step-reason")
+        }
+    }
+
+    /// "◆ ARTEFAKT · title · ↗" under a divider (#3878): opens the newest artifact on claude.ai.
+    /// Blue, so the merge hold stays the only amber action.
+    @ViewBuilder private var artifactRow: some View {
+        if let artifact, let url = ArtifactRowRules.url(artifact) {
+            let large = dynamicTypeSize.isAccessibilitySize
+            Rectangle().fill(SessionListStyle.line).frame(height: 1).accessibilityHidden(true)
+            Button { openURL(url) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "diamond.fill")
+                    // Large text: label above the title, nothing truncates.
+                    (large ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 6))) {
+                        Text(verbatim: L.t("artifactrow_label").uppercased() + (large ? "" : " ·"))
+                            .fixedSize(horizontal: !large, vertical: true)
+                        // Agent data: text only.
+                        Text(verbatim: artifact.title).foregroundStyle(SessionListStyle.bright)
+                            .lineLimit(large ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: large)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.right")
+                }
+                .sessionFont(label: true, weight: .semibold).foregroundStyle(SessionListStyle.blue)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(ArtifactRowRules.accessibilityLabel(artifact))
+            .accessibilityHint(L.t("native_ios_artifact_open_hint"))
+            .accessibilityIdentifier("merge-card-artifact")
         }
     }
 
@@ -200,6 +234,11 @@ struct IOSMergeCard: View {
                 }
                 if let url = git.url.flatMap(URL.init(string:)), url.scheme == "https" || url.scheme == "http" {
                     Button(L.t("prrow_pr_link"), systemImage: "arrow.up.right.square") { openURL(url) }
+                }
+                if let artifact, let url = ArtifactRowRules.url(artifact) {
+                    Button(L.t("prrow_artifact_link"), systemImage: "diamond") { openURL(url) }
+                        .accessibilityLabel(ArtifactRowRules.accessibilityLabel(artifact))
+                        .accessibilityIdentifier("merge-card-artifact-link")
                 }
                 if !offersReady && kind == .ready && canMerge {
                     Divider()

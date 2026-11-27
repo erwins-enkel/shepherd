@@ -14,7 +14,8 @@ The iOS detail header menu holds every available command, including eligible Mer
 While the session's PR is open, or merged and the session still stands, a **merge card**
 sits above the steer capsule (#3542),
 the iOS counterpart of the web's merge row (`viewport/PrActionRow.svelte`). Without an
-open PR, only Ready is repeated above the terminal footer. Recap opens from Info. The header owns Rename, Amend,
+open PR, only Ready is repeated above the terminal footer; once the agent has published an
+artifact, the [artifact card](#artifact-card) takes the merge card's place. Recap opens from Info. The header owns Rename, Amend,
 Relaunch and Merge confirmation sheets, keeping them reachable across tabs.
 Errors, progress, outcome notes and read-only copy remain inline above the footer
 or other tab content.
@@ -69,6 +70,25 @@ pending check locks Merge here.
 - Merging shows "Merging …" and locks the button; errors appear inside the card.
   The card is hidden in focus mode and while a Claude dialog is open; read-only keeps
   its note.
+
+## Artifact card
+
+`ArtifactRowRules` ports `viewport/artifact-row.ts` and `shared/artifact-url.ts`: the newest
+artifact with a valid `https://claude.ai/artifact/<id>` or `/code/artifact/<id>` link, and none
+once the operator hid them for the session. A new artifact shows it again.
+
+- **Without a merge card** (#3878): a card in the merge card's shape. Left: a blue diamond,
+  **ARTEFAKT**, the title on one line and "Fassung N · vor X Min.". Right: a 44 pt ⋯ menu with
+  **Link kopieren** and **Teilen …** (the system share sheet), and **Öffnen**, at least 48 pt
+  high. Ready and feedback stay below it.
+- **With a merge card:** a divider and a row of at least 44 pt, "◆ ARTEFAKT · title · ↗", and
+  **Artefakt ↗** next to **PR ↗** in the ⋯ menu. Both are blue; the merge hold stays the only
+  amber action.
+- **Open** uses `openURL`: Safari, or an app that claims the link. VoiceOver reads the title,
+  version and age, and the hint says that claude.ai opens outside the app.
+- At accessibility sizes everything stacks and the title wraps.
+
+The list of all artifacts, "Show in Chat" and "Hide for this session" (#3877) are web-only so far.
 
 ## Reuse and lifecycle
 

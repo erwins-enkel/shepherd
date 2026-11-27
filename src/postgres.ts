@@ -15,6 +15,8 @@ import { writeSecretsFile } from "./plugins/secrets";
 import {
   ADMIN_PGOPTIONS,
   CLIENT_CONNECTIONS_SQL,
+  GUARD_SQL,
+  GUARD_SWEEP_DBS_SQL,
   HARDEN_SQL,
   LIST_SESSION_OBJECTS_SQL,
   RECLAIM_SQL,
@@ -30,6 +32,7 @@ import {
   baseScript,
   cloneScript,
   connectionFor,
+  conninfoDbname,
   dropOwnedDbsSql,
   dropScript,
   finishScript,
@@ -63,7 +66,8 @@ export interface PostgresStore {
   getSetting(key: string): string | null;
   get(id: string): Pick<Session, "repoPath" | "archivedAt"> | null | undefined;
   getPostgresLease(sessionId: string): PostgresLease | null;
-  /** The repo's `postgresBypassRls` opt-in: its session roles get BYPASSRLS. */
+  /** The repo's `postgresBypassRls` opt-in: its session roles get superuser-like test
+   *  privileges (`roleScript`). */
   postgresBypassRls(repoPath: string): boolean;
   listPostgresLeases(): PostgresLease[];
   upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt" | "roleVerified">): void;
@@ -173,6 +177,8 @@ export class PostgresService {
   private readonly onLease: (sessionId: string, active: boolean) => void;
   private secrets: Promise<{ envFile: string; leaseKey: string }> | null = null;
   private ensuring: Promise<void> | null = null;
+  /** `sweepGuards` ran in this process. */
+  private guardSwept = false;
   private readonly requests = new Map<string, Promise<PostgresConnection>>();
   private queue: Promise<unknown> = Promise.resolve();
   private idleTimer: unknown = null;
@@ -356,9 +362,37 @@ export class PostgresService {
     }
     await this.waitReady();
     await this.admin(() => this.psql(HARDEN_SQL));
+    if (!this.guardSwept) {
+      await this.admin(() => this.sweepGuards());
+      this.guardSwept = true;
+    }
     this.lastBusyAt = this.now();
     this.armIdle();
     await this.drainDropping();
+  }
+
+  /** Once per process: the login guard (`GUARD_SQL`, now `ENABLE ALWAYS`) in every connectable
+   *  database, so databases sessions created before that change get it too — Shepherd never
+   *  visits them otherwise. A database that fails (dropped meanwhile, guard error) is logged and
+   *  skipped; the sweep never fails the start. */
+  private async sweepGuards(): Promise<void> {
+    let names: string[];
+    try {
+      names = (await this.psql(GUARD_SWEEP_DBS_SQL))
+        .split("\n")
+        .filter(Boolean)
+        .map((h) => Buffer.from(h, "hex").toString("utf8"));
+    } catch (e) {
+      this.log(`guard sweep: listing databases failed: ${(e as Error).message}`);
+      return;
+    }
+    for (const name of names) {
+      try {
+        await this.psql(GUARD_SQL, name);
+      } catch (e) {
+        this.log(`guard sweep: ${JSON.stringify(name)} skipped: ${(e as Error).message}`);
+      }
+    }
   }
 
   private async isRunning(): Promise<boolean> {
@@ -370,7 +404,8 @@ export class PostgresService {
 
   // ── admin SQL ──────────────────────────────────────────────────────────────
 
-  private psql(sql: string): Promise<string> {
+  /** `db` (default `postgres`) goes through `conninfoDbname`, so any name is taken literally. */
+  private psql(sql: string, db?: string): Promise<string> {
     return this.docker(
       [
         "exec",
@@ -387,7 +422,7 @@ export class PostgresService {
         "-U",
         "postgres",
         "-d",
-        "postgres",
+        db === undefined ? "postgres" : conninfoDbname(db),
         "-f",
         "-",
       ],

@@ -358,7 +358,14 @@ role's creator; the creator can't revoke it, and later grants record the
 granting role. New databases copy event triggers from their template, so the
 guard sits in every database a session can copy: template1 (`HARDEN_SQL`), each
 repo base (clones inherit it) and each clone (`finishScript`). `template0` is
-set `IS_TEMPLATE false`, and other databases need ownership to copy. A
+set `IS_TEMPLATE false`, and other databases need ownership to copy. The
+trigger is `ENABLE ALWAYS`, so it fires in `session_replication_role = replica`
+too (a role allowed to set that parameter can pass it as a startup option, and
+Postgres skips origin-only event triggers then). Once per server process,
+`PostgresService` re-runs `GUARD_SQL` in every connectable database, so ones
+sessions created before a guard change get it too; each is addressed as a
+libpq `dbname='…'` string, so any name is taken literally, and a database
+that fails is logged and skipped. A
 `shepherd` schema or function not owned by a superuser (pre-created in an
 older clone) is dropped, CASCADE, before the guard is (re)created. Every admin
 psql connection, including each `\connect` into a session-owned clone or
@@ -389,7 +396,7 @@ role.
 **App roles (`CREATEROLE`).** Session roles hold `CREATEROLE` so migrations can
 create roles (e.g. a non-owner RLS role). Postgres 16+ limits that to roles the
 session administers: no `SUPERUSER`/`BYPASSRLS`/`REPLICATION` roles (`CREATEDB` only
-on PG17+, `BYPASSRLS` only with the repo's RLS-bypass opt-in, where the session
+on PG17+, `BYPASSRLS` only with the repo's test-privileges opt-in, where the session
 role has it itself),
 no granting `pg_*` or any role it lacks ADMIN on, no altering other session
 roles. Older servers (a configured pre-16 image) never grant it: there
@@ -408,10 +415,28 @@ migration later reuses (its `CREATE ROLE … EXCEPTION WHEN duplicate_object`
 passes) and keep ADMIN on it. The hba rule above keeps that role, and any
 session holding it, out of the other repo's clones.
 
-**RLS bypass (per-repo opt-in).** A repo's **Row-level security bypass** setting
-(`postgresBypassRls`, default off) gives its session roles `BYPASSRLS`, set by
-the superuser in `roleScript` after the `NOBYPASSRLS` reset, so it follows the
-setting at every provision. This adds no reach: the session role owns its
+**Superuser-like test privileges (per-repo opt-in).** A repo's
+**Superuser-like test privileges** setting (`postgresBypassRls`, default off)
+gives its session roles what a CI superuser gives a test harness, set by the
+superuser in `roleScript` (`testPrivilegesSql`) after the resets, so it follows
+the setting at every provision: `BYPASSRLS`; on PG16+ also `SET` on
+`session_replication_role` and INHERIT on roles it creates
+(`createrole_self_grant = inherit`) and on roles `r_<repo>` administers, so its
+admin connection sees their queries and lock waits in `pg_stat_activity`.
+Switched off, the next provision revokes the parameter and the INHERIT grants
+Shepherd made (superuser-granted, no ADMIN, not `r_<repo>`), and resets every
+stored `session_replication_role` (`ALTER ROLE/DATABASE … SET`, which Postgres
+applies at login without re-checking the setter) on roles the session
+administers and databases it or its roles own. Every adoption run also resets
+it on roles `r_<repo>` administers, so a shared role never keeps replica mode
+for siblings beyond about a minute. The INHERIT rows
+carry no ADMIN, so the login guard, adoption and the drop sweeps don't change,
+and every target is a role the session already administers. Replica mode
+disables FKs and origin triggers on its own connections only; the login guard
+is `ENABLE ALWAYS`. **Accepted:** inheriting the repo's shared app roles shows
+same-repo sibling sessions' connections under those roles in
+`pg_stat_activity`; promote (`DROP OWNED`) takes the parameter back until the
+session's next provision. This adds no reach: the session role owns its
 databases and could already `ALTER TABLE … NO FORCE ROW LEVEL SECURITY` there,
 and the hba pin and the login guard still decide which databases it opens. With
 it, the role may also create `BYPASSRLS` roles; the login guard confines those

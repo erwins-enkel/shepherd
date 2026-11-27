@@ -43,10 +43,12 @@ get it.
    sets the connection in the session's environment. Codex sessions need this,
    since they have no `postgres_request` tool. Repos with it show an **auto**
    tag in the **Repos with Postgres** list.
-4. **Optional: Row-level security bypass.** Tick it under the same switch when
-   the repo's tests seed data through an admin connection that must skip
-   row-level security, as the superuser does in CI (tables with `FORCE ROW
-   LEVEL SECURITY`). The session's role then gets `BYPASSRLS`. It applies the
+4. **Optional: Superuser-like test privileges.** Tick it under the same switch
+   when the repo's tests expect the admin connection to act like the CI
+   superuser. The session's role then gets `BYPASSRLS` (seeding tables with
+   `FORCE ROW LEVEL SECURITY`), may `SET session_replication_role = replica`,
+   and sees the queries and lock waits of the roles it creates (and the repo's
+   shared app roles) in `pg_stat_activity`. It applies the
    next time the session's database is set up: its next `postgres_request` or
    `postgres_reset`, or its next spawn with **Database at every spawn**.
 
@@ -185,9 +187,10 @@ the boundary is the credentials. Each session's role can connect only to its own
 database, and the superuser password never leaves Shepherd. A session's role
 may create roles (`CREATEROLE`), so migrations can set up app roles. Postgres
 still refuses it superuser roles, built-in `pg_*` roles, and changes to other
-sessions' roles, and `BYPASSRLS` unless the repo has **Row-level security
-bypass** on. That setting reaches no other data: the role owns its databases
-and could switch off row-level security there anyway. Roles the repo's
+sessions' roles, and `BYPASSRLS` unless the repo has **Superuser-like test
+privileges** on. That setting reaches no other data: the role owns its
+databases and could switch off row-level security there anyway, and the login
+guard still fires in replica mode. Roles the repo's
 migrations share are reset to `NOBYPASSRLS` about once a minute while the
 server runs, and whenever a session's database is set up. Logins to Shepherd's own databases are pinned
 to the database named like the user, so no role, however it was granted, opens

@@ -10,9 +10,11 @@ import {
   RECLAIM_SQL,
   REVOKE_PUBLIC_SQL,
   UNTEMPLATE_SQL,
+  GUARD_SQL,
   adoptScript,
   baseScript,
   cloneScript,
+  conninfoDbname,
   dropOwnedDbsSql,
   dropScript,
   finishScript,
@@ -68,32 +70,46 @@ function su(sql: string, db = "postgres", options = ADMIN_PGOPTIONS): string {
   return r.out.trim();
 }
 
+/** The `as()` argv: a TCP login, as a session would make one; `options` → PGOPTIONS. */
+function asArgs(user: string, password: string, db: string, options = "") {
+  return [
+    "exec",
+    "-i",
+    "-e",
+    `PGPASSWORD=${password}`,
+    "-e",
+    `PGOPTIONS=${options}`,
+    CONTAINER,
+    "psql",
+    "-X",
+    "-q",
+    "-At",
+    "-v",
+    "ON_ERROR_STOP=1",
+    "-h",
+    "127.0.0.1",
+    "-U",
+    user,
+    "-d",
+    db,
+    "-f",
+    "-",
+  ];
+}
+
+/** A login running `sql` in the background (a lock holder or waiter). */
+function asAsync(user: string, password: string, db: string, sql: string) {
+  const p = Bun.spawn(["docker", ...asArgs(user, password, db)], {
+    stdin: Buffer.from(sql),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return p.exited;
+}
+
 /** A TCP login, as a session would make one. */
-function as(user: string, password: string, db: string, sql = "SELECT 1;") {
-  return dockerSync(
-    [
-      "exec",
-      "-i",
-      "-e",
-      `PGPASSWORD=${password}`,
-      CONTAINER,
-      "psql",
-      "-X",
-      "-q",
-      "-At",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-h",
-      "127.0.0.1",
-      "-U",
-      user,
-      "-d",
-      db,
-      "-f",
-      "-",
-    ],
-    sql,
-  );
+function as(user: string, password: string, db: string, sql = "SELECT 1;", options = "") {
+  return dockerSync(asArgs(user, password, db, options), sql);
 }
 
 const pw = () => `pw_${randomBytes(12).toString("hex")}`;
@@ -210,6 +226,119 @@ describe.skipIf(!AVAILABLE)("login guard on a real postgres:18 (#4270)", () => {
     expect(as(D.db, D.pw, D.db, "CREATE ROLE rls_app NOLOGIN BYPASSRLS;").err).toBe("");
     tick();
     expect(su("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'rls_app';")).toBe("f");
+  }, 60_000);
+
+  it("test-privileges opt-in: replica mode, its app roles' lock waits; the guard still fires; off revokes", async () => {
+    const repo = "/repos/testpriv";
+    const sibling = provision(repo);
+    expect(as(sibling.db, sibling.pw, sibling.db, "CREATE ROLE tp_shared NOLOGIN;").err).toBe("");
+    tick(); // adopted by the repo role
+    let E = provision(repo, randomUUID(), true);
+    const replica = "-c session_replication_role=replica";
+    const usage = (role: string) => su(`SELECT pg_has_role('${E.db}', '${role}', 'USAGE');`);
+
+    // SET LOCAL in its clone, replica as a startup option in a database it created.
+    expect(
+      as(E.db, E.pw, E.db, "BEGIN;\nSET LOCAL session_replication_role = replica;\nCOMMIT;").err,
+    ).toBe("");
+    expect(as(E.db, E.pw, E.db, "CREATE DATABASE tp_own;").err).toBe("");
+    expect(as(E.db, E.pw, "tp_own", "SHOW session_replication_role;", replica).out.trim()).toBe(
+      "replica",
+    );
+    // The login guard fires in replica mode: another session's database stays shut.
+    expect(as(B.db, B.pw, B.db, "CREATE DATABASE tp_other;").err).toBe("");
+    refused(as(E.db, E.pw, "tp_other", "SELECT 1;", replica));
+
+    // A role it creates (createrole_self_grant) and one its repo role administers are inherited.
+    const appPw = pw();
+    expect(
+      as(
+        E.db,
+        E.pw,
+        "tp_own",
+        `CREATE ROLE tp_app LOGIN PASSWORD '${appPw}';\nCREATE TABLE lk (id int);\nGRANT ALL ON lk TO tp_app;`,
+      ).err,
+    ).toBe("");
+    expect(usage("tp_app")).toBe("t");
+    expect(usage("tp_shared")).toBe("t");
+    // So its admin connection sees the app role's lock wait in pg_stat_activity.
+    const holder = asAsync(E.db, E.pw, "tp_own", "BEGIN;\nLOCK lk;\nSELECT pg_sleep(4);\nCOMMIT;");
+    await Bun.sleep(800);
+    const waiter = asAsync("tp_app", appPw, "tp_own", "SELECT * FROM lk;");
+    let waiting = "";
+    for (let i = 0; i < 20 && waiting !== "1"; i++) {
+      await Bun.sleep(150);
+      waiting = as(
+        E.db,
+        E.pw,
+        "tp_own",
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND usename = 'tp_app' AND wait_event_type = 'Lock';",
+      ).out.trim();
+    }
+    expect(waiting).toBe("1");
+    expect(await holder).toBe(0);
+    expect(await waiter).toBe(0);
+
+    // Stored replica settings on roles it administers and a database it owns…
+    const stored = () =>
+      su(
+        "SELECT count(*) FROM pg_db_role_setting s WHERE EXISTS (SELECT 1 FROM unnest(s.setconfig) c WHERE c LIKE 'session_replication_role=%');",
+      );
+    expect(
+      as(
+        E.db,
+        E.pw,
+        E.db,
+        "ALTER ROLE tp_app SET session_replication_role = replica;\nALTER ROLE tp_shared SET session_replication_role = replica;\nALTER ROLE tp_app IN DATABASE tp_own SET session_replication_role = replica;\nALTER DATABASE tp_own SET session_replication_role = replica;",
+      ).err,
+    ).toBe("");
+    expect(stored()).toBe("4");
+    // …a shared role loses it at the next adoption tick, even while the opt-in is on.
+    tick();
+    expect(
+      su(
+        "SELECT count(*) FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole WHERE r.rolname = 'tp_shared';",
+      ),
+    ).toBe("0");
+    expect(stored()).toBe("3");
+
+    // Opt-in off: the next provision takes the parameter, Shepherd's INHERIT grants and every
+    // stored replica setting back.
+    E = provision(repo, E.id);
+    expect(stored()).toBe("0");
+    const r = as(
+      E.db,
+      E.pw,
+      E.db,
+      "BEGIN;\nSET LOCAL session_replication_role = replica;\nCOMMIT;",
+    );
+    expect(r.ok).toBe(false);
+    expect(r.err).toContain("permission denied to set parameter");
+    expect(usage("tp_shared")).toBe("f");
+    expect(su(`SELECT rolconfig FROM pg_roles WHERE rolname = '${E.db}';`)).toBe("");
+
+    // A session holding the grants drops cleanly.
+    E = provision(repo, E.id, true);
+    drop(E);
+    expect(su(`SELECT count(*) FROM pg_roles WHERE rolname = '${E.db}';`)).toBe("0");
+    expect(dbExists("tp_own")).toBe(false);
+  }, 90_000);
+
+  it("GUARD_SQL upgrades an origin-only guard to ENABLE ALWAYS in any database name", () => {
+    for (const name of ["plain_db", "x=y", "a'b \\c"]) {
+      const target = conninfoDbname(name);
+      su(`CREATE DATABASE "${name}";`);
+      su("ALTER EVENT TRIGGER shepherd_login_guard ENABLE;", target);
+      const state = () =>
+        su(
+          "SELECT evtenabled FROM pg_event_trigger WHERE evtname = 'shepherd_login_guard';",
+          target,
+        );
+      expect(state()).toBe("O");
+      su(GUARD_SQL, target);
+      expect(state()).toBe("A");
+      su(`DROP DATABASE "${name}";`);
+    }
   }, 60_000);
 
   it("(b) another session is refused", () => {

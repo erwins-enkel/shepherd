@@ -184,6 +184,7 @@ const PG17 = "pg_catalog.current_setting('server_version_num')::int >= 170000";
  *  that would otherwise resolve before pg_catalog. Client options override those settings. */
 export const ADMIN_PGOPTIONS = "-c search_path=pg_catalog,pg_temp -c role=none";
 const SESSION_ROLE_PATTERN = "^s_[0-9a-f]{32}$";
+const REPO_ROLE_PATTERN = "^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$";
 
 /** The role row of `name`, or NULL — so a missing role matches nothing (no `::regrole` error). */
 const roleOid = (name: string) => `(SELECT oid FROM pg_roles WHERE rolname = ${lit(name)})`;
@@ -258,8 +259,26 @@ export const GUARD_SQL = [
   GUARD_FUNCTION,
   "REVOKE ALL ON FUNCTION shepherd.login_guard() FROM PUBLIC;",
   "SELECT 'CREATE EVENT TRIGGER shepherd_login_guard ON login EXECUTE FUNCTION shepherd.login_guard()' WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger WHERE evtname = 'shepherd_login_guard')\\gexec",
+  // Fires in replica mode too: a role allowed to SET session_replication_role (repo opt-in) can
+  // pass it as a startup option, and Postgres skips origin-only event triggers then. Unconditional,
+  // so triggers created before this line get upgraded.
+  "ALTER EVENT TRIGGER shepherd_login_guard ENABLE ALWAYS;",
   "\\endif",
 ].join("\n");
+
+/** Databases the start-time guard sweep visits (`PostgresService`): every connectable one but the
+ *  cluster's built-ins (HARDEN covers template1). One hex-encoded name per line, so a name with a
+ *  newline can't split or forge a row. */
+export const GUARD_SWEEP_DBS_SQL =
+  "SELECT encode(convert_to(datname::text, 'UTF8'), 'hex') FROM pg_database " +
+  "WHERE datallowconn AND datname NOT IN ('template0', 'template1', 'postgres') ORDER BY 1;\n";
+
+/** A psql `-d` value that names database `name` literally: libpq conninfo `dbname='…'`, with
+ *  backslash and single quote backslash-escaped. It always contains `=`, so psql always parses
+ *  it as conninfo — a name like `x=y` or `postgresql://…` is never a connection string itself. */
+export function conninfoDbname(name: string): string {
+  return `dbname='${name.replace(/[\\']/g, (c) => `\\${c}`)}'`;
+}
 
 /** Force-drop every database owned by session role `db` or by a role it created (its ADMIN row
  *  with a superuser grantor), the clone included. Used by `dropScript`, the squat cleanup in
@@ -303,8 +322,9 @@ export function baseScript(repoPath: string): string {
  *  BYPASSRLS / CREATEDB); membership in the repo role inherits ADMIN on the roles sibling sessions
  *  created (`adoptScript`). Re-applied on every request, so older session roles get it too.
  *  PG16+ only (`PG16`); on older servers the role stays NOCREATEROLE. `bypassRls` (the repo's
- *  `postgresBypassRls` opt-in) adds BYPASSRLS after the NOBYPASSRLS reset: the role owns its
- *  databases and could drop FORCE RLS there anyway; connection isolation is unchanged. */
+ *  `postgresBypassRls` opt-in) adds `testPrivilegesSql` after the resets, or takes it back
+ *  (`revokeTestPrivilegesSql`): the role owns its databases and could drop FORCE RLS there anyway;
+ *  connection isolation is unchanged. */
 export function roleScript(
   sessionId: string,
   password: string,
@@ -341,10 +361,68 @@ export function roleScript(
     // INHERIT/SET grant syntax doesn't exist: an older configured image gets neither.
     `SELECT 'ALTER ROLE ${db} CREATEROLE' WHERE ${PG16}\\gexec`,
     `SELECT 'GRANT ${repoRole(repoPath)} TO ${db} WITH INHERIT TRUE, SET FALSE' WHERE ${PG16}\\gexec`,
-    ...(bypassRls ? [`ALTER ROLE ${db} BYPASSRLS;`] : []),
+    ...(bypassRls ? testPrivilegesSql(db, repoPath) : revokeTestPrivilegesSql(db, repoPath)),
     `SELECT count(*) FROM pg_database WHERE datname = ${lit(db)};`,
     "",
   ].join("\n");
+}
+
+/** The repo's `postgresBypassRls` opt-in: what a CI superuser gives a test harness's admin
+ *  connection, scoped to the session. BYPASSRLS; SET on `session_replication_role` (FK/trigger-free
+ *  seeding — the login guard is `ENABLE ALWAYS`, so replica mode doesn't skip it); and INHERIT on
+ *  the roles it creates (`createrole_self_grant`) and on those its repo role administers, so
+ *  `pg_stat_activity` shows their queries and lock waits. Every INHERIT target is one the session
+ *  already holds ADMIN on (it could self-grant it); the rows carry no ADMIN, so the login guard,
+ *  adoption and the drop sweeps (all ADMIN-row based) don't change. PG16+ except BYPASSRLS. */
+function testPrivilegesSql(db: string, repoPath: string): string[] {
+  return [
+    `ALTER ROLE ${db} BYPASSRLS;`,
+    `SELECT 'GRANT SET ON PARAMETER session_replication_role TO ${db}' WHERE ${PG16}\\gexec`,
+    `SELECT 'ALTER ROLE ${db} SET createrole_self_grant = ''inherit''' WHERE ${PG16}\\gexec`,
+    `SELECT format('GRANT %I TO %I WITH INHERIT TRUE, SET FALSE', r.rolname, ${lit(db)}) ` +
+      `FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid ` +
+      `WHERE a.member IN (${roleOid(repoRole(repoPath))}, ${roleOid(db)}) AND a.admin_option ` +
+      `AND NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.rolname !~ '${SESSION_ROLE_PATTERN}' ` +
+      `AND r.rolname !~ '${REPO_ROLE_PATTERN}' AND NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datdba = r.oid) ` +
+      `AND NOT pg_has_role(${lit(db)}, r.oid, 'USAGE') AND ${PG16} GROUP BY r.rolname\\gexec`,
+  ];
+}
+
+/** Reset a stored `session_replication_role` (`ALTER ROLE/DATABASE … SET`) on every
+ *  `pg_db_role_setting` row `where` selects (alias `s`). The parameter ACL lets an opted-in session
+ *  store it on roles it administers and databases it owns; Postgres applies stored values at login
+ *  without re-checking the setter, so they outlive the opt-in and would switch FKs and origin
+ *  triggers off for anyone logging in under a shared role. */
+function clearReplicaSettingsSql(where: string): string {
+  return (
+    `SELECT format('ALTER ROLE %s%s RESET session_replication_role', ` +
+    `CASE WHEN s.setrole = 0 THEN 'ALL' ELSE quote_ident(r.rolname) END, ` +
+    `CASE WHEN s.setdatabase <> 0 THEN ' IN DATABASE ' || quote_ident(d.datname) ELSE '' END) ` +
+    `FROM pg_db_role_setting s LEFT JOIN pg_roles r ON r.oid = s.setrole LEFT JOIN pg_database d ON d.oid = s.setdatabase ` +
+    `WHERE EXISTS (SELECT 1 FROM unnest(s.setconfig) c WHERE c LIKE 'session_replication_role=%') AND (${where})\\gexec`
+  );
+}
+
+/** Opt-in off: take back what `testPrivilegesSql` granted (`RESET ALL` already cleared
+ *  `createrole_self_grant`). Only Shepherd grants memberships as the superuser without ADMIN; the
+ *  repo-role membership stays. Self-grants the session made itself stay too (it holds ADMIN).
+ *  Stored replica settings go on roles it administers (directly or via the repo role) and on
+ *  databases it or a role it created owns. */
+function revokeTestPrivilegesSql(db: string, repoPath: string): string[] {
+  const administered = (members: string) =>
+    `SELECT a.roleid FROM pg_auth_members a WHERE a.member IN (${members}) AND a.admin_option`;
+  return [
+    clearReplicaSettingsSql(
+      `s.setrole IN (${administered(`${roleOid(repoRole(repoPath))}, ${roleOid(db)}`)}) ` +
+        `OR s.setdatabase IN (SELECT o.oid FROM pg_database o WHERE o.datdba = ${roleOid(db)} ` +
+        `OR o.datdba IN (${administered(roleOid(db))}))`,
+    ),
+    `SELECT 'REVOKE SET ON PARAMETER session_replication_role FROM ${db}' WHERE ${PG16}\\gexec`,
+    `SELECT format('REVOKE %I FROM %I GRANTED BY %I', r.rolname, ${lit(db)}, g.rolname) ` +
+      `FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles g ON g.oid = a.grantor ` +
+      `WHERE a.member = ${roleOid(db)} AND NOT a.admin_option AND g.rolsuper ` +
+      `AND a.roleid IS DISTINCT FROM ${roleOid(repoRole(repoPath))}\\gexec`,
+  ];
 }
 
 /** `pg_default_acl.defaclobjtype` → the `ALTER DEFAULT PRIVILEGES … ON <kind>` keyword. */
@@ -427,8 +505,6 @@ export function finishScript(sessionId: string): string {
   ].join("\n");
 }
 
-const REPO_ROLE_PATTERN = "^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$";
-
 /** Hand the roles a session created to its repo role WITH ADMIN, so every session of that repo
  *  inherits ADMIN and the roles keep an admin holder after the session is dropped. "Created" = the
  *  session's direct ADMIN row has a superuser grantor: PG16+ records a CREATEROLE user's implicit
@@ -458,9 +534,15 @@ export function adoptScript(
       `AND NOT EXISTS (SELECT 1 FROM pg_auth_members x WHERE x.roleid = a.roleid AND x.member = h.oid AND x.admin_option)\\gexec`
     );
   });
-  // A repo-shared role never keeps BYPASSRLS: a session with the bypass opt-in could set it on a
-  // role its siblings use, and switching the opt-in off must leave no residue.
+  // A repo-shared role never keeps BYPASSRLS or a stored session_replication_role: a session with
+  // the opt-in could set them on a role its siblings use, and switching the opt-in off must leave
+  // no residue.
   for (const role of new Set(leases.map((l) => l.role))) {
+    lines.push(
+      clearReplicaSettingsSql(
+        `s.setrole IN (SELECT a.roleid FROM pg_auth_members a WHERE a.member = ${roleOid(role)} AND a.admin_option)`,
+      ),
+    );
     lines.push(
       `SELECT format('ALTER ROLE %I NOBYPASSRLS', r.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid ` +
         `WHERE a.member = ${roleOid(role)} AND a.admin_option AND r.rolbypassrls AND NOT r.rolsuper AND r.rolname !~ '^pg_'\\gexec`,

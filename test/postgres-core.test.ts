@@ -3,6 +3,7 @@ import {
   ADMIN_PGOPTIONS,
   DEFAULT_POSTGRES_SETTINGS,
   GUARD_SQL,
+  conninfoDbname,
   HARDEN_SQL,
   RECLAIM_SQL,
   REVOKE_PUBLIC_SQL,
@@ -121,6 +122,44 @@ describe("scripts", () => {
     expect(sql.trim().split("\n").pop()).toMatch(/^SELECT count\(\*\) FROM pg_database/);
   });
 
+  it("role: opt-in grants superuser-like test privileges after the resets; off revokes them", () => {
+    const db = sessionDb(SID);
+    const pg16 = "WHERE pg_catalog.current_setting('server_version_num')::int >= 160000\\gexec";
+    const grantParam = `'GRANT SET ON PARAMETER session_replication_role TO ${db}' ${pg16}`;
+    const selfGrant = `'ALTER ROLE ${db} SET createrole_self_grant = ''inherit''' ${pg16}`;
+    const inherit = `SELECT format('GRANT %I TO %I WITH INHERIT TRUE, SET FALSE', r.rolname, '${db}')`;
+    const revokeParam = `'REVOKE SET ON PARAMETER session_replication_role FROM ${db}' ${pg16}`;
+    const revokeInherit = `SELECT format('REVOKE %I FROM %I GRANTED BY %I', r.rolname, '${db}', g.rolname)`;
+
+    const on = roleScript(SID, "abcDEF0123456789_-xy", repo, { bypassRls: true });
+    for (const s of [grantParam, selfGrant, inherit]) {
+      expect(on.indexOf(s)).toBeGreaterThan(on.indexOf(`ALTER ROLE ${db} RESET ALL;`));
+    }
+    expect(on).not.toContain(revokeParam);
+    expect(on).not.toContain(revokeInherit);
+    // INHERIT only on roles the repo role or the session administers, never Shepherd's or built-ins.
+    const inheritLine = on.split("\n").find((l) => l.startsWith(inherit))!;
+    expect(inheritLine).toContain(
+      `a.member IN ((SELECT oid FROM pg_roles WHERE rolname = '${repoRole(repo)}'), (SELECT oid FROM pg_roles WHERE rolname = '${db}')) AND a.admin_option`,
+    );
+    expect(inheritLine).toContain("NOT r.rolsuper AND r.rolname !~ '^pg_'");
+    expect(inheritLine).toContain(`NOT pg_has_role('${db}', r.oid, 'USAGE')`);
+
+    const off = roleScript(SID, "abcDEF0123456789_-xy", repo);
+    expect(off).toContain(revokeParam);
+    const revokeLine = off.split("\n").find((l) => l.startsWith(revokeInherit))!;
+    expect(revokeLine).toContain("NOT a.admin_option AND g.rolsuper");
+    expect(revokeLine).toContain(
+      `a.roleid IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname = '${repoRole(repo)}')`,
+    );
+    for (const s of [grantParam, selfGrant, inherit]) expect(off).not.toContain(s);
+    // Off also resets stored replica settings on administered roles and owned databases.
+    const clear = "RESET session_replication_role'";
+    expect(off).toContain(clear);
+    expect(on).not.toContain(clear);
+    expect(off.trim().split("\n").pop()).toMatch(/^SELECT count\(\*\) FROM pg_database/);
+  });
+
   it("role: a squatted session role loses its admin holders and settings before the password", () => {
     const db = sessionDb(SID);
     const sql = roleScript(SID, "abcDEF0123456789_-xy", repo);
@@ -159,6 +198,13 @@ describe("scripts", () => {
     expect(sql).toContain("r.rolname !~ '^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$'");
     expect(sql.trim().endsWith("\\gexec")).toBe(true);
     expect(adoptScript([])).toBe("");
+    // …nor a stored session_replication_role.
+    expect(sql).toContain(
+      `RESET session_replication_role', CASE WHEN s.setrole = 0 THEN 'ALL' ELSE quote_ident(r.rolname) END`,
+    );
+    expect(sql).toContain(
+      `s.setrole IN (SELECT a.roleid FROM pg_auth_members a WHERE a.member = (SELECT oid FROM pg_roles WHERE rolname = '${role}') AND a.admin_option)`,
+    );
     // A repo-shared role never keeps BYPASSRLS, once per repo role.
     const strip = `ALTER ROLE %I NOBYPASSRLS', r.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid WHERE a.member = (SELECT oid FROM pg_roles WHERE rolname = '${role}') AND a.admin_option AND r.rolbypassrls`;
     expect(sql).toContain(strip);
@@ -320,6 +366,18 @@ describe("login guard (#4270)", () => {
     expect(GUARD_SQL).toContain("SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
     expect(GUARD_SQL).toContain("REVOKE ALL ON SCHEMA shepherd FROM PUBLIC;");
     expect(GUARD_SQL.trimEnd().endsWith("\\endif")).toBe(true);
+    // Fires in replica mode too, and upgrades a trigger that already existed: outside the
+    // create-if-missing statement, inside the PG17 branch.
+    expect(at("CREATE EVENT TRIGGER shepherd_login_guard ON login")).toBeLessThan(
+      at("\nALTER EVENT TRIGGER shepherd_login_guard ENABLE ALWAYS;\n\\endif"),
+    );
+  });
+
+  it("conninfoDbname: always a dbname='…' conninfo, backslash and quote escaped", () => {
+    expect(conninfoDbname("plain")).toBe("dbname='plain'");
+    expect(conninfoDbname("x=y")).toBe("dbname='x=y'");
+    expect(conninfoDbname("postgresql://h/db")).toBe("dbname='postgresql://h/db'");
+    expect(conninfoDbname("a'b\\c d")).toBe("dbname='a\\'b\\\\c d'");
   });
 
   it("admits superusers and tenant-trusted roles only", () => {

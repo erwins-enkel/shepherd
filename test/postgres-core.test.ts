@@ -111,6 +111,16 @@ describe("scripts", () => {
     expect(sql.trim().split("\n").pop()).toMatch(/^SELECT count\(\*\) FROM pg_database/);
   });
 
+  it("role: BYPASSRLS only with the repo's opt-in, after the NOBYPASSRLS reset", () => {
+    const db = sessionDb(SID);
+    expect(roleScript(SID, "abcDEF0123456789_-xy", repo)).not.toContain(
+      `ALTER ROLE ${db} BYPASSRLS;`,
+    );
+    const sql = roleScript(SID, "abcDEF0123456789_-xy", repo, { bypassRls: true });
+    expect(sql.indexOf(`ALTER ROLE ${db} BYPASSRLS;`)).toBeGreaterThan(sql.indexOf("NOBYPASSRLS"));
+    expect(sql.trim().split("\n").pop()).toMatch(/^SELECT count\(\*\) FROM pg_database/);
+  });
+
   it("role: a squatted session role loses its admin holders and settings before the password", () => {
     const db = sessionDb(SID);
     const sql = roleScript(SID, "abcDEF0123456789_-xy", repo);
@@ -149,6 +159,15 @@ describe("scripts", () => {
     expect(sql).toContain("r.rolname !~ '^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$'");
     expect(sql.trim().endsWith("\\gexec")).toBe(true);
     expect(adoptScript([])).toBe("");
+    // A repo-shared role never keeps BYPASSRLS, once per repo role.
+    const strip = `ALTER ROLE %I NOBYPASSRLS', r.rolname) FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid WHERE a.member = (SELECT oid FROM pg_roles WHERE rolname = '${role}') AND a.admin_option AND r.rolbypassrls`;
+    expect(sql).toContain(strip);
+    expect(
+      adoptScript([
+        { db, role },
+        { db: sessionDb("1f8fad5b-d9cb-469f-a165-70867728950e"), role },
+      ]).split(strip).length,
+    ).toBe(2);
     expect(() => adoptScript([{ db: "postgres", role }])).toThrow();
     expect(() => adoptScript([{ db, role: "x'; DROP" }])).toThrow();
   });

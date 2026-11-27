@@ -63,6 +63,8 @@ export interface PostgresStore {
   getSetting(key: string): string | null;
   get(id: string): Pick<Session, "repoPath" | "archivedAt"> | null | undefined;
   getPostgresLease(sessionId: string): PostgresLease | null;
+  /** The repo's `postgresBypassRls` opt-in: its session roles get BYPASSRLS. */
+  postgresBypassRls(repoPath: string): boolean;
   listPostgresLeases(): PostgresLease[];
   upsertPostgresLease(lease: Omit<PostgresLease, "state" | "createdAt" | "roleVerified">): void;
   markPostgresRoleVerified(sessionId: string): void;
@@ -500,7 +502,12 @@ export class PostgresService {
       // part-way) that already exists is a squat (#4270); only success marks it verified.
       const verified = this.store.getPostgresLease(sessionId)?.roleVerified === 1;
       let exists = (
-        await this.psql(roleScript(sessionId, connection.password, repoPath, { verified }))
+        await this.psql(
+          roleScript(sessionId, connection.password, repoPath, {
+            verified,
+            bypassRls: this.store.postgresBypassRls(repoPath),
+          }),
+        )
       )
         .trim()
         .split("\n")

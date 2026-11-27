@@ -1551,6 +1551,9 @@ export interface RepoConfig {
   /** On-demand Postgres for this repo's sessions (#4232), machine-local; absent from older
    *  servers, which read as off. */
   postgresMode?: PostgresMode;
+  /** BYPASSRLS for this repo's Postgres session roles, machine-local; absent from older servers,
+   *  which read as off. */
+  postgresBypassRls?: boolean;
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */

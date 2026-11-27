@@ -3636,6 +3636,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "hidden",
   "pinned",
   "reviewFeedbackResolve",
+  "postgresBypassRls",
 ] as const;
 
 type RepoCfgBody = {
@@ -3684,6 +3685,7 @@ type RepoCfgBody = {
   reviewFeedbackBots?: unknown;
   reviewFeedbackResolve?: unknown;
   postgresMode?: unknown;
+  postgresBypassRls?: unknown;
   automationConfirmed?: unknown;
   leitrechner?: unknown;
 };
@@ -3857,6 +3859,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       reviewFeedbackBots?: string[];
       reviewFeedbackResolve?: boolean;
       postgresMode?: PostgresMode;
+      postgresBypassRls?: boolean;
       automationConfirmed?: boolean;
     }
   | Response
@@ -3909,7 +3912,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, automationConfirmed, leitrechner",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, reviewFeedbackMode, reviewFeedbackBots, reviewFeedbackResolve, postgresMode, postgresBypassRls, automationConfirmed, leitrechner",
       },
       400,
     );
@@ -3961,6 +3964,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     reviewFeedbackBots,
     reviewFeedbackResolve: body.reviewFeedbackResolve as boolean | undefined,
     postgresMode,
+    postgresBypassRls: body.postgresBypassRls as boolean | undefined,
     automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }

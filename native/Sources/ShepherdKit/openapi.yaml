@@ -11387,6 +11387,9 @@ components:
             - on-request
             - auto
           description: Machine-local, default off. Needs Settings → Resources → Postgres on; every database is a session's own clone on Shepherd's shared on-demand Postgres server (any sandbox profile; Autonomous reaches it through the slirp gateway). on-request offers Claude task sessions the postgres_request MCP tool, which provisions the clone on demand; sessions pick up the tool at their next spawn or resume, and an on-request session that holds a database also gets its connection injected as env at its next resume. auto provisions a clone at every task-session spawn (Claude and Codex) and injects the connection into the agent's environment as DATABASE_URL plus PGHOST, PGPORT, PGUSER, PGPASSWORD and PGDATABASE (the values postgres_request returns); Claude sessions keep the tool.
+        postgresBypassRls:
+          type: boolean
+          description: Machine-local, default false. The repo's Postgres session roles get BYPASSRLS, for test setups whose admin connection must skip FORCE ROW LEVEL SECURITY. Applied when a session's database is next provisioned (postgres_request, postgres_reset, or the auto spawn). Roles the repo's migrations share are reset to NOBYPASSRLS at every adoption run (each provision, the per-minute idle tick while the server runs, reconcile, drop).
         automationConfirmed:
           type: boolean
         automationRowExists:
@@ -11653,6 +11656,9 @@ components:
             - on-request
             - auto
           description: On-demand Postgres for this repo's sessions — off, on-request (the postgres_request tool) or auto (a clone at every spawn, its connection injected as DATABASE_URL + PG* env); see RepoConfig.postgresMode. Another value is 400.
+        postgresBypassRls:
+          type: boolean
+          description: BYPASSRLS for this repo's Postgres session roles (see RepoConfig.postgresBypassRls). A non-boolean is 400.
         automationConfirmed:
           type: boolean
     RepoRoles:
@@ -12949,6 +12955,9 @@ components:
             - on-request
             - auto
           description: On-demand Postgres for this repo's sessions — off, on-request (the postgres_request tool) or auto (a clone at every spawn, its connection injected as DATABASE_URL + PG* env); see RepoConfig.postgresMode. Another value is 400.
+        postgresBypassRls:
+          type: boolean
+          description: BYPASSRLS for this repo's Postgres session roles (see RepoConfig.postgresBypassRls). A non-boolean is 400.
         sandboxProfile:
           description: trusted | standard | autonomous | inherit.
           type: string

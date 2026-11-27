@@ -389,7 +389,8 @@ role.
 **App roles (`CREATEROLE`).** Session roles hold `CREATEROLE` so migrations can
 create roles (e.g. a non-owner RLS role). Postgres 16+ limits that to roles the
 session administers: no `SUPERUSER`/`BYPASSRLS`/`REPLICATION` roles (`CREATEDB` only
-on PG17+, where the session role has it itself),
+on PG17+, `BYPASSRLS` only with the repo's RLS-bypass opt-in, where the session
+role has it itself),
 no granting `pg_*` or any role it lacks ADMIN on, no altering other session
 roles. Older servers (a configured pre-16 image) never grant it: there
 `CREATEROLE` is close to superuser. Each session role is a member of its repo
@@ -406,6 +407,24 @@ Roles are server-wide, so a session can create a name another repo's
 migration later reuses (its `CREATE ROLE … EXCEPTION WHEN duplicate_object`
 passes) and keep ADMIN on it. The hba rule above keeps that role, and any
 session holding it, out of the other repo's clones.
+
+**RLS bypass (per-repo opt-in).** A repo's **Row-level security bypass** setting
+(`postgresBypassRls`, default off) gives its session roles `BYPASSRLS`, set by
+the superuser in `roleScript` after the `NOBYPASSRLS` reset, so it follows the
+setting at every provision. This adds no reach: the session role owns its
+databases and could already `ALTER TABLE … NO FORCE ROW LEVEL SECURITY` there,
+and the hba pin and the login guard still decide which databases it opens. With
+it, the role may also create `BYPASSRLS` roles; the login guard confines those
+like any role the session created. Every adoption run (`adoptScript`: on
+request, every idle tick while the server runs, reconcile and before a drop)
+resets roles adopted by `r_<repo>` to `NOBYPASSRLS`, so a shared app role
+doesn't stay bypassing RLS and switching the setting off leaves no shared
+residue. **Accepted:** between two adoption runs (about a minute while the
+server runs) a bypass session that inherits ADMIN through `r_<repo>` can
+`ALTER ROLE <shared> BYPASSRLS`, and a role it created keeps `BYPASSRLS` until
+its adoption; both reach only sibling sessions of the same repo, which share
+the opt-in. A running session keeps the attribute until its next provision
+after the setting is switched off.
 
 **Squatted Shepherd role names.** A session could create `r_<repo>` for a repo
 with no template yet, or `s_<id>` for another session (ids are in the agent

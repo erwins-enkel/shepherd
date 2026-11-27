@@ -1051,6 +1051,7 @@ describe("RepoSettingsBody — Postgres at every spawn", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     repoConfig.postgresMode = {};
+    repoConfig.postgresBypassRls = {};
   });
 
   const realFetch = globalThis.fetch;
@@ -1083,5 +1084,19 @@ describe("RepoSettingsBody — Postgres at every spawn", () => {
     (autoBox().element() as HTMLInputElement).click();
     await vi.waitFor(() => expect(puts.at(-1)).toEqual({ postgresMode: "on-request" }));
     await expect.element(autoBox()).not.toBeChecked();
+  });
+
+  it("the RLS-bypass checkbox writes postgresBypassRls while Postgres is on", async () => {
+    const puts = stubFetch();
+    const rlsBox = () =>
+      page.getByRole("checkbox", { name: m.automation_postgres_bypass_rls_name(), exact: true });
+    repoConfig.postgresMode = { [REPO]: "off" };
+    await mount("agent");
+    expect(rlsBox().query()).toBeNull();
+    repoConfig.postgresMode = { [REPO]: "on-request" };
+    await expect.element(rlsBox()).not.toBeChecked();
+    (rlsBox().element() as HTMLInputElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ postgresBypassRls: true }]));
+    await expect.element(rlsBox()).toBeChecked();
   });
 });

@@ -66,3 +66,16 @@ test("postgres leases (#4270): new leases start unverified; existing rows migrat
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("postgresBypassRls defaults off, persists, and survives writes that omit it", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getLocalRepoConfig("/r").postgresBypassRls).toBe(false);
+  expect(store.postgresBypassRls("/r")).toBe(false);
+  store.setRepoConfig("/r", { ...store.getLocalRepoConfig("/r"), postgresBypassRls: true });
+  expect(store.postgresBypassRls("/r")).toBe(true);
+  expect(store.getRepoConfig("/r").postgresBypassRls).toBe(true);
+  const rest = { ...store.getLocalRepoConfig("/r"), criticEnabled: false };
+  delete rest.postgresBypassRls;
+  store.setRepoConfig("/r", rest);
+  expect(store.postgresBypassRls("/r")).toBe(true);
+});

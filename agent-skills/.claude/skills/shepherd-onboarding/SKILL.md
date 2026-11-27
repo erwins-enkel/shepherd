@@ -61,7 +61,8 @@ reaches GitHub only through the operator-approved epic draft (Stage 5).
   leave provisioning to Shepherd (no slice sets up a local or Compose Postgres). If
   this session has no `postgres_request` tool, say in the brief that drain sessions
   need **Settings → Resources → Postgres** and **Repo settings → Agent → Postgres on
-  request** switched on (Autonomous and Codex sessions don't get the tool yet).
+  request** switched on, plus **Database at every spawn** under it when drain sessions run on
+  Codex (Codex has no tool; that option injects `DATABASE_URL` at every spawn).
 
 ### 4. Approve (hard gate)
 

@@ -1184,6 +1184,38 @@ test("ingest reads postgresMode; absent means off; togglePostgres flips off ↔ 
   expect(repoConfig.postgresOn("/w-pg")).toBe(false); // reverted
 });
 
+// #4238: auto (a database at every spawn) counts as on; the toggle turns it off, and the
+// every-spawn checkbox flips on-request ↔ auto with the same optimistic write + revert.
+test("postgresAuto / setPostgresAuto flip on-request ↔ auto; togglePostgres turns auto off", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "on-request" }));
+  await repoConfig.ensure("/w-pg-auto");
+  expect(repoConfig.postgresAuto("/w-pg-auto")).toBe(false);
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "auto" }));
+  await repoConfig.setPostgresAuto("/w-pg-auto", true);
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-pg-auto", { postgresMode: "auto" });
+  expect(repoConfig.postgresAuto("/w-pg-auto")).toBe(true);
+  expect(repoConfig.postgresOn("/w-pg-auto")).toBe(true);
+
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.setPostgresAuto("/w-pg-auto", false);
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-pg-auto", { postgresMode: "on-request" });
+  expect(repoConfig.postgresAuto("/w-pg-auto")).toBe(true); // reverted
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "on-request" }));
+  await repoConfig.setPostgresAuto("/w-pg-auto", false);
+  expect(repoConfig.postgresAuto("/w-pg-auto")).toBe(false);
+  expect(repoConfig.postgresOn("/w-pg-auto")).toBe(true);
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "auto" }));
+  await repoConfig.setPostgresAuto("/w-pg-auto", true);
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ postgresMode: "off" }));
+  await repoConfig.togglePostgres("/w-pg-auto");
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-pg-auto", { postgresMode: "off" });
+  expect(repoConfig.postgresOn("/w-pg-auto")).toBe(false);
+  expect(repoConfig.postgresAuto("/w-pg-auto")).toBe(false);
+});
+
 test("the list setters PUT the whole list and overlay it optimistically", async () => {
   let resolve!: (v: RepoConfig) => void;
   vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));

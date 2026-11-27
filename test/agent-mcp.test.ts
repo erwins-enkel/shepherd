@@ -1560,7 +1560,7 @@ describe("postgres_request", () => {
     h: ReturnType<typeof harness>,
     opts: {
       enabled?: boolean;
-      mode?: "off" | "on-request";
+      mode?: "off" | "on-request" | "auto";
       request?: (
         id: string,
         signal?: AbortSignal,
@@ -1616,14 +1616,33 @@ describe("postgres_request", () => {
   });
 
   test("codex sessions never get it", () => {
+    for (const postgresMode of ["on-request", "auto"])
+      expect(
+        postgresRequestAllowed({
+          plain: false,
+          agentProvider: "codex",
+          postgresMode,
+          globalEnabled: true,
+        }),
+      ).toBe(false);
+  });
+
+  test("auto (#4238) keeps the tool for Claude, never for Codex", () => {
+    const h = harness();
+    expect(names(withPg(h, { mode: "auto" }), h.sessionId)).toContain("postgres_request");
+    const codex = harness();
+    codex.store.update(codex.sessionId, { agentProvider: "codex" });
+    expect(names(withPg(codex, { mode: "auto" }), codex.sessionId)).not.toContain(
+      "postgres_request",
+    );
     expect(
       postgresRequestAllowed({
         plain: false,
-        agentProvider: "codex",
-        postgresMode: "on-request",
+        agentProvider: "claude",
+        postgresMode: "auto",
         globalEnabled: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("ready returns the connection; starting asks to call again", async () => {

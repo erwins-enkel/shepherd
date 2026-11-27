@@ -7,7 +7,7 @@ import { EventHub } from "../src/events";
 import { config } from "../src/config";
 
 // #4232: GET /api/postgres/repos lists the repos with on-demand Postgres switched on
-// (postgresMode on-request); a repo switched back off drops out.
+// (postgresMode on-request or auto, #4238) with their mode; a repo switched back off drops out.
 
 let repoA: string;
 let repoB: string;
@@ -46,7 +46,7 @@ async function put(repo: string, body: unknown): Promise<void> {
   expect(res.status).toBe(200);
 }
 
-type Row = { repoPath: string; name: string };
+type Row = { repoPath: string; name: string; mode: string };
 
 async function list(): Promise<Row[]> {
   const res = await app().fetch(new Request("http://x/api/postgres/repos"));
@@ -59,7 +59,14 @@ test("a repo switched to on-request is listed; switched off it drops out", async
   expect(await list()).toEqual([]);
 
   await put(repoA, { postgresMode: "on-request" });
-  expect(await list()).toEqual([{ repoPath: realpathSync(repoA), name: basename(repoA) }]);
+  expect(await list()).toEqual([
+    { repoPath: realpathSync(repoA), name: basename(repoA), mode: "on-request" },
+  ]);
+
+  await put(repoA, { postgresMode: "auto" });
+  expect(await list()).toEqual([
+    { repoPath: realpathSync(repoA), name: basename(repoA), mode: "auto" },
+  ]);
 
   await put(repoA, { postgresMode: "off" });
   expect(await list()).toEqual([]);
@@ -74,7 +81,7 @@ test("rows are sorted by name", async () => {
 test("a stored row for a repo no longer under the repo root is omitted", async () => {
   const cfg = store.getRepoConfig("/gone/repo");
   store.setRepoConfig("/gone/repo", { ...cfg, postgresMode: "on-request" });
-  expect([...store.postgresRepoPaths()]).toEqual(["/gone/repo"]);
+  expect([...store.postgresRepoModes().keys()]).toEqual(["/gone/repo"]);
   expect(await list()).toEqual([]);
 });
 

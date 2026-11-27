@@ -12,9 +12,12 @@ import {
   dropScript,
   isImageRef,
   isSessionDbName,
+  isPostgresMode,
   parsePostgresPatch,
   promoteRestoreScript,
   promoteScript,
+  postgresEnv,
+  postgresRepoOn,
   repoBaseDb,
   repoRole,
   resetScript,
@@ -287,6 +290,28 @@ it("connection uses the session role and db", () => {
   const c = connectionFor("127.0.0.1", 54318, SID, "pw0123456789abcdef");
   expect(c.dsn).toBe(`postgresql://${c.user}:pw0123456789abcdef@127.0.0.1:54318/${c.database}`);
   expect(c.user).toBe(sessionDb(SID));
+});
+
+it("postgresEnv: exactly the connection's six values (#4238)", () => {
+  const c = connectionFor("10.0.2.2", 54318, SID, "pw0123456789abcdef");
+  expect(postgresEnv(c)).toEqual({
+    DATABASE_URL: c.dsn,
+    PGHOST: "10.0.2.2",
+    PGPORT: "54318",
+    PGUSER: c.user,
+    PGPASSWORD: "pw0123456789abcdef",
+    PGDATABASE: c.database,
+  });
+});
+
+it("auto is a mode, and on-request/auto count as on (#4238)", () => {
+  expect(isPostgresMode("auto")).toBe(true);
+  expect(["off", "on-request", "auto", undefined].map(postgresRepoOn)).toEqual([
+    false,
+    true,
+    true,
+    false,
+  ]);
 });
 
 it("idle stop after N minutes", () => {

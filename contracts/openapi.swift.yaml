@@ -11385,7 +11385,8 @@ components:
           enum:
             - off
             - on-request
-          description: Machine-local, default off. on-request offers Claude task sessions (any sandbox profile; Autonomous reaches it through the slirp gateway) the postgres_request MCP tool, which hands them their own clone database on Shepherd's shared on-demand Postgres server (Settings → Resources → Postgres must be on). Sessions pick up the tool at their next spawn or resume.
+            - auto
+          description: Machine-local, default off. Needs Settings → Resources → Postgres on; every database is a session's own clone on Shepherd's shared on-demand Postgres server (any sandbox profile; Autonomous reaches it through the slirp gateway). on-request offers Claude task sessions the postgres_request MCP tool, which provisions the clone on demand; sessions pick up the tool at their next spawn or resume, and an on-request session that holds a database also gets its connection injected as env at its next resume. auto provisions a clone at every task-session spawn (Claude and Codex) and injects the connection into the agent's environment as DATABASE_URL plus PGHOST, PGPORT, PGUSER, PGPASSWORD and PGDATABASE (the values postgres_request returns); Claude sessions keep the tool.
         automationConfirmed:
           type: boolean
         automationRowExists:
@@ -11477,6 +11478,7 @@ components:
       required:
         - repoPath
         - name
+        - mode
       properties:
         repoPath:
           type: string
@@ -11484,6 +11486,12 @@ components:
         name:
           type: string
           description: The repo's directory name under the repo root.
+        mode:
+          type: string
+          enum:
+            - on-request
+            - auto
+          description: The repo's stored postgresMode (see RepoConfig.postgresMode); off repos are not listed.
     PostgresRepoList:
       type: object
       additionalProperties: false
@@ -11494,7 +11502,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PostgresRepo"
-          description: Repos under the repo root with postgresMode on-request, sorted by name.
+          description: Repos under the repo root with postgresMode on-request or auto, sorted by name.
     RepoConfigPatch:
       type: object
       additionalProperties: false
@@ -11643,7 +11651,8 @@ components:
           enum:
             - off
             - on-request
-          description: On-demand Postgres for this repo's sessions (see RepoConfig.postgresMode). Another value is 400.
+            - auto
+          description: On-demand Postgres for this repo's sessions — off, on-request (the postgres_request tool) or auto (a clone at every spawn, its connection injected as DATABASE_URL + PG* env); see RepoConfig.postgresMode. Another value is 400.
         automationConfirmed:
           type: boolean
     RepoRoles:
@@ -12938,7 +12947,8 @@ components:
           enum:
             - off
             - on-request
-          description: On-demand Postgres for this repo's sessions (see RepoConfig.postgresMode). Another value is 400.
+            - auto
+          description: On-demand Postgres for this repo's sessions — off, on-request (the postgres_request tool) or auto (a clone at every spawn, its connection injected as DATABASE_URL + PG* env); see RepoConfig.postgresMode. Another value is 400.
         sandboxProfile:
           description: trusted | standard | autonomous | inherit.
           type: string
@@ -18950,7 +18960,7 @@ paths:
   /api/postgres/repos:
     get:
       operationId: getPostgresRepos
-      description: The repos with on-demand Postgres switched on (#4232, postgresMode on-request) — Settings › Resources › Postgres's list. Stored values; repos outside the repo root or a scoped token's grant drop out.
+      description: The repos with on-demand Postgres switched on (#4232, postgresMode on-request or auto; auto = a clone at every spawn with its connection injected as env,
       responses:
         "200":
           description: Success.

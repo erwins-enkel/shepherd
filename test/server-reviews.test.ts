@@ -260,7 +260,9 @@ test("PUT /api/repo-config persists postgresMode (#4232); an unknown mode → 40
         body: JSON.stringify(body),
       }),
     );
-  expect((await put({ postgresMode: "auto" })).status).toBe(400);
+  expect((await put({ postgresMode: "bogus" })).status).toBe(400);
+  // #4238: auto is a mode
+  expect((await put({ postgresMode: "auto" })).status).toBe(200);
   const ok = await put({ postgresMode: "on-request" });
   expect(ok.status).toBe(200);
   expect(((await ok.json()) as { postgresMode: string }).postgresMode).toBe("on-request");

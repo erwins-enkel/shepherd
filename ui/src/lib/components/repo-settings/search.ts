@@ -77,6 +77,13 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
     },
     {
       section: "agent",
+      field: "postgresAuto",
+      name: m.automation_postgres_auto_name(),
+      description: m.automation_postgres_auto_desc(),
+      fallbackField: "postgresMode",
+    },
+    {
+      section: "agent",
       field: "sharedBrowserEnabled",
       name: m.automation_shared_browser_name(),
       description: m.automation_shared_browser_desc(),

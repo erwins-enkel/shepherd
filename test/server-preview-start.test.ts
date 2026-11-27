@@ -189,7 +189,7 @@ test("preview/start: configured local script starts without steering the agent",
       startPreview: async () => {
         throw new Error("agent steer must not be used");
       },
-      previewLaunch: () => null,
+      previewLaunch: async () => null,
     } as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
@@ -322,6 +322,45 @@ test("preview/start: missing local script sends one-time repo setup steer", asyn
   expect(store.getRepoConfig("/r").previewStartCommand).toBe("cd ui && bun run dev");
   expect(spawned).toBe(false);
   expect(ensured).toBe(false);
+});
+
+test("preview/start: setup steer states the DATABASE_URL rule only when the repo uses Postgres (#4238)", async () => {
+  const cases = [
+    { enabled: true, mode: "auto" as const, rule: true },
+    { enabled: true, mode: "on-request" as const, rule: true },
+    { enabled: true, mode: "off" as const, rule: false },
+    { enabled: false, mode: "auto" as const, rule: false },
+  ];
+  for (const c of cases) {
+    const replies: string[] = [];
+    const { store } = harness();
+    const id = makeSession(store, `/wt/pg-${c.mode}-${c.enabled}`);
+    store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), postgresMode: c.mode });
+    const app = makeApp({
+      store,
+      service: {
+        reply: async (_id: string, text: string) => {
+          replies.push(text);
+          return true;
+        },
+      } as any,
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      preview: { snapshot: () => ({}) },
+      postgres: { settings: () => ({ enabled: c.enabled }) } as any,
+      previewLauncher: {
+        findDevPort: async () => null,
+        scriptExists: async () => false,
+        scriptPath: async () => "/git/shepherd/preview-start.sh",
+        ensureScript: async () => null,
+        startScript: async () => {},
+      },
+    });
+    const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
+    expect(res.status).toBe(200);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.includes("must read `$DATABASE_URL`")).toBe(c.rule);
+  }
 });
 
 test("preview/start: confined session with no script gets the legacy start, not the setup steer", async () => {
@@ -561,7 +600,7 @@ test("preview/start: the stored script is launched with the service's sandbox la
   const app = makeApp({
     store,
     service: {
-      previewLaunch: (s: { id: string }, script: string) => {
+      previewLaunch: async (s: { id: string }, script: string) => {
         seen.push([s.id, script]);
         return spec;
       },

@@ -400,7 +400,9 @@ export class PostgresService {
   /** Ensure the server, the repo template and this session's clone; answer within the budget.
    *  Idempotent: a repeat call returns the same DSN. Past the budget it answers `starting` while
    *  the work continues, so the agent's next call picks up the result. `host` is where the session
-   *  reaches the server: the host loopback, or the slirp gateway from an Autonomous netns (#4239). */
+   *  reaches the server: the host loopback, or the slirp gateway from an Autonomous netns (#4239).
+   *  Joined in-flight work (e.g. the #4238 spawn kick, on loopback) is answered for THIS caller's
+   *  host: the DSN is deterministic, only the host differs. */
   async request(
     sessionId: string,
     signal?: AbortSignal,
@@ -409,7 +411,9 @@ export class PostgresService {
     const repoPath = this.liveRepo(sessionId);
     let work = this.requests.get(sessionId);
     if (!work) work = this.track(sessionId, this.provision(sessionId, repoPath, host));
-    return this.within(work, signal);
+    const forHost = (c: PostgresConnection): PostgresConnection =>
+      c.host === host ? c : connectionFor(host, c.port, sessionId, c.password);
+    return this.within(work.then(forHost), signal);
   }
 
   /** `postgres_reset` (#4240): drop this session's clone and re-clone it from the repo template.
@@ -474,8 +478,7 @@ export class PostgresService {
     reset = false,
   ): Promise<PostgresConnection> {
     await this.ensureRunning();
-    const { leaseKey } = await this.loadSecrets();
-    const password = sessionPassword(leaseKey, sessionId);
+    const connection = await this.connection(sessionId, host);
     const db = sessionDb(sessionId);
     // Lease first: a reconcile between clone and lease would otherwise drop the fresh clone.
     const fresh = !this.hasLease(sessionId);
@@ -484,7 +487,7 @@ export class PostgresService {
     await this.admin(async () => {
       await this.psql(baseScript(repoPath));
       await this.adoptNow(this.activeLeases());
-      let exists = (await this.psql(roleScript(sessionId, password, repoPath)))
+      let exists = (await this.psql(roleScript(sessionId, connection.password, repoPath)))
         .trim()
         .split("\n")
         .pop();
@@ -495,7 +498,17 @@ export class PostgresService {
       if (exists === "0") await this.psql(cloneScript(repoPath, sessionId));
     });
     this.lastBusyAt = this.now();
-    return connectionFor(host, this.settings().port, sessionId, password);
+    return connection;
+  }
+
+  /** The session's connection WITHOUT provisioning anything (#4238): the DSN is deterministic
+   *  (HMAC password), so spawn env injection never waits for the server or the clone. Equal to
+   *  what `request()` returns for the same host. */
+  async connection(sessionId: string, host: string = HOST): Promise<PostgresConnection> {
+    const s = this.settings();
+    if (!s.enabled) throw new PostgresError("disabled", "Postgres is turned off in Settings");
+    const { leaseKey } = await this.loadSecrets();
+    return connectionFor(host, s.port, sessionId, sessionPassword(leaseKey, sessionId));
   }
 
   /** The session's lease, if any (resume/relaunch use it to re-start the server). */

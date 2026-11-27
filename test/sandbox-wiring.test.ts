@@ -13,6 +13,7 @@ import {
   existsSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -25,7 +26,13 @@ import { join } from "node:path";
 import type { StandardCreateInput, Session } from "../src/types";
 import type { GitForge, Issue, PrStatus } from "../src/forge/types";
 import type { UsageLimits } from "../src/usage-limits";
-import { DEFAULT_POSTGRES_SETTINGS } from "../src/postgres-core";
+import { secretEnvLauncher } from "../src/agent-secrets";
+import {
+  DEFAULT_POSTGRES_SETTINGS,
+  connectionFor,
+  postgresEnv,
+  sessionPassword,
+} from "../src/postgres-core";
 import type { EgressWatcher } from "../src/egress-watch";
 
 // A herdr stub that records the argv it was started with (the assertion target).
@@ -82,8 +89,12 @@ function makeService(opts: {
   ghGrants?: ConstructorParameters<typeof SessionService>[0]["ghGrants"];
   prepareScratchpadBind?: ConstructorParameters<typeof SessionService>[0]["prepareScratchpadBind"];
   previewLogFile?: (sessionId: string) => string;
+  postgres?: ConstructorParameters<typeof SessionService>[0]["postgres"];
+  agentSpawnDir?: string;
 }) {
   return new SessionService({
+    postgres: opts.postgres,
+    agentSpawnDir: opts.agentSpawnDir,
     transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store: opts.store,
     namer: async () => "s",
@@ -978,6 +989,9 @@ describe("on-demand Postgres from an egress-confined session (#4239)", () => {
         request: async () => ({ status: "starting" as const }),
         reset: async () => ({ status: "starting" as const }),
         sessionStatus: async () => ({ server: "off" as const, database: "none" as const }),
+        connection: async () => {
+          throw new Error("not under test");
+        },
       },
     });
     const s = await service.create(baseInput());
@@ -1039,6 +1053,191 @@ describe("on-demand Postgres from an egress-confined session (#4239)", () => {
       const { service, s } = await spawnWith(opts);
       expect(await service.postgresHostFor(s.id)).toBe("127.0.0.1");
     }
+  });
+});
+
+// ── on-demand Postgres env injection (#4238) ─────────────────────────────────
+
+describe("on-demand Postgres env injection (#4238)", () => {
+  const PG_NAMES = ["DATABASE_URL", "PGDATABASE", "PGHOST", "PGPASSWORD", "PGPORT", "PGUSER"];
+  let spawnDir: string;
+  beforeEach(() => {
+    spawnDir = mkdtempSync(join(tmpdir(), "pg-inject-"));
+  });
+  afterEach(() => rmSync(spawnDir, { recursive: true, force: true }));
+
+  const conn = (id: string, host: string) =>
+    connectionFor(host, DEFAULT_POSTGRES_SETTINGS.port, id, sessionPassword("k".repeat(64), id));
+
+  function harness(opts: {
+    mode: "off" | "on-request" | "auto";
+    profile?: "trusted" | "autonomous";
+    leases?: Set<string>;
+    secrets?: Record<string, string>;
+  }) {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", {
+      ...defaultRepoConfig(),
+      sandboxProfile: opts.profile ?? "trusted",
+      postgresMode: opts.mode,
+    });
+    const record: { argv?: string[]; env?: Record<string, string> } = {};
+    const requests: { id: string; rowExists: boolean }[] = [];
+    const postgres = {
+      settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: true }),
+      hasLease: (id: string) => opts.leases?.has(id) ?? false,
+      ensureRunning: async () => {},
+      request: async (id: string, _signal?: AbortSignal, host = "127.0.0.1") => {
+        requests.push({ id, rowExists: !!store.get(id) });
+        return { status: "ready" as const, connection: conn(id, host) };
+      },
+      connection: async (id: string, host = "127.0.0.1") => conn(id, host),
+    };
+    const service = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "s",
+      worktree: worktreeStub(),
+      herdr: {
+        ...herdrStub(record),
+        start: async (_n: string, cwd: string, argv: string[], env: Record<string, string>) => {
+          record.argv = argv;
+          record.env = env;
+          return { terminalId: "term_x", cwd } as any;
+        },
+      },
+      detectBackend: () => "bwrap",
+      detectEgressBackend: () => "slirp4netns",
+      detectEgressHostLoopback: () => true,
+      agentIngressPort: () => 7331,
+      egressWatcher: makeWatcherStub(),
+      agentSpawnDir: spawnDir,
+      agentSecrets: { entries: () => ({ ...opts.secrets }) },
+      readCodexHelp: () => "",
+      readCodexAuthMode: () => "unknown" as const,
+      postgres,
+    } as any);
+    return { store, service, record, requests, postgres };
+  }
+
+  const secretFiles = (id: string): Record<string, string> => {
+    const dir = join(spawnDir, `${id}.secrets`);
+    if (!existsSync(dir)) return {};
+    const out: Record<string, string> = {};
+    for (const f of readdirSync(dir)) out[f] = readFileSync(join(dir, f), "utf8");
+    return out;
+  };
+
+  const storedSession = (
+    store: SessionStore,
+    over: Partial<Parameters<SessionStore["create"]>[0]> = {},
+  ) => {
+    const s = store.create({
+      name: "x",
+      prompt: "x",
+      repoPath: "/repo",
+      baseBranch: "main",
+      branch: "shepherd/x",
+      worktreePath: "/wt/x",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_old",
+      claudeSessionId: "abc-123",
+      ...over,
+    });
+    store.update(s.id, { status: "done", lastState: "done" });
+    return s;
+  };
+
+  test("(a) trusted Claude spawn, auto: the 6 vars equal request()'s, never in argv or env", async () => {
+    const { service, record, postgres } = harness({ mode: "auto" });
+    const s = await service.create(baseInput());
+    const expected = postgresEnv((await postgres.request(s.id)).connection);
+    expect(secretFiles(s.id)).toEqual(expected);
+    expect(Object.keys(expected).sort()).toEqual(PG_NAMES);
+    const password = expected.PGPASSWORD!;
+    expect(record.argv!.join("\n")).not.toContain(password);
+    expect(JSON.stringify(record.env)).not.toContain(password);
+    expect(record.argv!.join("\n")).toContain(join(spawnDir, `${s.id}.secrets`));
+  });
+
+  test("(b) on-request: no env without a lease, the env once the session holds one", async () => {
+    const leases = new Set<string>();
+    const { store, service, record } = harness({ mode: "on-request", leases });
+    const s = storedSession(store);
+    await service.resume(s.id);
+    expect(secretFiles(s.id)).toEqual({});
+    expect(record.argv![0]).toBe("claude");
+
+    leases.add(s.id);
+    store.update(s.id, { status: "done", lastState: "done" });
+    await service.resume(s.id);
+    expect(secretFiles(s.id)).toEqual(postgresEnv(conn(s.id, "127.0.0.1")));
+  });
+
+  test("(c) mode off with a stale lease: nothing injected", async () => {
+    const leases = new Set<string>();
+    const { store, service } = harness({ mode: "off", leases });
+    const s = storedSession(store);
+    leases.add(s.id);
+    await service.resume(s.id);
+    expect(secretFiles(s.id)).toEqual({});
+  });
+
+  test("(d) egress-confined Codex, auto: gateway opened, PGHOST is the slirp gateway", async () => {
+    const { store, service } = harness({ mode: "auto", profile: "autonomous" });
+    const s = storedSession(store, {
+      agentProvider: "codex",
+      claudeSessionId: "",
+      codexLaunchId: "launch-1",
+      sandboxApplied: "autonomous",
+      egressApplied: true,
+    });
+    store.update(s.id, { providerSessionId: "thread-1" });
+    const dir = egressTmpDir(s.id);
+    try {
+      await service.resume(s.id);
+      const spawn = JSON.parse(readFileSync(join(dir, "egress-spawn.json"), "utf8")) as {
+        hostGateways?: Array<{ ip: string; port: number }>;
+      };
+      expect(spawn.hostGateways).toContainEqual({
+        ip: "10.0.2.2",
+        port: DEFAULT_POSTGRES_SETTINGS.port,
+      });
+      const files = secretFiles(s.id);
+      expect(files.PGHOST).toBe("10.0.2.2");
+      expect(files).toEqual(postgresEnv(conn(s.id, "10.0.2.2")));
+      expect(await service.postgresHostFor(s.id)).toBe(files.PGHOST!);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("(e) Postgres wins over a same-named operator secret; the audit skips the shadowed name", async () => {
+    const { store, service } = harness({
+      mode: "auto",
+      secrets: { DATABASE_URL: "operator-value", NPM_TOKEN: "tok" },
+    });
+    const s = await service.create(baseInput());
+    const files = secretFiles(s.id);
+    expect(files.DATABASE_URL).toBe(conn(s.id, "127.0.0.1").dsn);
+    expect(files.NPM_TOKEN).toBe("tok");
+    expect(Object.keys(store.agentSecretLastInjected("/repo"))).toEqual(["NPM_TOKEN"]);
+  });
+
+  test("(g) create in auto provisions once, after the row exists; plain or on-request never", async () => {
+    for (const agentProvider of ["claude", "codex"] as const) {
+      const { service, requests } = harness({ mode: "auto" });
+      const s = await service.create(baseInput({ agentProvider }));
+      expect(requests).toEqual([{ id: s.id, rowExists: true }]);
+    }
+    const plain = harness({ mode: "auto" });
+    const p = await plain.service.create(baseInput({ plain: true }));
+    expect(plain.requests).toEqual([]);
+    expect(secretFiles(p.id)).toEqual({});
+    const onRequest = harness({ mode: "on-request" });
+    await onRequest.service.create(baseInput());
+    expect(onRequest.requests).toEqual([]);
   });
 });
 
@@ -1294,17 +1493,17 @@ describe("SessionService.previewLaunch (F03)", () => {
     return { store, service, s };
   };
 
-  test("trusted repo + trusted session → null (unchanged direct launch)", () => {
+  test("trusted repo + trusted session → null (unchanged direct launch)", async () => {
     const { service, s } = setup("trusted", "bwrap");
-    expect(service.previewLaunch(s, script)).toBeNull();
+    expect(await service.previewLaunch(s, script)).toBeNull();
   });
 
   for (const profile of ["standard", "autonomous"] as const) {
-    test(`${profile} repo → bwrap membrane, --clearenv, creds masked, no --die-with-parent`, () => {
+    test(`${profile} repo → bwrap membrane, --clearenv, creds masked, no --die-with-parent`, async () => {
       process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
       try {
         const { service, s } = setup(profile, "bwrap");
-        const l = service.previewLaunch(s, script)!;
+        const l = (await service.previewLaunch(s, script))!;
         expect(l.argv[0]).toBe("bwrap");
         expect(l.argv.slice(-2)).toEqual(["--", script]);
         expect(l.argv).toContain("--clearenv");
@@ -1338,17 +1537,17 @@ describe("SessionService.previewLaunch (F03)", () => {
     });
   }
 
-  test("trusted repo but sandboxed SESSION → wrapped", () => {
+  test("trusted repo but sandboxed SESSION → wrapped", async () => {
     const { service, s } = setup("trusted", "bwrap");
     const sandboxed = { ...s, sandboxApplied: "standard" as const };
-    expect(service.previewLaunch(sandboxed, script)?.argv[0]).toBe("bwrap");
+    expect((await service.previewLaunch(sandboxed, script))?.argv[0]).toBe("bwrap");
   });
 
-  test("sandboxed repo, no backend → script directly with a minimal env", () => {
+  test("sandboxed repo, no backend → script directly with a minimal env", async () => {
     process.env.DUMMY_SERVER_SECRET = "dummy-not-real";
     try {
       const { service, s } = setup("standard", null);
-      const l = service.previewLaunch(s, script)!;
+      const l = (await service.previewLaunch(s, script))!;
       expect(l.argv).toEqual([script]);
       expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
       expect(l.env.DUMMY_SERVER_SECRET).toBeUndefined();
@@ -1379,6 +1578,144 @@ describe("SessionService.previewLaunch (F03)", () => {
       delete process.env.DUMMY_SERVER_SECRET;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ── #4238: the preview launch gets the session's Postgres env (lease only) ────
+describe("SessionService.previewLaunch: on-demand Postgres env (#4238)", () => {
+  const script = "/repo/.git/shepherd/preview-start.sh";
+  let spawnDir: string;
+  beforeEach(() => {
+    spawnDir = mkdtempSync(join(tmpdir(), "pg-preview-"));
+  });
+  afterEach(() => rmSync(spawnDir, { recursive: true, force: true }));
+
+  const conn = (id: string) =>
+    connectionFor(
+      "127.0.0.1",
+      DEFAULT_POSTGRES_SETTINGS.port,
+      id,
+      sessionPassword("k".repeat(64), id),
+    );
+
+  function setup(opts: {
+    profile: "trusted" | "standard";
+    mode: "off" | "on-request" | "auto";
+    lease: boolean;
+    backend?: SandboxBackend;
+  }) {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", {
+      ...defaultRepoConfig(),
+      sandboxProfile: opts.profile,
+      postgresMode: opts.mode,
+    });
+    const s = store.create({
+      name: "p",
+      prompt: "x",
+      repoPath: "/repo",
+      baseBranch: "main",
+      branch: "shepherd/p",
+      worktreePath: "/wt/p",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_p",
+    });
+    const hosts: string[] = [];
+    let ensured = 0;
+    const postgres = {
+      settings: () => ({ ...DEFAULT_POSTGRES_SETTINGS, enabled: true }),
+      hasLease: () => opts.lease,
+      ensureRunning: async () => void ensured++,
+      request: async () => ({ status: "starting" as const }),
+      reset: async () => ({ status: "starting" as const }),
+      sessionStatus: async () => ({ server: "off" as const, database: "none" as const }),
+      connection: async (id: string, host = "127.0.0.1") => {
+        hosts.push(host);
+        return conn(id);
+      },
+    };
+    const service = makeService({
+      store,
+      record: {},
+      detectBackend: () => (opts.backend === undefined ? "bwrap" : opts.backend),
+      postgres,
+      agentSpawnDir: spawnDir,
+    });
+    return { store, service, s, hosts, ensured: () => ensured };
+  }
+
+  const dirOf = (id: string) => join(spawnDir, "preview", `${id}.secrets`);
+  const files = (dir: string): Record<string, string> => {
+    if (!existsSync(dir)) return {};
+    const out: Record<string, string> = {};
+    for (const f of readdirSync(dir)) out[f] = readFileSync(join(dir, f), "utf8");
+    return out;
+  };
+
+  for (const mode of ["auto", "on-request"] as const) {
+    test(`trusted, ${mode} + lease → launcher argv with the dir, the 6 vars on disk only`, async () => {
+      const { service, s, hosts, ensured } = setup({ profile: "trusted", mode, lease: true });
+      const l = (await service.previewLaunch(s, script))!;
+      const dir = dirOf(s.id);
+      expect(l.argv).toEqual(secretEnvLauncher(dir, [script]));
+      expect(l.argv.slice(0, 2)).toEqual(["/bin/sh", "-c"]);
+      expect(l.argv.slice(3)).toEqual(["shepherd-secret-env", dir, script]);
+      expect(hosts).toEqual(["127.0.0.1"]);
+      const expected = postgresEnv(conn(s.id));
+      expect(files(dir)).toEqual(expected);
+      expect(Object.keys(expected)).toHaveLength(6);
+      expect(l.argv.join("\n")).not.toContain(expected.PGPASSWORD!);
+      expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
+      expect(JSON.stringify(l.env)).not.toContain(expected.PGPASSWORD!);
+      expect(ensured()).toBe(1);
+    });
+  }
+
+  test("standard + bwrap + lease → launcher after `--`, dir bound RO, no value in argv", async () => {
+    const { service, s } = setup({ profile: "standard", mode: "auto", lease: true });
+    const l = (await service.previewLaunch(s, script))!;
+    const dir = dirOf(s.id);
+    expect(l.argv[0]).toBe("bwrap");
+    const sep = l.argv.lastIndexOf("--");
+    expect(l.argv.slice(sep + 1)).toEqual(secretEnvLauncher(dir, [script]));
+    const ro = l.argv.findIndex((x, k) => x === "--ro-bind" && l.argv[k + 1] === dir);
+    expect(ro).toBeGreaterThan(0);
+    expect(l.argv[ro + 2]).toBe(dir);
+    expect(ro).toBeLessThan(sep);
+    const pw = postgresEnv(conn(s.id)).PGPASSWORD!;
+    expect(JSON.stringify(l)).not.toContain(pw);
+    expect(l.argv).not.toContain("DATABASE_URL");
+    expect(Object.keys(l.env)).toEqual(["PATH"]);
+  });
+
+  test("standard, no backend + lease → launcher with the minimal env", async () => {
+    const { service, s } = setup({ profile: "standard", mode: "auto", lease: true, backend: null });
+    const l = (await service.previewLaunch(s, script))!;
+    expect(l.argv).toEqual(secretEnvLauncher(dirOf(s.id), [script]));
+    expect(l.env.SHEPHERD_WORKTREE_PATH).toBe("/wt/p");
+  });
+
+  test("no lease, or mode off → unchanged (trusted null), no dir written", async () => {
+    for (const o of [
+      { mode: "auto" as const, lease: false },
+      { mode: "off" as const, lease: true },
+    ]) {
+      const { service, s, hosts } = setup({ profile: "trusted", ...o });
+      expect(await service.previewLaunch(s, script)).toBeNull();
+      expect(hosts).toEqual([]);
+      expect(existsSync(dirOf(s.id))).toBe(false);
+    }
+    const { service, s } = setup({ profile: "standard", mode: "auto", lease: false });
+    expect((await service.previewLaunch(s, script))!.argv.slice(-2)).toEqual(["--", script]);
+  });
+
+  test("archive removes the preview dir", async () => {
+    const { service, s } = setup({ profile: "trusted", mode: "auto", lease: true });
+    await service.previewLaunch(s, script);
+    expect(existsSync(dirOf(s.id))).toBe(true);
+    await service.archive(s.id);
+    expect(existsSync(dirOf(s.id))).toBe(false);
   });
 });
 

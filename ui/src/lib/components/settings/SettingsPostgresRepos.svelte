@@ -13,7 +13,8 @@
   // for a database, each with a ✕ that turns it off at once, plus a search that turns one on. It
   // writes repo_config.postgresMode through the same repo-config store as Repo settings → Agent,
   // so a toggle there shows here too. Keys are realpaths, like the server's repo_config. Stays
-  // editable while the global switch is off: pick repos first, then turn Postgres on.
+  // editable while the global switch is off: pick repos first, then turn Postgres on. Adding a repo
+  // sets on-request; an auto repo (a database at every spawn, #4238) carries a tag.
   let { globalEnabled, query = "" }: { globalEnabled: boolean; query?: string } = $props();
   const q = $derived(query.trim());
 
@@ -43,14 +44,21 @@
   // One entry per realpath (a repo reachable under two spellings is still one repo).
   const byRealPath = $derived(new Map(repos.entries.map((e) => [e.realPath, e])));
   const fetchedPaths = $derived(new Set((fetched ?? []).map((r) => r.repoPath)));
+  // An older server lists no mode: its listed repos are on-request.
+  const fetchedModes = $derived(
+    new Map(
+      (fetched ?? []).map((r): [string, PostgresMode] => [r.repoPath, r.mode ?? "on-request"]),
+    ),
+  );
 
   // The store holds this tab's writes (here or in the Repo settings window) and any config it
   // loaded; it wins over the list fetched on open. A rolled-back write can leave `undefined`.
-  function isOn(repoPath: string): boolean {
+  function modeOf(repoPath: string): PostgresMode {
     const path = byRealPath.get(repoPath)?.path ?? repoPath;
     const mode = repoConfig.postgresMode[repoPath] ?? repoConfig.postgresMode[path];
-    return mode === undefined ? fetchedPaths.has(repoPath) : mode === "on-request";
+    return mode ?? fetchedModes.get(repoPath) ?? "off";
   }
+  const isOn = (repoPath: string) => modeOf(repoPath) !== "off";
 
   // The fetched rows plus any known repo the store turned on in this tab.
   const rows = $derived.by((): Row[] => {
@@ -157,7 +165,12 @@
       <ul class="rows">
         {#each rows as r (r.repoPath)}
           <li class="row" data-repo={r.name}>
-            <span class="name">{r.name}</span>
+            <span class="label">
+              <span class="name">{r.name}</span>
+              {#if modeOf(r.repoPath) === "auto"}
+                <span class="badge">{m.postgres_repos_auto_tag()}</span>
+              {/if}
+            </span>
             <button
               type="button"
               class="tx"
@@ -271,6 +284,12 @@
     padding: 6px 8px;
     border-bottom: 1px solid var(--color-line);
   }
+  .label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
   .name {
     min-width: 0;
     overflow: hidden;
@@ -279,6 +298,17 @@
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink);
+  }
+  /* the /design-system badge recipe: an inline, read-only micro-label */
+  .badge {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
   }
   .tx {
     flex: none;

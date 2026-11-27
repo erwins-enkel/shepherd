@@ -13,6 +13,19 @@ test("postgresMode defaults off, persists, and survives writes that omit it", ()
   expect(store.getLocalRepoConfig("/r").criticEnabled).toBe(false);
 });
 
+test("auto round-trips; postgresRepoModes lists on-request and auto repos with their mode", () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/a", { ...store.getLocalRepoConfig("/a"), postgresMode: "auto" });
+  store.setRepoConfig("/b", { ...store.getLocalRepoConfig("/b"), postgresMode: "on-request" });
+  store.setRepoConfig("/c", { ...store.getLocalRepoConfig("/c"), postgresMode: "off" });
+  expect(store.getLocalRepoConfig("/a").postgresMode).toBe("auto");
+  expect(store.getRepoConfig("/a").postgresMode).toBe("auto");
+  expect(Object.fromEntries(store.postgresRepoModes())).toEqual({
+    "/a": "auto",
+    "/b": "on-request",
+  });
+});
+
 test("postgres leases: upsert, state, list, delete", () => {
   const store = new SessionStore(":memory:");
   expect(store.getPostgresLease("s1")).toBeNull();

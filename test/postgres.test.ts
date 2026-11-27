@@ -458,6 +458,52 @@ it("reports a session's database appearing and going away", async () => {
   ]);
 });
 
+describe("connection (#4238)", () => {
+  it("equals request()'s connection for the same host, without provisioning anything", async () => {
+    const id = mkSession();
+    const s = svc();
+    const before = await s.connection(id, "10.0.2.2");
+    expect(docker.calls.length).toBe(0);
+    expect(store.getPostgresLease(id)).toBeNull();
+    const out = await s.request(id, undefined, "10.0.2.2");
+    if (out.status !== "ready") throw new Error("not ready");
+    expect(before).toEqual(out.connection);
+    expect(await s.connection(id)).toEqual({
+      ...out.connection,
+      host: "127.0.0.1",
+      dsn: out.connection.dsn.replace("@10.0.2.2:", "@127.0.0.1:"),
+    });
+  });
+
+  it("answers a joined in-flight request for the joining caller's host", async () => {
+    const id = mkSession();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow: DockerRun = async (args, opts) => {
+      if (args[0] === "pull") await gate;
+      return docker.run(args, opts);
+    };
+    docker.imagePresent = false;
+    const s = svc({ docker: slow });
+    const kick = s.request(id); // loopback, like the spawn kick
+    const joined = s.request(id, undefined, "10.0.2.2");
+    release();
+    const [a, b] = await Promise.all([kick, joined]);
+    if (a.status !== "ready" || b.status !== "ready") throw new Error("not ready");
+    expect(a.connection.host).toBe("127.0.0.1");
+    expect(b.connection).toEqual(await s.connection(id, "10.0.2.2"));
+    expect(docker.sqlCalls(/CREATE DATABASE s_\w+ TEMPLATE/)).toBe(1);
+  });
+
+  it("throws disabled when Postgres is off and never touches docker", async () => {
+    store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
+    await expect(svc().connection(mkSession(), "127.0.0.1")).rejects.toMatchObject({
+      code: "disabled",
+    });
+    expect(docker.calls.length).toBe(0);
+  });
+});
+
 describe("release + reconcile", () => {
   it("drops the clone at once while running", async () => {
     const s = svc();

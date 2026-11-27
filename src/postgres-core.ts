@@ -12,10 +12,17 @@ export const POSTGRES_LABEL_KIND = "run.shepherd.kind";
 export const POSTGRES_LABEL_IMAGE = "run.shepherd.image";
 export const POSTGRES_LABEL_PORT = "run.shepherd.port";
 
-export type PostgresMode = "off" | "on-request";
-export const POSTGRES_MODES: readonly PostgresMode[] = ["off", "on-request"];
+/** `on-request`: a session gets a clone when it calls `postgres_request`. `auto` (#4238): every
+ *  task session gets one at spawn, with the connection injected into its env (Codex too). */
+export type PostgresMode = "off" | "on-request" | "auto";
+export const POSTGRES_MODES: readonly PostgresMode[] = ["off", "on-request", "auto"];
 export function isPostgresMode(v: unknown): v is PostgresMode {
   return typeof v === "string" && (POSTGRES_MODES as readonly string[]).includes(v);
+}
+
+/** The repo uses Shepherd's Postgres at all (any mode but `off`). */
+export function postgresRepoOn(mode: string | null | undefined): boolean {
+  return mode === "on-request" || mode === "auto";
 }
 
 export interface PostgresSettings {
@@ -425,6 +432,18 @@ export function connectionFor(
     database: db,
     user: db,
     password,
+  };
+}
+
+/** The env a session gets for its connection (#4238): exactly `postgres_request`'s values. */
+export function postgresEnv(conn: PostgresConnection): Record<string, string> {
+  return {
+    DATABASE_URL: conn.dsn,
+    PGHOST: conn.host,
+    PGPORT: String(conn.port),
+    PGUSER: conn.user,
+    PGPASSWORD: conn.password,
+    PGDATABASE: conn.database,
   };
 }
 

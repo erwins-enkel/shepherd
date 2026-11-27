@@ -152,6 +152,7 @@ import type {
   ScheduleInput,
   ScheduleRun,
   RepoAgentProviderSetting,
+  PostgresMode,
 } from "./types";
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -3649,13 +3650,14 @@ export async function getRepoRunDefaults(): Promise<{ repos: RepoRunDefaults[] }
 }
 
 /** A repo with on-demand Postgres switched on (#4232). `repoPath` is the realpath the repo
- *  config keys on. */
+ *  config keys on; `mode` is its stored mode (#4238, never off here). */
 export interface PostgresRepo {
   repoPath: string;
   name: string;
+  mode: Exclude<PostgresMode, "off">;
 }
 
-/** The repos with Postgres on request, sorted by name — Settings › Resources › Postgres's list. */
+/** The repos with Postgres on (on-request or auto), sorted by name — Settings › Resources › Postgres's list. */
 export async function getPostgresRepos(): Promise<{ repos: PostgresRepo[] }> {
   return getJson("/api/postgres/repos", "postgres-repos");
 }

@@ -53,8 +53,8 @@ it("lists the fetched repos by name, including one no longer in the repo list", 
   repos.entries = [entry("web")];
   mockList.mockResolvedValue({
     repos: [
-      { repoPath: `${root}/web`, name: "web" },
-      { repoPath: `${root}/gone`, name: "gone" },
+      { repoPath: `${root}/web`, name: "web", mode: "on-request" },
+      { repoPath: `${root}/gone`, name: "gone", mode: "on-request" },
     ],
   });
   render(SettingsPostgresRepos, { globalEnabled: true });
@@ -100,7 +100,9 @@ it("adds an option on click", async () => {
 
 it("✕ turns Postgres off and drops the row", async () => {
   repos.entries = [entry("web")];
-  mockList.mockResolvedValue({ repos: [{ repoPath: `${root}/web`, name: "web" }] });
+  mockList.mockResolvedValue({
+    repos: [{ repoPath: `${root}/web`, name: "web", mode: "on-request" }],
+  });
   render(SettingsPostgresRepos, { globalEnabled: true });
   await removeBtn("web").click();
   expect(mockPut).toHaveBeenCalledWith(`${root}/web`, { postgresMode: "off" });
@@ -110,7 +112,9 @@ it("✕ turns Postgres off and drops the row", async () => {
 
 it("a failed save restores the row and says so", async () => {
   repos.entries = [entry("api"), entry("web")];
-  mockList.mockResolvedValue({ repos: [{ repoPath: `${root}/web`, name: "web" }] });
+  mockList.mockResolvedValue({
+    repos: [{ repoPath: `${root}/web`, name: "web", mode: "on-request" }],
+  });
   mockPut.mockRejectedValue(new Error("500"));
   render(SettingsPostgresRepos, { globalEnabled: true });
 
@@ -146,7 +150,9 @@ it("stays editable with the global switch off and says when listed repos get Pos
 
 it("follows the repo-config store, e.g. the Repo settings toggle", async () => {
   repos.entries = [entry("api"), entry("web")];
-  mockList.mockResolvedValue({ repos: [{ repoPath: `${root}/web`, name: "web" }] });
+  mockList.mockResolvedValue({
+    repos: [{ repoPath: `${root}/web`, name: "web", mode: "on-request" }],
+  });
   render(SettingsPostgresRepos, { globalEnabled: true });
   await expect.element(removeBtn("web")).toBeVisible();
   repoConfig.overlay(`${root}/api`, { postgresMode: "on-request" });
@@ -157,7 +163,9 @@ it("follows the repo-config store, e.g. the Repo settings toggle", async () => {
 
 it("offers a hidden repo but not one that already has Postgres", async () => {
   repos.entries = [entry("web-old", { hidden: true }), entry("web")];
-  mockList.mockResolvedValue({ repos: [{ repoPath: `${root}/web`, name: "web" }] });
+  mockList.mockResolvedValue({
+    repos: [{ repoPath: `${root}/web`, name: "web", mode: "on-request" }],
+  });
   render(SettingsPostgresRepos, { globalEnabled: true });
   await expect.element(removeBtn("web")).toBeVisible();
   await combo().fill("web");
@@ -173,5 +181,31 @@ it("still lets the operator add a repo when the list fails to load", async () =>
   expect(page.getByText(m.postgres_repos_none()).query()).toBeNull();
   await combo().fill("web");
   await option("web").click();
+  await expect.element(removeBtn("web")).toBeVisible();
+});
+
+// #4238: an auto repo (a database at every spawn) is listed with its tag; the store's mode wins.
+it("tags an auto repo, following the store's mode over the fetched one", async () => {
+  repos.entries = [entry("api"), entry("web")];
+  mockList.mockResolvedValue({
+    repos: [
+      { repoPath: `${root}/api`, name: "api", mode: "on-request" },
+      { repoPath: `${root}/web`, name: "web", mode: "auto" },
+    ],
+  });
+  render(SettingsPostgresRepos, { globalEnabled: true });
+  const tagIn = (repo: string) =>
+    document
+      .querySelector(`[data-repo="${repo}"]`)
+      ?.textContent?.includes(m.postgres_repos_auto_tag());
+  await expect.element(removeBtn("web")).toBeVisible();
+  await expect.element(removeBtn("api")).toBeVisible();
+  expect(tagIn("web")).toBe(true);
+  expect(tagIn("api")).toBe(false);
+
+  repoConfig.overlay(`${root}/api`, { postgresMode: "auto" });
+  repoConfig.overlay(`${root}/web`, { postgresMode: "on-request" });
+  await expect.poll(() => tagIn("api")).toBe(true);
+  expect(tagIn("web")).toBe(false);
   await expect.element(removeBtn("web")).toBeVisible();
 });

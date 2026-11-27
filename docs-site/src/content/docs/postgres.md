@@ -19,8 +19,8 @@ get it.
 - A **Claude** task session, on any sandbox profile. An **Autonomous** session
   reaches the server through its sandbox's gateway (`10.0.2.2`); its firewall
   opens the Postgres port when the session starts or resumes, so after switching
-  Postgres on, resume a running Autonomous session. Codex sessions don't get the
-  tool yet; they are told not to substitute a database of their own.
+  Postgres on, resume a running Autonomous session. Codex sessions have no
+  tool: they get their database through **Database at every spawn** (below).
 
 ## Turn it on
 
@@ -37,6 +37,12 @@ get it.
    This is the same switch as **Repo settings → Agent → Postgres on request**,
    so either place works. Sessions pick up the tool at their next spawn or
    resume.
+3. **Optional: Database at every spawn.** Under the repo's **Postgres on
+   request** switch, tick **Database at every spawn** to give every session its
+   database without asking: Shepherd clones it in the background at spawn and
+   sets the connection in the session's environment. Codex sessions need this,
+   since they have no `postgres_request` tool. Repos with it show an **auto**
+   tag in the **Repos with Postgres** list.
 
 ## How agents use it
 
@@ -63,6 +69,29 @@ Two more tools come with it:
 Sessions that have the tool also get a short note in their system prompt with
 these rules, so they don't add a Compose Postgres or ask you how to connect.
 
+## Connection in the environment
+
+Shepherd sets **`DATABASE_URL`** plus **`PGHOST`**, **`PGPORT`**, **`PGUSER`**,
+**`PGPASSWORD`** and **`PGDATABASE`** in a session's environment, with exactly
+the values `postgres_request` returns:
+
+- at **every spawn and resume** when **Database at every spawn** is on (the
+  database may still be starting for a moment; agents retry a refused
+  connection), and
+- at **resume** of a session that already asked for its database with the tool.
+
+The values never appear on a command line: they reach the agent through
+private files that a small launcher exports. An Autonomous session's
+`PGHOST` is its sandbox gateway (`10.0.2.2`).
+
+The **live preview** gets the same variables (host `127.0.0.1`) when its
+session has a database, so the repo's `preview-start.sh` reads `$DATABASE_URL`
+instead of starting its own Postgres.
+
+A Codex session can't restart a server that stopped while idle. If its
+connection stays refused, it leaves database checks to CI; resuming the session
+starts the server again.
+
 ## Build apps against it
 
 Any project that uses this Postgres follows one contract, so agents never need to
@@ -71,8 +100,8 @@ ask how the app reaches its database:
 - The app reads its connection from **`DATABASE_URL`**. The standard libpq
   variables (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`) work too.
   Nothing hardcodes a host, port or password.
-- **No Compose file or container for Postgres.** `DATABASE_URL` comes from
-  `postgres_request` in an agent session, from the `db` job's service container
+- **No Compose file or container for Postgres.** `DATABASE_URL` is set by
+  Shepherd (or comes from `postgres_request`) in an agent session, from the `db` job's service container
   in CI, and from the deployment's environment in production.
 - **Schema and seed data come from migrations**, run by one command against
   `DATABASE_URL`. It turns an empty database into the current schema and is safe
@@ -90,15 +119,15 @@ under `## Database`, and its P3 session adds the section when it is missing. Bot
 check whether Postgres is on for the repo and, when it is off, ask you to switch
 on the machine setting and the repo toggle above.
 
-A later Shepherd release may set `DATABASE_URL` and the `PG*` variables in the
-session environment itself, with the same values the tool returns. Because the
-process environment wins over `.env`, a project built to this contract keeps
-working unchanged.
+When Shepherd sets `DATABASE_URL` and the `PG*` variables in the session
+environment (see above), the process environment wins over `.env`, so a project
+built to this contract keeps working unchanged.
 
 ## Lifecycle
 
 - **Per repo** Shepherd keeps a template database. It starts empty.
-- **Per session** the first request clones the template (on btrfs/XFS the copy
+- **Per session** the first request (or the spawn, with **Database at every
+  spawn**) clones the template (on btrfs/XFS the copy
   shares blocks and takes well under a second; on ext4 it is a full copy).
 - **Promoting** a session's database makes it the repo's new template (see
   below).

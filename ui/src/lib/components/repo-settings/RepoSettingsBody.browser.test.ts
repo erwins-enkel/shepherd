@@ -1041,3 +1041,47 @@ describe("RepoSettingsBody — phone tab", () => {
     expect(top(container.querySelector(".pane")!) - bottom(strip)).toBeLessThanOrEqual(1);
   });
 });
+
+// #4238: while Postgres is on, "Database at every spawn" flips the stored mode on-request ↔ auto.
+describe("RepoSettingsBody — Postgres at every spawn", () => {
+  const REPO = "/tmp/repo";
+  const autoBox = () =>
+    page.getByRole("checkbox", { name: m.automation_postgres_auto_name(), exact: true });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    repoConfig.postgresMode = {};
+  });
+
+  const realFetch = globalThis.fetch;
+  function stubFetch() {
+    const puts: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith("/api/repo-config") && init?.method === "PUT") {
+          const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+          puts.push(patch);
+          return Response.json(patch);
+        }
+        return realFetch(input, init);
+      }),
+    );
+    return puts;
+  }
+
+  it("is shown only while Postgres is on and writes on-request ↔ auto", async () => {
+    const puts = stubFetch();
+    repoConfig.postgresMode = { [REPO]: "off" };
+    await mount("agent");
+    expect(autoBox().query()).toBeNull();
+    repoConfig.postgresMode = { [REPO]: "on-request" };
+    await expect.element(autoBox()).not.toBeChecked();
+    (autoBox().element() as HTMLInputElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ postgresMode: "auto" }]));
+    await expect.element(autoBox()).toBeChecked();
+    (autoBox().element() as HTMLInputElement).click();
+    await vi.waitFor(() => expect(puts.at(-1)).toEqual({ postgresMode: "on-request" }));
+    await expect.element(autoBox()).not.toBeChecked();
+  });
+});

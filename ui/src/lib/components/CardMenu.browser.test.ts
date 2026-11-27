@@ -295,6 +295,31 @@ describe("CardMenu bring-back action", () => {
   });
 });
 
+describe("CardMenu promote-database action (#4240)", () => {
+  it("renders only when onpromotedb is provided", async () => {
+    const { rerender } = await render(CardMenu, { props: base() });
+    expect(page.getByRole("menuitem", { name: m.cardmenu_promote_db() }).query()).toBeNull();
+
+    await rerender(base({ onpromotedb: vi.fn() }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.cardmenu_promote_db() }))
+      .toBeInTheDocument();
+  });
+
+  it("first click arms, second click fires onpromotedb once", async () => {
+    const onpromotedb = vi.fn();
+    render(CardMenu, { props: base({ onpromotedb }) });
+
+    await page.getByRole("menuitem", { name: m.cardmenu_promote_db() }).click();
+    expect(onpromotedb).not.toHaveBeenCalled();
+    const confirm = page.getByRole("menuitem", { name: m.cardmenu_promote_db_confirm() });
+    await expect.element(confirm).toHaveClass(/\barmed\b/);
+
+    await confirm.click();
+    expect(onpromotedb).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("CardMenu ask-the-assistant action (#1446)", () => {
   it("renders Ask the assistant only when onaskassistant is provided", async () => {
     const { rerender } = await render(CardMenu, { props: base() });

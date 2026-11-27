@@ -51,6 +51,15 @@ The tool is idempotent: every call in a session returns the same credentials. If
 a connection is refused later, the server stopped while idle, and calling the
 tool again starts it.
 
+Two more tools come with it:
+
+- `postgres_reset` throws the session's database away and re-creates it as a
+  fresh copy of the repo template, with the same credentials. It answers like
+  `postgres_request`.
+- `postgres_status` shows whether the server is off, stopped, starting or
+  running and whether the session has a database. It never starts the server
+  and returns no credentials.
+
 Sessions that have the tool also get a short note in their system prompt with
 these rules, so they don't add a Compose Postgres or ask you how to connect.
 
@@ -91,6 +100,8 @@ working unchanged.
 - **Per repo** Shepherd keeps a template database. It starts empty.
 - **Per session** the first request clones the template (on btrfs/XFS the copy
   shares blocks and takes well under a second; on ext4 it is a full copy).
+- **Promoting** a session's database makes it the repo's new template (see
+  below).
 - **Archiving** a session drops its database and role. If the server is stopped
   at that moment, the drop happens the next time it starts.
 - **At startup and hourly** Shepherd drops leftover session databases that no
@@ -103,6 +114,25 @@ working unchanged.
   specific to the project (for example `<project>_app`). A session that was already running when a
   sibling first created a role can be refused for up to a minute; re-running the
   migrations then works.
+
+## Update the template
+
+A repo's template starts empty. When a session has migrated or seeded its
+database into a state every later session should start from, make it the
+template: right-click the session's card and choose **Make database the repo
+template**, then click again to confirm. The item only shows while the session
+has a database.
+
+- Shepherd copies the session's database over the template. New sessions start
+  from the copy; databases of sessions that already have one stay as they are.
+- Grants and default privileges the migrations set (`ALTER DEFAULT PRIVILEGES`)
+  carry over to the template and to every new session's database.
+- The previous template is dropped. There is no undo, but the schema can always
+  be rebuilt by the repo's migrations.
+- The session's own connections are closed and refused for the few seconds the
+  copy takes. Its database and credentials stay the same.
+- If the server is stopped, promoting starts it.
+- Promote before the session is archived: archiving drops its database.
 
 ## Security
 

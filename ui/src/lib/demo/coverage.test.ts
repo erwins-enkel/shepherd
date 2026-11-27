@@ -345,6 +345,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // which every one of these callers either ignores or reads only for `ok`.
   "session lifecycle actions": [
     "/api/sessions/:p/interrupt",
+    // Demo sessions hold no Postgres database, so the promote item never shows (#4240).
+    "/api/sessions/:p/postgres/promote",
     "/api/sessions/:p/ci/restart",
     "/api/sessions/:p/rename",
     "/api/sessions/:p/replace",

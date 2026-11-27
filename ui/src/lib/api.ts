@@ -1793,6 +1793,14 @@ export async function interruptSession(id: string): Promise<void> {
   if (!r.ok) throw await failed(r, "interrupt");
 }
 
+/** Make the session's on-demand Postgres clone its repo's template (#4240). Throws an
+ *  {@link ApiError}; `code` is `no-database`, `disabled`, `docker`, `start-failed` or `failed`. */
+export async function promoteSessionPostgres(id: string): Promise<{ template: string }> {
+  const r = await fetch(`/api/sessions/${id}/postgres/promote`, { method: "POST" });
+  if (!r.ok) throw await failed(r, "postgres promote");
+  return (await r.json()) as { template: string };
+}
+
 /** Re-run an overdue job of the session's open PR (#2863): the server cancels its run, waits for
  *  it to finish and re-runs the failed jobs in the background. Throws an {@link ApiError}; status
  *  400 means the forge can't restart this run. */

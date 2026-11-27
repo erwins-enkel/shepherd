@@ -2015,6 +2015,9 @@ test("postgres (#4232): defaults, patch merges + persists + re-applies, bad inpu
     postgres: {
       applySettings: async () => void applied++,
       request: async () => ({ status: "starting" }),
+      reset: async () => ({ status: "starting" }),
+      sessionStatus: async () => ({ server: "off", database: "none" }),
+      promote: async () => ({ template: "t" }),
       settings: () => ({ enabled: false, port: 54318, idleMinutes: 15, image: "postgres:18" }),
     },
   });

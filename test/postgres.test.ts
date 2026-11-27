@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PostgresService, PostgresError, type DockerRun } from "../src/postgres";
-import { POSTGRES_SETTING, sessionDb } from "../src/postgres-core";
+import { POSTGRES_SETTING, repoBaseDb, sessionDb } from "../src/postgres-core";
 import { SessionStore } from "../src/store";
 
 const S1 = "11111111-1111-4111-8111-111111111111";
@@ -20,6 +20,7 @@ class FakeDocker {
   dockerDown = false;
   failRun = false;
   failAdopt = false;
+  failPromote = false;
   ready = true;
   clients = 0;
   dbs = new Set<string>();
@@ -76,6 +77,8 @@ class FakeDocker {
 
   private sql(input: string): string {
     if (!this.running) throw new Error("not running");
+    if (this.failPromote && input.includes("RENAME TO")) throw new Error("being accessed");
+    if (input.includes("pg_terminate_backend")) return "0\n";
     if (input.includes("pg_stat_activity")) return `${this.clients}\n`;
     if (input.includes("WITH ADMIN OPTION") && this.failAdopt) throw new Error("adopt failed");
     if (input.includes("UNION SELECT rolname"))
@@ -332,6 +335,127 @@ describe("app roles", () => {
     await s.releaseSession(a);
     expect(docker.dbs.has(sessionDb(a))).toBe(false);
   });
+});
+
+describe("reset", () => {
+  it("re-clones the session's DB from the template with the same DSN", async () => {
+    const s = svc();
+    const id = mkSession();
+    const first = await s.request(id);
+    const again = await s.reset(id);
+    expect(again).toEqual(first);
+    expect(
+      docker.sqlCalls(new RegExp(`DROP DATABASE IF EXISTS ${sessionDb(id)} WITH \\(FORCE\\)`)),
+    ).toBe(1);
+    expect(docker.sqlCalls(/CREATE DATABASE s_\w+ TEMPLATE/)).toBe(2);
+    expect(docker.dbs.has(sessionDb(id))).toBe(true);
+  });
+
+  it("provisions a session that had no database yet without a drop", async () => {
+    const id = mkSession();
+    const out = await svc().reset(id);
+    expect(out.status).toBe("ready");
+    expect(docker.sqlCalls(/WITH \(FORCE\)/)).toBe(0);
+    expect(store.getPostgresLease(id)?.state).toBe("active");
+  });
+
+  it("runs after an in-flight request and a follow-up request joins it", async () => {
+    const id = mkSession();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow: DockerRun = async (args, opts) => {
+      if (args[0] === "pull") await gate;
+      return docker.run(args, opts);
+    };
+    docker.imagePresent = false;
+    const s = svc({ docker: slow, requestBudgetMs: 10 });
+    expect(await s.request(id)).toEqual({ status: "starting" });
+    expect(await s.reset(id)).toEqual({ status: "starting" });
+    release();
+    const done = await s.request(id);
+    expect(done.status).toBe("ready");
+    expect(docker.sqlCalls(/WITH \(FORCE\)/)).toBe(1);
+    expect(docker.sqlCalls(/CREATE DATABASE s_\w+ TEMPLATE/)).toBe(2);
+  });
+
+  it("refuses unknown sessions and a disabled server", async () => {
+    await expect(svc().reset(S1)).rejects.toMatchObject({ code: "no-session" });
+    const id = mkSession();
+    store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
+    await expect(svc().reset(id)).rejects.toMatchObject({ code: "disabled" });
+  });
+});
+
+describe("promote", () => {
+  it("swaps the clone in as the template and restores the clone afterwards", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    expect(await s.promote(id)).toEqual({ template: repoBaseDb("/repos/demo") });
+    const inputs = docker.calls.map((c) => c.input ?? "");
+    const promoteAt = inputs.findIndex((i) => i.includes(`TEMPLATE ${sessionDb(id)} STRATEGY`));
+    const restoreAt = inputs.findIndex((i) => i.includes("ALLOW_CONNECTIONS true"));
+    expect(promoteAt).toBeGreaterThan(-1);
+    expect(restoreAt).toBeGreaterThan(promoteAt);
+  });
+
+  it("still restores the clone when the swap fails", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    docker.failPromote = true;
+    await expect(s.promote(id)).rejects.toThrow("being accessed");
+    expect(docker.sqlCalls(/ALLOW_CONNECTIONS true/)).toBe(1);
+  });
+
+  it("starts a stopped server first", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    docker.running = false;
+    await s.promote(id);
+    expect(docker.count("start")).toBe(1);
+  });
+
+  it("refuses without a database, for archived sessions and while disabled", async () => {
+    const s = svc();
+    const id = mkSession();
+    await expect(s.promote(id)).rejects.toMatchObject({ code: "no-database" });
+    await expect(s.promote(S2)).rejects.toMatchObject({ code: "no-session" });
+    await s.request(id);
+    store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
+    await expect(s.promote(id)).rejects.toMatchObject({ code: "disabled" });
+    expect(docker.sqlCalls(/RENAME TO/)).toBe(0);
+  });
+});
+
+describe("sessionStatus", () => {
+  it("reports server and database state without starting anything", async () => {
+    const s = svc();
+    const id = mkSession();
+    expect(await s.sessionStatus(id)).toEqual({ server: "stopped", database: "none" });
+    expect(docker.count("run") + docker.count("start")).toBe(0);
+    await s.request(id);
+    expect(await s.sessionStatus(id)).toEqual({ server: "running", database: "provisioned" });
+    docker.dockerDown = true;
+    expect((await s.sessionStatus(id)).server).toBe("docker-unreachable");
+    store.setSetting(POSTGRES_SETTING, JSON.stringify({ enabled: false }));
+    expect(await s.sessionStatus(id)).toEqual({ server: "off", database: "provisioned" });
+  });
+});
+
+it("reports a session's database appearing and going away", async () => {
+  const seen: [string, boolean][] = [];
+  const s = svc({ onLease: (id, active) => seen.push([id, active]) });
+  const id = mkSession();
+  await s.request(id);
+  await s.request(id);
+  await s.reset(id);
+  await s.releaseSession(id);
+  expect(seen).toEqual([
+    [id, true],
+    [id, false],
+  ]);
 });
 
 describe("release + reconcile", () => {

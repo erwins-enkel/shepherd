@@ -994,9 +994,6 @@ export class HerdStore {
           ? setKey(this.ghPermissionRequests, ev.data.id, ev.data.request)
           : dropKey(this.ghPermissionRequests, ev.data.id);
         return true;
-      case "session:gh-grants":
-        this.patchSession(ev.data.id, { ghGrants: ev.data.ghGrants });
-        return true;
       case "session:action-request":
         this.actionRequests = ev.data.request
           ? setKey(this.actionRequests, ev.data.id, ev.data.request)
@@ -1069,6 +1066,21 @@ export class HerdStore {
         // #1944: the payload always carries the session's FULL notice list, so an empty array is a
         // genuine all-clear (a spawn that needed no clamp), not a no-op.
         spawnNotices.apply(ev.data.id, ev.data.notices ?? []);
+        return true;
+      default:
+        return this.applySessionAccessEvent(ev);
+    }
+  }
+
+  /** Per-session access patches — gh grants (#4119) and the on-demand Postgres flag (#4240). Split
+   *  from applySessionCardEvent to keep each switch under the complexity gate. */
+  private applySessionAccessEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "session:gh-grants":
+        this.patchSession(ev.data.id, { ghGrants: ev.data.ghGrants });
+        return true;
+      case "session:postgres":
+        this.patchSession(ev.data.id, { postgresDb: ev.data.postgresDb });
         return true;
       default:
         return false;

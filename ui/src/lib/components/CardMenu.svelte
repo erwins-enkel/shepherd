@@ -21,6 +21,7 @@
     onaskassistant,
     onrename,
     onamend,
+    onpromotedb,
     onrelaunch,
     onrelaunchTrusted,
     onrelaunchElsewhere,
@@ -65,6 +66,10 @@
     // when provided, an "Amend task…" item appears — opens the amend dialog (#2225). One-click:
     // the dialog's own textarea + explicit submit IS the confirmation, so no two-step arm here.
     onamend?: () => void;
+    // when provided, a two-step armed "Make database the repo template" item appears (#4240): the
+    // session holds an on-demand Postgres clone, and promoting it replaces the repo's template for
+    // every later session — repo-wide and not undoable, hence the arm step
+    onpromotedb?: () => void;
     // when provided, a two-step armed Relaunch item appears between Resume and
     // Decommission (the parent closes over the session id, like onresume/ondecommission)
     onrelaunch?: () => void;
@@ -136,6 +141,21 @@
     relaunchTrustedTimer = setTimeout(() => (relaunchTrustedArmed = false), RELAUNCH_ARM_MS);
   }
   $effect(() => () => clearTimeout(relaunchTrustedTimer));
+
+  // Same arm → confirm window for promoting the session's database to the repo template.
+  let promoteArmed = $state(false);
+  let promoteTimer: ReturnType<typeof setTimeout> | undefined;
+  function onPromoteClick() {
+    clearTimeout(promoteTimer);
+    if (promoteArmed) {
+      promoteArmed = false;
+      onpromotedb?.();
+      return;
+    }
+    promoteArmed = true;
+    promoteTimer = setTimeout(() => (promoteArmed = false), RELAUNCH_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(promoteTimer));
 
   // Same arm → confirm window for Bring back.
   let bringBackArmed = $state(false);
@@ -308,6 +328,21 @@
       <span class="cm-icon" aria-hidden="true">✚</span>{m.cardmenu_amend()}
     </button>
   {/if}
+  {#if onpromotedb}
+    <button
+      class="cm-item"
+      class:armed={promoteArmed}
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      title={m.cardmenu_promote_db_title()}
+      onclick={onPromoteClick}
+    >
+      <span class="cm-icon" aria-hidden="true">{promoteArmed ? "⚠" : "⛁"}</span>{promoteArmed
+        ? m.cardmenu_promote_db_confirm()
+        : m.cardmenu_promote_db()}
+    </button>
+  {/if}
   {#if onrelaunch}
     <button
       class="cm-item"
@@ -331,8 +366,9 @@
       tabindex="-1"
       onclick={onRelaunchTrustedClick}
     >
-      <span class="cm-icon" aria-hidden="true">{relaunchTrustedArmed ? "⚠" : "◌"}</span
-      >{relaunchTrustedArmed
+      <span class="cm-icon" aria-hidden="true">
+        {relaunchTrustedArmed ? "⚠" : "◌"}
+      </span>{relaunchTrustedArmed
         ? m.cardmenu_relaunch_trusted_confirm()
         : m.cardmenu_relaunch_trusted()}
     </button>

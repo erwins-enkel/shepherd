@@ -2246,6 +2246,16 @@ test("session:gh-permission-request sets/clears a request; archive drops it; gh-
   expect(s.ghPermissionRequests.s1).toBeUndefined();
 });
 
+test("session:postgres patches the session's postgresDb flag (#4240)", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:new", data: session("s1") });
+  expect(s.byId("s1")?.postgresDb).toBeUndefined();
+  s.apply({ event: "session:postgres", data: { id: "s1", postgresDb: true } });
+  expect(s.byId("s1")?.postgresDb).toBe(true);
+  s.apply({ event: "session:postgres", data: { id: "s1", postgresDb: false } });
+  expect(s.byId("s1")?.postgresDb).toBe(false);
+});
+
 test("session:action-request sets and clears the assistant's Action Request; archive drops it", () => {
   const s = new HerdStore();
   const request = {

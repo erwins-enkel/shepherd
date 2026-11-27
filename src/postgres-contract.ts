@@ -61,7 +61,8 @@ export function postgresSessionNotice(mode: PostgresNoticeMode): string {
     "this session's own copy of the repo's template (it may be empty), dropped when the session " +
     "is archived: run the repo's migrations before use. Migrations may create roles; a role is " +
     "shared by every session of this repo on the server. If granting such a role fails with " +
-    '"ADMIN option", wait a minute and re-run the migrations.'
+    '"ADMIN option", wait a minute and re-run the migrations. `postgres_reset` throws your copy away and re-creates it from the ' +
+    "template (same DSN); `postgres_status` shows the server's state without starting it."
   );
 }
 

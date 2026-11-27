@@ -976,6 +976,8 @@ describe("on-demand Postgres from an egress-confined session (#4239)", () => {
         hasLease: () => false,
         ensureRunning: async () => {},
         request: async () => ({ status: "starting" as const }),
+        reset: async () => ({ status: "starting" as const }),
+        sessionStatus: async () => ({ server: "off" as const, database: "none" as const }),
       },
     });
     const s = await service.create(baseInput());

@@ -6,7 +6,7 @@ import {
   storedPostgresSettings,
   type PostgresMode,
 } from "./postgres-core";
-import type { PostgresService } from "./postgres";
+import { PostgresError, type PostgresService } from "./postgres";
 import { handoffPage, providerHandoffStatus, ProviderHandoffError } from "./provider-handoff";
 import { RepoLeitrechnerService } from "./repo-leitrechner";
 import {
@@ -883,7 +883,10 @@ export interface AppDeps {
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** On-demand Postgres (#4232): `postgres_request` over the agent ingress, and re-applied after
    *  a `postgres` settings change (turning it off stops the server). Absent ⇒ off. */
-  postgres?: Pick<PostgresService, "applySettings" | "request" | "settings">;
+  postgres?: Pick<
+    PostgresService,
+    "applySettings" | "request" | "reset" | "sessionStatus" | "settings" | "promote"
+  >;
   /** Host-wide heavy-check slot (#3181); absent → `/api/heavy-slot` reports it switched off. */
   heavySlot?: HeavySlotSource &
     Partial<
@@ -6542,6 +6545,7 @@ async function sessionRead(key: string, deps: AppDeps): Promise<Response> {
   return json({
     ...s,
     hasScratchpadFiles: await scratchpadHasFiles(s.worktreePath, s.claudeSessionId),
+    postgresDb: hasPostgresDb(deps, s.id),
     phase,
   });
 }
@@ -6551,14 +6555,25 @@ async function sessionRead(key: string, deps: AppDeps): Promise<Response> {
 // row (the scratchpad is out of scope post-archive). Not persisted: computed at serialize time.
 async function withScratchpadFlags(
   sessions: Session[],
-): Promise<Array<Session & { hasScratchpadFiles?: boolean }>> {
+  deps: AppDeps,
+): Promise<Array<Session & { hasScratchpadFiles?: boolean; postgresDb?: boolean }>> {
   return Promise.all(
     sessions.map(async (s) =>
       s.status === "archived"
         ? s
-        : { ...s, hasScratchpadFiles: await scratchpadHasFiles(s.worktreePath, s.claudeSessionId) },
+        : {
+            ...s,
+            hasScratchpadFiles: await scratchpadHasFiles(s.worktreePath, s.claudeSessionId),
+            postgresDb: hasPostgresDb(deps, s.id),
+          },
     ),
   );
+}
+
+/** Transient `postgresDb` (#4240): the session holds an active clone DB — gates the card menu's
+ *  promote item. Live updates ride `session:postgres`. */
+function hasPostgresDb(deps: AppDeps, id: string): boolean {
+  return deps.store.getPostgresLease(id)?.state === "active";
 }
 
 // Recently-archived sessions for the Done lens, each enriched with the web URL of its
@@ -6629,6 +6644,7 @@ async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response
         .filter(
           (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
         ),
+      deps,
     ),
   );
   const remote = mirroredSessions(url, deps, token);
@@ -10103,6 +10119,24 @@ async function handleSessionGhPermissionRequest({
   }
   const r = await deps.ghGrants.grant(id, request.permission, grantActor(deps, token));
   return r.ok ? json({ ok: true }) : json({ error: r.error, code: r.code }, r.status);
+}
+
+// POST /api/sessions/:id/postgres/promote — make the session's clone DB its repo's Postgres
+// template (#4240). Operator-only (not a scoped-token route): it replaces a repo-wide template.
+async function handleSessionPostgresPromote({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "postgres")) return null;
+  const id = parts[2];
+  if (!id || parts[4] !== "promote" || parts[5] || req.method !== "POST") return null;
+  if (!deps.postgres) return json({ error: "postgres unavailable" }, 503);
+  try {
+    const { template } = await deps.postgres.promote(id);
+    return json({ ok: true, template });
+  } catch (e) {
+    const missing =
+      e instanceof PostgresError && (e.code === "no-session" || e.code === "no-database");
+    const code = e instanceof PostgresError ? e.code : "failed";
+    return json({ error: (e as Error).message, code }, missing ? 404 : 503);
+  }
 }
 
 // DELETE /api/sessions/:id/gh-grants/:permission — revoke an opt-in gh grant (#4119). The session's
@@ -16228,6 +16262,7 @@ const ROUTE_HANDLERS = [
   handleSessionLoginRequest,
   handleSessionGhPermissionRequest,
   handleSessionGhGrantRevoke,
+  handleSessionPostgresPromote,
   handleSessionActionRequest,
   handleLoginRequestsSnapshot,
   handleGhPermissionRequestsSnapshot,

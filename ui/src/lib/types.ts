@@ -2360,6 +2360,9 @@ export interface Session {
   manualStepsAckedAt: number | null;
   /** Opt-in gh permissions the operator granted this sandboxed session (#4119); absent/[] = none. */
   ghGrants?: GhGrant[];
+  /** Transient, server-derived (#4240): the session holds an on-demand Postgres clone database —
+   *  gates the card menu's promote item. Live via `session:postgres`; absent on archived rows. */
+  postgresDb?: boolean;
   /** Comparison-experiment group id this session belongs to; null = not part of an experiment. */
   experimentId: string | null;
   /** This session's role within its experiment; null when not in one. */
@@ -4017,6 +4020,7 @@ export type WsEvent =
       data: { id: string; request: GhPermissionRequest | null };
     }
   | { event: "session:gh-grants"; data: { id: string; ghGrants: GhGrant[] } }
+  | { event: "session:postgres"; data: { id: string; postgresDb: boolean } }
   | {
       event: "session:halt";
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };

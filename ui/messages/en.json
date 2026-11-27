@@ -9539,7 +9539,7 @@
   "diagnostics_hint_postgres_image": "Stopped. The image is pulled when an agent first asks for a database.",
   "diagnostics_hint_postgres_uninspectable": "The Postgres server could not be checked.",
   "feat_postgres_title": "Postgres on demand",
-  "feat_postgres_body": "Shepherd can run one shared Postgres server for your repos and start it only when an agent needs it. Each session gets its own database copy, dropped on archive. Turn it on in Settings → Resources and pick its repos right there under Repos with Postgres.",
+  "feat_postgres_body": "Shepherd can run one shared Postgres server for your repos and start it only when an agent needs it. Each session gets its own database copy, dropped on archive. Turn it on in Settings → Resources and pick its repos right there under Repos with Postgres. To update a repo's starting data, right-click a session and choose Make database the repo template.",
   "epic_archived_review_status": "Session ended · PR open",
   "feat_epic_archived_reviews_title": "Open reviews in epic groups",
   "feat_epic_archived_reviews_body": "In Mission Control’s All view, an epic keeps a link to an open pull request after its session ends.",
@@ -9550,5 +9550,12 @@
   "postgres_repos_add": "Add a repo…",
   "postgres_repos_remove_aria": "Turn Postgres off for {repo}",
   "postgres_repos_save_failed": "Could not change Postgres for {repo}.",
-  "postgres_repos_load_failed": "Could not load the repos with Postgres."
+  "postgres_repos_load_failed": "Could not load the repos with Postgres.",
+  "cardmenu_promote_db": "Make database the repo template",
+  "cardmenu_promote_db_confirm": "Replace the repo template?",
+  "cardmenu_promote_db_title": "New sessions start from this database; the old template is dropped.",
+  "cardmenu_promote_db_toast": "{name}'s database is now the {repo} template.",
+  "cardmenu_promote_db_failed": "Couldn't make {name}'s database the repo template. The Shepherd log has the details.",
+  "cardmenu_promote_db_failed_disabled": "Postgres is turned off in Settings, so the template can't be replaced.",
+  "cardmenu_promote_db_failed_missing": "{name} has no database any more, so there is nothing to promote."
 }

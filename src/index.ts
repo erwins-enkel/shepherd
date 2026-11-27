@@ -67,7 +67,7 @@ import {
 } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { ComposeCleanup } from "./compose-cleanup";
-import { PostgresService } from "./postgres";
+import { POSTGRES_SESSION_EVENT, PostgresService } from "./postgres";
 import { postgresInstanceNames } from "./postgres-core";
 import { matchAgentLive, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
@@ -1213,6 +1213,8 @@ const postgres = new PostgresService({
   store,
   stateDir: join(postgresRoot, "postgres"),
   names: postgresInstanceNames(postgresRoot, join(homedir(), ".shepherd")),
+  // #4240: the card menu's promote item follows the session's database.
+  onLease: (id, postgresDb) => events.emit(POSTGRES_SESSION_EVENT, { id, postgresDb }),
 });
 
 const assistantView = new AssistantViewRegistry();

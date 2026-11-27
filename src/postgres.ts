@@ -28,7 +28,11 @@ import {
   connectionFor,
   dropScript,
   isSessionDbName,
+  promoteRestoreScript,
+  promoteScript,
+  repoBaseDb,
   repoRole,
+  resetScript,
   roleScript,
   sessionDb,
   sessionPassword,
@@ -40,6 +44,9 @@ import {
 } from "./postgres-core";
 import type { PostgresLease, PostgresLeaseState } from "./store";
 import type { Session } from "./types";
+
+/** Event carrying whether a session holds a database (`{ id, postgresDb }`, #4240). */
+export const POSTGRES_SESSION_EVENT = "session:postgres";
 
 export type DockerRun = (
   args: string[],
@@ -72,6 +79,9 @@ export interface PostgresServiceDeps {
   /** One `request()`'s wait budget before it answers `starting` (MCP calls cap at 60 s). */
   requestBudgetMs?: number;
   readyTimeoutMs?: number;
+  /** A session's database appeared (`true`) or went away (`false`) — drives the card menu's
+   *  promote item via the `session:postgres` event (#4240). */
+  onLease?: (sessionId: string, active: boolean) => void;
 }
 
 export type PostgresRequestOutcome =
@@ -79,7 +89,7 @@ export type PostgresRequestOutcome =
 
 export class PostgresError extends Error {
   constructor(
-    readonly code: "disabled" | "no-session" | "docker" | "start-failed",
+    readonly code: "disabled" | "no-session" | "no-database" | "docker" | "start-failed",
     message: string,
   ) {
     super(message);
@@ -98,6 +108,12 @@ export type PostgresStatus =
       ready: boolean;
       drift: boolean;
     };
+
+/** One session's view for `postgres_status` (#4240): no credentials, never starts anything. */
+export interface PostgresSessionStatus {
+  server: "off" | "docker-unreachable" | "stopped" | "starting" | "running";
+  database: "none" | "provisioned" | "dropping";
+}
 
 interface ContainerState {
   running: boolean;
@@ -145,6 +161,7 @@ export class PostgresService {
   private readonly log: (msg: string) => void;
   private readonly requestBudgetMs: number;
   private readonly readyTimeoutMs: number;
+  private readonly onLease: (sessionId: string, active: boolean) => void;
   private secrets: Promise<{ envFile: string; leaseKey: string }> | null = null;
   private ensuring: Promise<void> | null = null;
   private readonly requests = new Map<string, Promise<PostgresConnection>>();
@@ -172,6 +189,7 @@ export class PostgresService {
     this.log = deps.log ?? ((m) => console.log(`[postgres] ${m}`));
     this.requestBudgetMs = deps.requestBudgetMs ?? DEFAULT_REQUEST_BUDGET_MS;
     this.readyTimeoutMs = deps.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
+    this.onLease = deps.onLease ?? (() => {});
   }
 
   settings(): PostgresSettings {
@@ -388,19 +406,54 @@ export class PostgresService {
     signal?: AbortSignal,
     host: string = HOST,
   ): Promise<PostgresRequestOutcome> {
+    const repoPath = this.liveRepo(sessionId);
+    let work = this.requests.get(sessionId);
+    if (!work) work = this.track(sessionId, this.provision(sessionId, repoPath, host));
+    return this.within(work, signal);
+  }
+
+  /** `postgres_reset` (#4240): drop this session's clone and re-clone it from the repo template.
+   *  Same DSN (role + password stay). Runs after any in-flight request for the session and becomes
+   *  its in-flight work, so a `postgres_request` after `starting` picks up the reset's result. */
+  async reset(
+    sessionId: string,
+    signal?: AbortSignal,
+    host: string = HOST,
+  ): Promise<PostgresRequestOutcome> {
+    const repoPath = this.liveRepo(sessionId);
+    const prior = this.requests.get(sessionId)?.catch(() => null); // best-effort: reset retries it
+    const work = this.track(
+      sessionId,
+      (prior ?? Promise.resolve()).then(() => this.provision(sessionId, repoPath, host, true)),
+    );
+    return this.within(work, signal);
+  }
+
+  /** The live session's repo, or the request-time refusals. */
+  private liveRepo(sessionId: string): string {
     const session = this.store.get(sessionId);
     if (!session || session.archivedAt)
       throw new PostgresError("no-session", "Unknown or archived session");
     if (!this.settings().enabled)
       throw new PostgresError("disabled", "Postgres is turned off in Settings");
-    let work = this.requests.get(sessionId);
-    if (!work) {
-      work = this.provision(sessionId, session.repoPath, host).finally(() =>
-        this.requests.delete(sessionId),
-      );
-      work.catch((e: unknown) => this.log(`request ${sessionId} failed: ${(e as Error).message}`));
-      this.requests.set(sessionId, work);
-    }
+    return session.repoPath;
+  }
+
+  /** Register `work` as the session's in-flight provisioning until it settles. */
+  private track(sessionId: string, work: Promise<PostgresConnection>): Promise<PostgresConnection> {
+    const tracked: Promise<PostgresConnection> = work.finally(() => {
+      if (this.requests.get(sessionId) === tracked) this.requests.delete(sessionId);
+    });
+    tracked.catch((e: unknown) => this.log(`request ${sessionId} failed: ${(e as Error).message}`));
+    this.requests.set(sessionId, tracked);
+    return tracked;
+  }
+
+  /** Answer within one call's budget: the connection, or `starting` while the work continues. */
+  private async within(
+    work: Promise<PostgresConnection>,
+    signal?: AbortSignal,
+  ): Promise<PostgresRequestOutcome> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<null>((resolve) => {
       timer = setTimeout(() => resolve(null), this.requestBudgetMs);
@@ -418,20 +471,27 @@ export class PostgresService {
     sessionId: string,
     repoPath: string,
     host: string,
+    reset = false,
   ): Promise<PostgresConnection> {
     await this.ensureRunning();
     const { leaseKey } = await this.loadSecrets();
     const password = sessionPassword(leaseKey, sessionId);
     const db = sessionDb(sessionId);
     // Lease first: a reconcile between clone and lease would otherwise drop the fresh clone.
+    const fresh = !this.hasLease(sessionId);
     this.store.upsertPostgresLease({ sessionId, repoPath, db, role: repoRole(repoPath) });
+    if (fresh) this.onLease(sessionId, true);
     await this.admin(async () => {
       await this.psql(baseScript(repoPath));
       await this.adoptNow(this.activeLeases());
-      const exists = (await this.psql(roleScript(sessionId, password, repoPath)))
+      let exists = (await this.psql(roleScript(sessionId, password, repoPath)))
         .trim()
         .split("\n")
         .pop();
+      if (reset && exists !== "0") {
+        await this.psql(resetScript(sessionId));
+        exists = "0";
+      }
       if (exists === "0") await this.psql(cloneScript(repoPath, sessionId));
     });
     this.lastBusyAt = this.now();
@@ -460,6 +520,52 @@ export class PostgresService {
     }
   }
 
+  // ── template promote (#4240) ───────────────────────────────────────────────
+
+  /** Operator action: this session's clone becomes its repo's template (`promoteScript`). Starts
+   *  the server when needed; the clone's connections are refused for the duration. The clone's
+   *  owner and connectability are restored whether or not the swap succeeded. */
+  async promote(sessionId: string): Promise<{ template: string }> {
+    const session = this.store.get(sessionId);
+    if (!session || session.archivedAt)
+      throw new PostgresError("no-session", "Unknown or archived session");
+    if (!this.settings().enabled)
+      throw new PostgresError("disabled", "Postgres is turned off in Settings");
+    if (!this.hasLease(sessionId))
+      throw new PostgresError("no-database", "This session has no database");
+    await this.requests.get(sessionId)?.catch(() => null); // best-effort: a failed clone fails below
+    await this.ensureRunning();
+    const { repoPath } = session;
+    await this.admin(async () => {
+      try {
+        await this.psql(baseScript(repoPath));
+        await this.psql(promoteScript(repoPath, sessionId));
+      } catch (e) {
+        this.log(`promote ${sessionId} failed: ${(e as Error).message}`);
+        throw e;
+      } finally {
+        await this.psql(promoteRestoreScript(repoPath, sessionId)).catch((e: unknown) =>
+          this.log(`promote restore ${sessionId} failed: ${(e as Error).message}`),
+        );
+      }
+    });
+    this.lastBusyAt = this.now();
+    const template = repoBaseDb(repoPath);
+    this.log(`promoted ${sessionDb(sessionId)} to ${template}`);
+    return { template };
+  }
+
+  /** `postgres_status` (#4240): the server's state and whether this session has a database. */
+  async sessionStatus(sessionId: string): Promise<PostgresSessionStatus> {
+    const lease = this.store.getPostgresLease(sessionId);
+    const database = !lease ? "none" : lease.state === "active" ? "provisioned" : "dropping";
+    const s = await this.status();
+    if (!s.enabled) return { server: "off", database };
+    if (!s.docker) return { server: "docker-unreachable", database };
+    if (s.container !== "running") return { server: "stopped", database };
+    return { server: s.ready ? "running" : "starting", database };
+  }
+
   // ── release / reconcile ────────────────────────────────────────────────────
 
   private async drop(lease: PostgresLease): Promise<void> {
@@ -481,6 +587,7 @@ export class PostgresService {
     const lease = this.store.getPostgresLease(sessionId);
     if (!lease) return;
     this.store.setPostgresLeaseState(sessionId, "dropping");
+    if (lease.state === "active") this.onLease(sessionId, false);
     if (!(await this.isRunning())) return;
     await this.drop({ ...lease, state: "dropping" }).catch((e: unknown) =>
       this.log(`drop ${lease.db} failed: ${(e as Error).message}`),

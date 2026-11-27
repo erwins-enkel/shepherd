@@ -1,4 +1,5 @@
 import { recapSummary } from "../../src/recap-core";
+import { PostgresError } from "../../src/postgres";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fx from "./actions-fixtures";
 import {
@@ -289,6 +290,44 @@ describe("settle-integrated (#3016)", () => {
     } finally {
       s.stubs.resolveForge.forge = saved;
     }
+  });
+});
+
+describe("postgres promote (#4240)", () => {
+  test("promotes, 404s without a database, 503s when unavailable, 401s anonymous", async () => {
+    const path = "/api/sessions/{id}/postgres/promote";
+    const id = await createSession("promote my db");
+    const url = `/api/sessions/${id}/postgres/promote`;
+    const unavailable = await post(url);
+    expect(unavailable.status).toBe(503);
+    await validateResponse("POST", path, unavailable);
+    const saved = s.deps.postgres;
+    let fail: PostgresError | null = null;
+    s.deps.postgres = {
+      applySettings: async () => {},
+      request: async () => ({ status: "starting" }),
+      reset: async () => ({ status: "starting" }),
+      sessionStatus: async () => ({ server: "off", database: "none" }),
+      settings: () => ({ enabled: true, port: 54318, idleMinutes: 15, image: "postgres:18" }),
+      promote: async () => {
+        if (fail) throw fail;
+        return { template: "r_repo_12345678_base" };
+      },
+    };
+    try {
+      const ok = await post(url);
+      expect(ok.status).toBe(200);
+      await validateResponse("POST", path, ok);
+      fail = new PostgresError("no-database", "This session has no database");
+      const missing = await post(url);
+      expect(missing.status).toBe(404);
+      await validateResponse("POST", path, missing);
+    } finally {
+      s.deps.postgres = saved;
+    }
+    const anon = await post(url, {}, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", path, anon);
   });
 });
 

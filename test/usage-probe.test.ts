@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
 import { HerdrUsageProbe, PROBE_NAME, awaitUsageFrame } from "../src/usage-probe";
 import { parseUsageFrame } from "../src/usage-limits";
-import type { HerdrAgent, HerdrTab } from "../src/herdr";
+import type { HerdrAgent, HerdrStartOptions, HerdrTab } from "../src/herdr";
+import { fastModeOffValue } from "./helpers/fast-mode";
 import { config } from "../src/config";
 
 // NOTE: no `name` — herdr 0.7.5 omits the field entirely, so the probe sweep identifies its
@@ -90,6 +91,29 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
   // …real sessions are left alone — the plain one and the "usage-probe"-slugged user session.
   expect(stopped).not.toContain("keep");
   expect(stopped).not.toContain("user");
+});
+
+test("the probe's claude spawn is hard-off for Fast mode (#4244)", async () => {
+  let started: { argv: string[]; env?: Record<string, string>; opts?: HerdrStartOptions } | null =
+    null;
+  const herdr = {
+    listAsync: async () => [] as HerdrAgent[],
+    tabsAsync: async () => [] as HerdrTab[],
+    start: async (
+      _name: string,
+      _cwd: string,
+      argv: string[],
+      env?: Record<string, string>,
+      opts?: HerdrStartOptions,
+    ): Promise<HerdrAgent> => {
+      started = { argv, env, opts };
+      throw new Error("captured — stop before the PTY attach");
+    },
+    stop: async () => {},
+  };
+  await new HerdrUsageProbe(herdr, "/repo", undefined, { readTrusted: async () => true }).scrape();
+  expect(started!.argv[0]).toBe("claude");
+  expect(fastModeOffValue(started!.argv, started!.env, started!.opts)).toBe("1");
 });
 
 // ── trust pre-seed (#1075) ───────────────────────────────────────────────────

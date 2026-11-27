@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { shepherdRuntimeDir } from "../src/runtime-dir";
 import { SessionStore } from "../src/store";
-import { buildWrappedArgv, sanitizeHerdrAgentName } from "../src/herdr";
+import { buildWrappedArgv, sanitizeHerdrAgentName, type HerdrStartOptions } from "../src/herdr";
 import { readFile as readFileAsync, stat as statAsync } from "node:fs/promises";
 import {
   SessionService,
@@ -64,6 +64,7 @@ import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
 import { stubBaseRef } from "./helpers/base-ref";
 import { inlineSpawnFiles } from "./helpers/spawn-files";
+import { fastModeOffValue } from "./helpers/fast-mode";
 
 /** The read tools (#2485) ride every non-plain Claude session, so its argv carries this pair. */
 const mcpArgs = (sessionId: string) => [
@@ -1147,15 +1148,49 @@ test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai conn
     expect(JSON.parse(spawnSettingsOverlay())).toEqual({
       remoteControlAtStartup: false,
       env: connectorEnv,
+      fastModePerSessionOptIn: true,
     });
     config.remoteControlAtStartup = true;
     expect(JSON.parse(spawnSettingsOverlay())).toEqual({
       remoteControlAtStartup: true,
       env: connectorEnv,
+      fastModePerSessionOptIn: true,
     });
   } finally {
     config.remoteControlAtStartup = prev;
     config.toolGuard = prevGuard;
+  }
+});
+
+test("spawnSettingsOverlay: every variant starts at Standard via fastModePerSessionOptIn, never writes fastMode (#4244)", () => {
+  const prevMode = config.authMode;
+  const prevPath = config.authApiKeyHelperPath;
+  const target = { sessionId: "s1", baseUrl: "http://127.0.0.1:7330", token: null };
+  const variants = [
+    {},
+    { claudeAiConnectors: true, pauseAtUsageStop: true, ciWatchAllowed: true },
+    { disablePlugins: ["p@m"], disableSkills: ["s"], disableBundledSkills: true },
+    { hooks: target },
+    // the Operator Assistant's shape
+    {
+      hooks: target,
+      assistantView: target,
+      permissions: { defaultMode: "default", allow: [], ask: [], deny: [] },
+    },
+  ];
+  try {
+    for (const mode of ["subscription", "api-key"] as const) {
+      config.authMode = mode;
+      config.authApiKeyHelperPath = mode === "api-key" ? "/h/x.sh" : null;
+      for (const v of variants) {
+        const parsed = JSON.parse(spawnSettingsOverlay(v));
+        expect(parsed.fastModePerSessionOptIn).toBe(true);
+        expect(parsed).not.toHaveProperty("fastMode");
+      }
+    }
+  } finally {
+    config.authMode = prevMode;
+    config.authApiKeyHelperPath = prevPath;
   }
 });
 
@@ -8187,7 +8222,13 @@ function relaunchHarness(
   extra: Partial<ConstructorParameters<typeof SessionService>[0]> = {},
 ) {
   const calls: {
-    started: { name: string; cwd: string; argv: string[] }[];
+    started: {
+      name: string;
+      cwd: string;
+      argv: string[];
+      env?: Record<string, string>;
+      opts?: HerdrStartOptions;
+    }[];
     stopped: string[];
     removed: string[];
     order: string[];
@@ -8237,9 +8278,15 @@ function relaunchHarness(
       remove: (wp: string) => calls.removed.push(wp),
     } as any,
     herdr: {
-      start: async (name: string, cwd: string, argv: string[]) => {
+      start: async (
+        name: string,
+        cwd: string,
+        argv: string[],
+        env?: Record<string, string>,
+        opts?: HerdrStartOptions,
+      ) => {
         if (failStart) throw new Error("spawn failed");
-        calls.started.push({ name, cwd, argv: inlineSpawnFiles(argv) });
+        calls.started.push({ name, cwd, argv: inlineSpawnFiles(argv), env, opts });
         calls.order.push("start");
         return { terminalId: `term_${n}`, agentStatus: "working" } as any;
       },
@@ -8606,6 +8653,74 @@ describe("replaceAgent: sandbox profile", () => {
     await service.replaceAgent(orig.id, { agentProvider: "claude", model: "opus" });
 
     expect(store.get(orig.id)!.sandboxApplied).toBe("standard");
+  });
+});
+
+describe("Fast mode (#4244): task sessions start at Standard but keep Fast available", () => {
+  /** The spawn's `--settings` (inlined by the harness) starts at Standard and never sets Fast. */
+  const expectStandardStart = (argv: string[]) => {
+    const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]!);
+    expect(settings.fastModePerSessionOptIn).toBe(true);
+    expect(settings).not.toHaveProperty("fastMode");
+  };
+  const lastStart = (calls: ReturnType<typeof relaunchHarness>["calls"]) => {
+    const c = calls.started.at(-1)!;
+    expect(c.argv[0]).toBe("claude");
+    return c;
+  };
+
+  test("task create", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, calls } = relaunchHarness(store, "unknown", { detectBackend: () => null });
+    await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    const c = lastStart(calls);
+    expectStandardStart(c.argv);
+    expect(c.opts?.allowFastMode).toBe(true);
+    expect(fastModeOffValue(c.argv, c.env, c.opts)).toBeNull();
+  });
+
+  test("Claude resume", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, calls } = relaunchHarness(store, "unknown", { detectBackend: () => null });
+    const s = resumable(store, { model: "opus" });
+    await service.resume(s.id);
+    const c = lastStart(calls);
+    expect(c.argv).toContain("--resume");
+    expectStandardStart(c.argv);
+    expect(fastModeOffValue(c.argv, c.env, c.opts)).toBeNull();
+  });
+
+  test("provider handoff (replaceAgent codex → claude)", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, calls } = relaunchHarness(store, "unknown", { detectBackend: () => null });
+    const orig = originalSession(store, { agentProvider: "codex", claudeSessionId: "" });
+    await service.replaceAgent(orig.id, { agentProvider: "claude", model: "opus" });
+    const c = lastStart(calls);
+    expectStandardStart(c.argv);
+    expect(fastModeOffValue(c.argv, c.env, c.opts)).toBeNull();
+  });
+
+  test("a sandboxed task session's membrane carries no hard-off", async () => {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "standard" });
+    const captured: { argv?: string[] } = {};
+    const svc = new SessionService(sandboxResearchDeps(store, captured) as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    });
+    expect(captured.argv![0]).toBe("bwrap");
+    expectStandardStart(captured.argv!);
+    expect(fastModeOffValue(captured.argv!)).toBeNull();
   });
 });
 

@@ -31,6 +31,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
+import { DISABLE_FAST_MODE_ENV } from "./claude-fast-mode";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync } from "./instrument";
@@ -354,6 +355,8 @@ export interface MembraneInputs {
    *  caller builds this via `collectPassthroughEnv`. HOME/PATH/TERM are always set
    *  separately and must NOT be included here. */
   extraEnv?: Record<string, string>;
+  /** Task sessions only (#4244): no `CLAUDE_CODE_DISABLE_FAST_MODE` pin. Absent → pinned. */
+  allowFastMode?: boolean;
   /** api-key mode: bind this helper script RO so claude can exec it. RESIDUAL:
    *  cat-able by an in-sandbox agent (host hygiene only, same class as audit R3/R4)
    *  — NOT in-membrane secrecy. */
@@ -927,6 +930,12 @@ function sandboxPath(
   return entries.join(":");
 }
 
+/** #4244 Fast hard-off (see claude-fast-mode.ts), pushed after the extraEnv loop so it wins.
+ *  Empty for a task session (`allowFastMode`). Inert for a non-Claude binary. */
+function fastModeOffFlags(allowFastMode?: boolean): string[] {
+  return allowFastMode ? [] : ["--setenv", DISABLE_FAST_MODE_ENV, "1"];
+}
+
 /** `--setenv CODEX_HOME` for a codex spawn with a non-default home: --clearenv strips
  *  it, and codex must be pointed back at the dir the membrane bound (the default
  *  ~/.codex needs no env — codex derives it from HOME). Empty otherwise. */
@@ -1329,6 +1338,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     f.push("--setenv", k, v);
   }
   f.push("--setenv", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE", "1");
+  f.push(...fastModeOffFlags(inputs.allowFastMode));
   f.push(
     "--die-with-parent",
     "--new-session",

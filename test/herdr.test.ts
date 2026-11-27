@@ -205,6 +205,7 @@ test("start gives each agent its own full-width tab, not a shared split pane", a
     "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "CLAUDE_CODE_DISABLE_FAST_MODE=1",
     "claude",
     "--dangerously-skip-permissions",
     "go",
@@ -223,14 +224,15 @@ test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tm
   await d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
   const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
   const post = startCall.slice(startCall.indexOf("--") + 1);
-  // env shim is the first six post-`--` tokens (env, `-u SHEPHERD_TOKEN`, two pinned vars), and
+  // env shim is the first six post-`--` tokens (env, `-u SHEPHERD_TOKEN`, three pinned vars), and
   // claude is still the next token after it
-  expect(post.slice(0, 6)).toEqual([
+  expect(post.slice(0, 7)).toEqual([
     "env",
     "-u",
     "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "CLAUDE_CODE_DISABLE_FAST_MODE=1",
     "claude",
   ]);
 });
@@ -1066,6 +1068,7 @@ test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE
     "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "CLAUDE_CODE_DISABLE_FAST_MODE=1",
     "claude",
     "go",
   ]);
@@ -1079,7 +1082,8 @@ test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by 
   });
   await d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x", FOO: "bar" });
   const post = extractPost(calls);
-  // Keys sorted: CLAUDE_CONFIG_DIR < FOO; both pinned vars precede caller-supplied env
+  // Keys sorted: CLAUDE_CONFIG_DIR < FOO; the renderer pin precedes caller-supplied env, the
+  // Fast hard-off (#4244) follows it so a caller value cannot undo it
   expect(post).toEqual([
     "env",
     "-u",
@@ -1088,6 +1092,7 @@ test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by 
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
     "CLAUDE_CONFIG_DIR=/x",
     "FOO=bar",
+    "CLAUDE_CODE_DISABLE_FAST_MODE=1",
     "claude",
     "go",
   ]);
@@ -1107,6 +1112,7 @@ test("start with empty env {}: wrapped is identical to no-env case", async () =>
     "SHEPHERD_TOKEN",
     "NODE_COMPILE_CACHE=/disk/ncc",
     "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+    "CLAUDE_CODE_DISABLE_FAST_MODE=1",
     "claude",
     "go",
   ]);
@@ -1696,6 +1702,7 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
       "SHEPHERD_TOKEN",
       `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
       "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+      "CLAUDE_CODE_DISABLE_FAST_MODE=1",
       "claude",
       "--continue",
     ]);
@@ -1711,6 +1718,7 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
       "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
       PIN,
       "CLAUDE_CONFIG_DIR=/pool",
+      "CLAUDE_CODE_DISABLE_FAST_MODE=1",
       "claude",
       "--continue",
     ]);
@@ -1791,6 +1799,7 @@ describe("buildWrappedArgv: agent scope", () => {
       "SHEPHERD_TOKEN",
       `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
       "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+      "CLAUDE_CODE_DISABLE_FAST_MODE=1",
       "claude",
       "--continue",
     ]);
@@ -1804,5 +1813,46 @@ describe("buildWrappedArgv: agent scope", () => {
     expect(w[prefix.length]).toBe("env");
     expect(w.filter((t) => t === "systemd-run")).toHaveLength(1);
     expect(w.slice(-4)).toEqual(["bwrap", "--new-session", "--", "claude"]);
+  });
+});
+
+// ── Fast mode hard-off (#4244) ───────────────────────────────────────────────
+// Every `claude` spawn carries CLAUDE_CODE_DISABLE_FAST_MODE=1 unless the caller opts out; only
+// task sessions do (SessionService.prepareSpawn). Last in the shim, so caller env cannot undo it.
+describe("buildWrappedArgv: Fast mode hard-off", () => {
+  const FAST_OFF = "CLAUDE_CODE_DISABLE_FAST_MODE=1";
+
+  test("a claude spawn is pinned after the caller's env, so a caller value cannot undo it", () => {
+    const w = buildWrappedArgv(["claude", "go"], {
+      CLAUDE_CODE_DISABLE_FAST_MODE: "0",
+      ZZZ: "last-sorted",
+    });
+    expect(w.slice(w.indexOf("ZZZ=last-sorted"))).toEqual([
+      "ZZZ=last-sorted",
+      FAST_OFF,
+      "claude",
+      "go",
+    ]);
+    expect(w.indexOf(FAST_OFF)).toBeGreaterThan(w.indexOf("CLAUDE_CODE_DISABLE_FAST_MODE=0"));
+  });
+
+  test("allowFastMode removes the pin; a codex spawn never gets it", () => {
+    expect(buildWrappedArgv(["claude", "go"], undefined, { allowFastMode: true })).not.toContain(
+      FAST_OFF,
+    );
+    expect(buildWrappedArgv(["codex", "exec", "go"])).not.toContain(FAST_OFF);
+  });
+
+  test("start forwards allowFastMode to the wrap (≤0.7.4 path)", async () => {
+    const calls: string[][] = [];
+    const d = mkDriver((args) => {
+      calls.push(args);
+      return reply(args, WORKSPACE_LIST);
+    });
+    await d.start("flatten", "/wt/a", ["claude", "go"]);
+    expect(extractPost(calls)).toContain(FAST_OFF);
+    calls.length = 0;
+    await d.start("flatten", "/wt/a", ["claude", "go"], undefined, { allowFastMode: true });
+    expect(extractPost(calls)).not.toContain(FAST_OFF);
   });
 });

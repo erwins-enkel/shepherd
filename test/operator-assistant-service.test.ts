@@ -20,11 +20,19 @@ import {
 } from "../src/operator-assistant-permissions";
 import { SESSION_MARKER_ENV } from "../src/process-reaper";
 import { config } from "../src/config";
-import type { HerdrAgent } from "../src/herdr";
+import type { HerdrAgent, HerdrStartOptions } from "../src/herdr";
+import { fastModeOffValue } from "./helpers/fast-mode";
 import type { SpawnDescriptor, SpawnPatch } from "../src/plugins/types";
 import type { Session } from "../src/types";
 
-type Start = { name: string; cwd: string; argv: string[]; caps: AgentCapabilities | null };
+type Start = {
+  name: string;
+  cwd: string;
+  argv: string[];
+  env: Record<string, string>;
+  opts?: HerdrStartOptions;
+  caps: AgentCapabilities | null;
+};
 
 function harness(
   opts: {
@@ -87,11 +95,19 @@ function harness(
       },
     } as any,
     herdr: {
-      start: async (name: string, cwd: string, argv: string[], env: Record<string, string>) => {
+      start: async (
+        name: string,
+        cwd: string,
+        argv: string[],
+        env: Record<string, string>,
+        opts?: HerdrStartOptions,
+      ) => {
         calls.starts.push({
           name,
           cwd,
           argv,
+          env,
+          opts,
           caps: svc.spawningAgentCapabilities(env[SESSION_MARKER_ENV]!),
         });
         if (fake.startError) throw new Error("spawn failed");
@@ -245,6 +261,21 @@ test("ensure resumes a gone pane in place with --resume", async () => {
   expect(argv).not.toContain("--dangerously-skip-permissions");
   expect(after(argv, "--permission-mode")).toBe("default");
   expect(store.get(s.id)!.herdrAgentId).toBe("term_2");
+});
+
+test("#4244: the assistant starts at Standard and is hard-off on create and resume", async () => {
+  const { svc, calls, fake } = harness();
+  await svc.ensureOperatorAssistant();
+  fake.agents = []; // force the resume path
+  await svc.ensureOperatorAssistant();
+  expect(calls.starts).toHaveLength(2);
+  for (const start of calls.starts) {
+    const settings = fileAfter(start.argv, "--settings");
+    expect(settings.fastModePerSessionOptIn).toBe(true);
+    expect(settings).not.toHaveProperty("fastMode");
+    expect(start.opts?.allowFastMode).toBe(false);
+    expect(fastModeOffValue(start.argv, start.env, start.opts)).toBe("1");
+  }
 });
 
 /** The assistant's dynamic permission file, parsed. */

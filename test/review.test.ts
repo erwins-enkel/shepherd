@@ -54,6 +54,8 @@ async function withAuth<T>(
 }
 import type { GitForge, GitState, PrComment, PrStatus } from "../src/forge/types";
 import type { Session, ReviewVerdict } from "../src/types";
+import type { HerdrStartOptions } from "../src/herdr";
+import { fastModeOffValue } from "./helpers/fast-mode";
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -207,7 +209,13 @@ function makeDeps(
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
   const paneReads: { source?: string; lines?: number }[] = [];
-  const started: { name: string; cwd: string; argv: string[]; env?: Record<string, string> }[] = [];
+  const started: {
+    name: string;
+    cwd: string;
+    argv: string[];
+    env?: Record<string, string>;
+    opts?: HerdrStartOptions;
+  }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
   const created: string[] = []; // head SHAs passed to worktree.createDetached (probe allocations)
@@ -286,8 +294,14 @@ function makeDeps(
     },
     herdr: new (class {
       readonly recorded = stopped; // this-dependent: unbound call loses this.recorded
-      async start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
-        started.push({ name, cwd, argv, env });
+      async start(
+        name: string,
+        cwd: string,
+        argv: string[],
+        env?: Record<string, string>,
+        opts?: HerdrStartOptions,
+      ) {
+        started.push({ name, cwd, argv, env, opts });
         return { terminalId: "rt" } as any;
       }
       async stop(t: string) {
@@ -4196,6 +4210,8 @@ test("critic spawn is wrapped in bwrap when backend is present", async () => {
   const sep = argv.indexOf("--");
   expect(sep).toBeGreaterThan(0);
   expect(argv[sep + 1]).not.toBe("bwrap"); // reviewer argv directly follows, not another bwrap
+  // #4244: the Fast hard-off survives the membrane's --clearenv.
+  expect(fastModeOffValue(argv, started[0]!.env, started[0]!.opts)).toBe("1");
   // begin() now always briefs the effective round (#1948): first review, no prior, no spawn
   // history → effectiveRound(0, 0, DEFAULT_CAP=3) === 1.
   expect(argv.at(-1)).toBe(

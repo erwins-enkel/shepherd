@@ -20,6 +20,7 @@ import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 import { execFileAsync } from "./instrument";
 import { sleep as defaultSleep } from "./async";
 import { secretLauncherSkip } from "./agent-secrets";
+import { DISABLE_FAST_MODE_ENV } from "./claude-fast-mode";
 
 export interface HerdrAgent {
   agent: string;
@@ -711,8 +712,17 @@ export { posixShellJoin };
  * slice instead of herdr.service, so a memory-full herd never throttles the herdr daemon.
  * systemd-run execs in place (no extra process layer). Gate closed (macOS, unprovisioned host,
  * cold) ⇒ byte-identical argv.
+ *
+ * Pins `CLAUDE_CODE_DISABLE_FAST_MODE=1` for a `claude` inner command unless
+ * `opts.allowFastMode` (#4244, see claude-fast-mode.ts). It goes AFTER the caller's env tokens, so a
+ * caller or plugin value cannot undo it (`env` applies assignments in order). A sandboxed spawn's
+ * copy is wiped by `--clearenv`; the membrane sets its own (`buildMembraneFlags`).
  */
-export function buildWrappedArgv(argv: string[], env?: Record<string, string>): string[] {
+export function buildWrappedArgv(
+  argv: string[],
+  env?: Record<string, string>,
+  opts?: Pick<HerdrStartOptions, "allowFastMode">,
+): string[] {
   const envTokens = env
     ? Object.entries(env)
         .sort(([a], [b]) => a.localeCompare(b))
@@ -728,7 +738,9 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
   const tmpTokens = agentTmp
     ? ["-u", "CLAUDE_CODE_TMPDIR", ...(env && "TMPDIR" in env ? [] : [`TMPDIR=${agentTmp}`])]
     : [];
-  const pinAutoupdater = argv[innerCommandStart(argv)] === "claude" && claudeSpawnPinned();
+  const innerClaude = argv[innerCommandStart(argv)] === "claude";
+  const pinAutoupdater = innerClaude && claudeSpawnPinned();
+  const pinFastOff = innerClaude && !opts?.allowFastMode;
   return [
     ...(agentScopeEnabled() ? agentScopePrefix() : []),
     "env",
@@ -739,6 +751,7 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
     ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
     ...(pinAutoupdater ? ["DISABLE_AUTOUPDATER=1"] : []),
     ...envTokens,
+    ...(pinFastOff ? [`${DISABLE_FAST_MODE_ENV}=1`] : []),
     ...(argv.includes("--new-session") ? [winchRelayPath(), "--"] : []),
     ...argv,
   ];
@@ -1010,6 +1023,9 @@ export async function stopViaRecordedTab(
  */
 export interface HerdrStartOptions {
   signal?: AbortSignal;
+  /** Task sessions only (#4244): leave Claude's Fast mode available, i.e. no
+   *  `CLAUDE_CODE_DISABLE_FAST_MODE` pin from {@link buildWrappedArgv}. Absent everywhere else. */
+  allowFastMode?: boolean;
 }
 
 /**
@@ -1299,7 +1315,7 @@ export class HerdrDriver implements IHerdrDriver {
       // external-registration path instead (#1890). ≤0.7.4 keeps the byte-identical legacy path.
       herdrUsesExternalRegistrationSpawn()
         ? this.startImpl075(name, cwd, argv, env, opts)
-        : this.startImpl(name, cwd, argv, env),
+        : this.startImpl(name, cwd, argv, env, opts),
     );
   }
 
@@ -1361,7 +1377,7 @@ export class HerdrDriver implements IHerdrDriver {
       const paneId = rootPaneId;
       if (!paneId) throw new Error(`herdr: tab create returned no root pane for ${name}`);
       recordPowerPane(paneId);
-      const wrapped = buildWrappedArgv(argv, env);
+      const wrapped = buildWrappedArgv(argv, env, opts);
       await this.runInReadyPane(paneId, wrapped);
       // Second defined checkpoint. It matters most for the SANDBOXED branch below, which resolves
       // through a quick registration rather than a poll loop and would otherwise hand back a live
@@ -1554,6 +1570,7 @@ export class HerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent> {
     // herdr needs an active workspace before any tab can be created — guarantee one.
     await this.ensureWorkspace(cwd);
@@ -1566,7 +1583,7 @@ export class HerdrDriver implements IHerdrDriver {
     // claude in it.
     try {
       // Byte-identical spawn to the socket path — see `buildWrappedArgv`.
-      const wrapped = buildWrappedArgv(argv, env);
+      const wrapped = buildWrappedArgv(argv, env, opts);
       // Collision-breaker: if herdr rejects with `agent_name_taken` (a stale same-named
       // agent is still registered — e.g. shepherd restarted while an interactive `claude`
       // was running), resolve the squatter(s) by name from `list()`, close their tabs

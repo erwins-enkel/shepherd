@@ -890,6 +890,11 @@ function overlayPermissions(
  * `assistantView` (the Operator Assistant only, #3161 — see buildAssistantViewHookFragment) adds
  * its `UserPromptSubmit` hook to the same `hooks` object. Independent of `hooksIngest`: it is how
  * the operator's view reaches the model, not telemetry. Absent → no such key.
+ *
+ * `fastModePerSessionOptIn: true` is unconditional (#4244): every spawn and resume starts at
+ * Standard even when the operator's user settings carry `fastMode: true` (which a `/fast` typed in
+ * any terminal persists). The overlay never writes `fastMode` itself. The Operator Assistant is also
+ * hard-off through `CLAUDE_CODE_DISABLE_FAST_MODE` (see claude-fast-mode.ts); task sessions are not.
  */
 export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
@@ -908,6 +913,7 @@ export function spawnSettingsOverlay(
   const settings: Record<string, unknown> = {
     remoteControlAtStartup: config.remoteControlAtStartup,
     env: { ENABLE_CLAUDEAI_MCP_SERVERS: opts.claudeAiConnectors ? "true" : "false" },
+    fastModePerSessionOptIn: true,
   };
   if (opts.pauseAtUsageStop) settings.autoContinueAtUsageLimit = false;
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
@@ -4315,6 +4321,8 @@ export class SessionService {
           scratchpadBind: await this.membraneScratchpadBind(ctx),
           // #4122: this session's secret dir, bound RO and read by the launcher after `--`.
           secretEnvDir: secrets.dir,
+          // #4244: task sessions keep Fast available; the assistant is never wrapped (trusted).
+          allowFastMode: !ctx.operatorAssistant,
         }
       : ({} as MembraneInputs);
 
@@ -4394,7 +4402,11 @@ export class SessionService {
     }
     if (speed?.applied === "fast") env.CODEX_HOME = codexHome();
     if (speed) speed.startedAt = Date.now();
-    return this.deps.herdr.start(ctx.name, ctx.worktreePath, argv, env, { signal: ctx.signal });
+    // #4244: the ONE opt-out of the Fast hard-off — task sessions only, never the assistant.
+    return this.deps.herdr.start(ctx.name, ctx.worktreePath, argv, env, {
+      signal: ctx.signal,
+      allowFastMode: !ctx.operatorAssistant,
+    });
   }
 
   /**

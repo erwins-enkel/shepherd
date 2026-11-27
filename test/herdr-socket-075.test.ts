@@ -211,6 +211,18 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     expect(rec.some((r) => r.method === "agent.list")).toBe(true);
   });
 
+  it("start() forwards allowFastMode: the Fast hard-off rides the script only without it (#4244)", async () => {
+    const script = async (opts?: { allowFastMode?: boolean }) => {
+      const { rec, client } = mkClient();
+      const driver = new SocketHerdrDriver(client, noCli, async () => {});
+      await driver.start("review-task-09", "/wt/a", ["claude", "go"], undefined, opts);
+      const sent = rec.find((r) => r.method === "pane.send_text")!.params as { text: string };
+      return readTypedScript(sent.text);
+    };
+    expect(await script()).toContain("'CLAUDE_CODE_DISABLE_FAST_MODE=1'");
+    expect(await script({ allowFastMode: true })).not.toContain("CLAUDE_CODE_DISABLE_FAST_MODE");
+  });
+
   it("start() TRUSTED: the 30s auto-detect budget is wall-clock, list latency included", async () => {
     let clock = 0;
     let listCalls = 0;

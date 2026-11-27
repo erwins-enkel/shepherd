@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { PostgresService, PostgresError, type DockerRun } from "../src/postgres";
 import {
   ADMIN_PGOPTIONS,
+  GUARD_SQL,
+  GUARD_SWEEP_DBS_SQL,
   POSTGRES_SETTING,
   RECLAIM_SQL,
   REVOKE_PUBLIC_SQL,
   UNTEMPLATE_SQL,
+  conninfoDbname,
   dropOwnedDbsSql,
   finishScript,
   repoBaseDb,
@@ -37,6 +40,9 @@ class FakeDocker {
   dbs = new Set<string>();
   roles = new Set<string>();
   name = "shepherd-postgres-18";
+  /** Databases the guard sweep lists, and the ones whose guard run fails. */
+  sweepDbs: string[] = [];
+  failGuardIn = new Set<string>();
 
   run: DockerRun = async (args, opts) => {
     this.calls.push({ args, input: opts.input });
@@ -63,7 +69,11 @@ class FakeDocker {
     }
     if (cmd === "exec" && args[sub === "-i" ? 4 : 1] !== this.name)
       throw new Error(`exec on unknown container: ${args.join(" ")}`);
-    if (cmd === "exec" && sub === "-i") return this.sql(opts.input ?? "");
+    if (cmd === "exec" && sub === "-i") {
+      const d = args[args.indexOf("-d") + 1]!;
+      if (this.failGuardIn.has(d)) throw new Error(`guard failed in ${d}`);
+      return this.sql(opts.input ?? "");
+    }
     if (cmd === "exec") {
       if (!this.running || !this.ready) throw new Error("not ready");
       return "";
@@ -91,6 +101,8 @@ class FakeDocker {
     // The fake cluster never has a squatted session role: skip roleScript's squat-only block.
     const input = raw.replace(/\\if :shepherd_squatted[\s\S]*?\\endif/g, "");
     if (this.failPromote && input.includes("RENAME TO")) throw new Error("being accessed");
+    if (input === GUARD_SWEEP_DBS_SQL)
+      return this.sweepDbs.map((n) => Buffer.from(n).toString("hex")).join("\n");
     if (input.includes("pg_terminate_backend")) return "0\n";
     if (input.includes("pg_stat_activity")) return `${this.clients}\n`;
     if (input.includes("WITH ADMIN OPTION") && this.failAdopt) throw new Error("adopt failed");
@@ -197,6 +209,29 @@ describe("ensureRunning", () => {
   it("revokes PUBLIC access to postgres/template1 once ready", async () => {
     await svc().ensureRunning();
     expect(docker.sqlCalls(/REVOKE CONNECT, TEMPORARY ON DATABASE template1 FROM PUBLIC/)).toBe(1);
+  });
+
+  it("sweeps the login guard into every listed database once per process, names as conninfo", async () => {
+    docker.sweepDbs = ["plain_db", "x=y", "a'b\nc"];
+    const logs: string[] = [];
+    const pg = svc({ log: (m) => logs.push(m) });
+    await pg.ensureRunning();
+    await pg.ensureRunning();
+    const guardRuns = docker.calls.filter((c) => c.input === GUARD_SQL);
+    expect(guardRuns.map((c) => c.args[c.args.indexOf("-d") + 1])).toEqual(
+      docker.sweepDbs.map(conninfoDbname),
+    );
+    expect(docker.sqlCalls(/^SELECT encode\(convert_to\(datname/)).toBe(1);
+    expect(logs).toEqual([]);
+  });
+
+  it("a database failing the guard sweep is logged and skipped, never fails the start", async () => {
+    docker.sweepDbs = ["a", "gone", "c"];
+    docker.failGuardIn.add(conninfoDbname("gone"));
+    const logs: string[] = [];
+    await svc({ log: (m) => logs.push(m) }).ensureRunning();
+    expect(docker.calls.filter((c) => c.input === GUARD_SQL)).toHaveLength(3);
+    expect(logs.some((l) => l.includes('"gone" skipped'))).toBe(true);
   });
 
   it("drives only its own container", async () => {

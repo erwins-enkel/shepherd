@@ -804,8 +804,9 @@ export interface RepoConfig {
   /** #4232: on-demand Postgres for this repo's sessions — machine-local, never a committed rule
    *  (default "off"). Reads always fill it. Omitted on a write → unchanged. */
   postgresMode?: PostgresMode;
-  /** Session roles of this repo get BYPASSRLS, for test harnesses whose admin connection must
-   *  skip FORCE RLS — machine-local like postgresMode (default false). Reads always fill it.
+  /** Session roles of this repo get superuser-like test privileges (BYPASSRLS, SET
+   *  session_replication_role, INHERIT on their app roles), for test harnesses written for a CI
+   *  superuser — machine-local like postgresMode (default false). Reads always fill it.
    *  Omitted on a write → unchanged. */
   postgresBypassRls?: boolean;
 }
@@ -3260,7 +3261,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
   }
 
-  /** The repo's session roles get BYPASSRLS (PostgresService provision). Machine-local. */
+  /** The repo's session roles get superuser-like test privileges (PostgresService provision).
+   *  Machine-local. */
   postgresBypassRls(repoPath: string): boolean {
     return this.getLocalRepoConfig(repoPath).postgresBypassRls === true;
   }

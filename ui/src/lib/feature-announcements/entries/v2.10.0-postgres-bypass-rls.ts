@@ -1,7 +1,7 @@
 import type { FeatureAnnouncement } from "../../feature-announcements";
 
 export default {
-  // Repo settings → Agent → Postgres on request → "Row-level security bypass". No targetId, like
+  // Repo settings → Agent → Postgres on request → "Superuser-like test privileges". No targetId, like
   // postgres-auto: no Coachmark host arms an anchor in Repo settings.
   id: "postgres-bypass-rls",
   sinceVersion: "2.10.0",

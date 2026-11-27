@@ -33,6 +33,11 @@
 "amend_steer_offline" = "Also tell the agent (no live agent)";
 "amend_submit" = "Amend";
 "amend_title" = "Amend task — %1$@";
+"artifactrow_aria" = "Artifact of this session";
+"artifactrow_copy" = "Copy link";
+"artifactrow_label" = "Artifact";
+"artifactrow_menu_facts" = "Version %1$@ · %2$@";
+"artifactrow_more_aria" = "More artifact actions";
 "ask_banner_answer" = "Answer";
 "ask_banner_title" = "Claude is asking %1$@ question(s)";
 "ask_dialog_hint" = "Your answer is typed into the terminal. The question stays open there too — whoever answers first wins.";
@@ -1046,6 +1051,9 @@
 "native_ios_actions_remaining" = "%1$@ characters remaining";
 "native_ios_actions_revision" = "Revision";
 "native_ios_actions_server_default" = "Server default";
+"native_ios_artifact_open" = "Open";
+"native_ios_artifact_open_hint" = "Opens claude.ai outside the app.";
+"native_ios_artifact_share" = "Share …";
 "native_ios_attachment_camera" = "Take Photo";
 "native_ios_attachment_camera_usage" = "Shepherd uses the camera to attach photos and scan QR codes to connect to your server.";
 "native_ios_attachment_files" = "Choose File";
@@ -2101,6 +2109,9 @@
 "prreview_no_candidates" = "No reviewers are available to select.";
 "prreview_title" = "Request review";
 "prrow_aria" = "Pull request #%1$@";
+"prrow_artifact_aria" = "Open artifact: %1$@";
+"prrow_artifact_link" = "Artifact ↗";
+"prrow_artifact_tip_status" = "Version %1$@, updated %2$@";
 "prrow_fact_base_behind" = "behind %1$@";
 "prrow_fact_base_current" = "up to date with %1$@";
 "prrow_fact_ci_failed" = "CI failed";

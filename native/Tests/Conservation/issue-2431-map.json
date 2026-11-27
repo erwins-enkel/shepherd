@@ -13080,7 +13080,11 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"responsibilitiesUseTheSameCoordinatorAndPreserveExplicitNull() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"selectionsCreateOneFullRulePatchWithoutMachineValues() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"unavailableOrUnknownChoicesCannotCompleteMerge() throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"artifactsPushPatchesSessionWithoutClobberingOtherFields() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"artifactsPushPatchesSessionWithoutClobberingOtherFields() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ArtifactRowRulesTests.swift\",\"CoreSeamTests.ArtifactRowRulesTests\",\"cardWithoutMergeCardRowWithItNothingWithoutArtifact() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ArtifactRowRulesTests.swift\",\"CoreSeamTests.ArtifactRowRulesTests\",\"latestIsTheNewestShowableAndNoneWhileHidden() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ArtifactRowRulesTests.swift\",\"CoreSeamTests.ArtifactRowRulesTests\",\"onlyClaudeArtifactLinksAreShown() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ArtifactRowRulesTests.swift\",\"CoreSeamTests.ArtifactRowRulesTests\",\"factsAndVoiceOverNameVersionAndAge() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

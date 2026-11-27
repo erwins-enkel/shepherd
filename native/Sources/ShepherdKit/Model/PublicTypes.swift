@@ -46,3 +46,5 @@ public typealias InstancePlatformKnown = Components.Schemas.InstancePlatformKnow
 //   Realtime/EventStream.swift    EventStream
 //   Model/OpenEnum.swift          OpenEnum
 //   Logging.swift                 ShepherdLog
+// An artifact the agent published on claude.ai (#3875).
+public typealias SessionArtifact = Components.Schemas.SessionArtifact

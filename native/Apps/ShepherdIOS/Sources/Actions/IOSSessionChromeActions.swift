@@ -62,22 +62,13 @@ struct IOSSessionChromeActionContent: View {
         case .inline:
             if let git, MergeRowRules.visible(git), session.status.known != .archived {
                 IOSMergeCard(session: session, state: state, git: git, verdict: verdict, reviewing: reviewing, canMerge: canMerge,
-                    alive: alive)
-            } else if state.busy || state.error != nil || state.outcome.note != nil || !state.allowsWrites || primaryReady {
-                VStack(alignment: .leading, spacing: 2) {
-                    IOSActionFeedback(error: state.error, note: state.outcome.note, busy: state.busy)
-                    if !state.allowsWrites {
-                        Text(L.t("native_ios_actions_read_only")).foregroundStyle(SessionListStyle.muted)
-                    } else if primaryReady {
-                        Button { Task { await state.execute(.toggleReady) } } label: {
-                            Label(IOSSessionActionState.label(.toggleReady, session: session), systemImage: SessionAction.toggleReady.systemImage)
-                                .frame(minHeight: 44)
-                        }.disabled(state.busy).accessibilityIdentifier("action-toggleReady")
-                    }
-                }
-                .font(.system(.caption)).buttonStyle(.plain).tint(SessionListStyle.amber)
-                .padding(.horizontal, 12).padding(.vertical, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    alive: alive, artifact: ArtifactRowRules.latest(session.artifacts))
+            } else if case .card(let artifact) = ArtifactRowRules.surface(session.artifacts, mergeCard: false) {
+                // #3878: without a merge card the newest artifact takes its place.
+                IOSArtifactCard(artifact: artifact)
+                inlineStatus
+            } else {
+                inlineStatus
             }
         case .recap:
             if let recap {
@@ -93,6 +84,25 @@ struct IOSSessionChromeActionContent: View {
                     .accessibilityIdentifier("actions-recap")
                     .sheet(isPresented: $showsRecap) { IOSRecapSheet(sessionID: session.id) }
             }
+        }
+    }
+    /// Feedback, read-only copy and Ready, repeated above the footer without a merge card.
+    @ViewBuilder private var inlineStatus: some View {
+        if state.busy || state.error != nil || state.outcome.note != nil || !state.allowsWrites || primaryReady {
+            VStack(alignment: .leading, spacing: 2) {
+                IOSActionFeedback(error: state.error, note: state.outcome.note, busy: state.busy)
+                if !state.allowsWrites {
+                    Text(L.t("native_ios_actions_read_only")).foregroundStyle(SessionListStyle.muted)
+                } else if primaryReady {
+                    Button { Task { await state.execute(.toggleReady) } } label: {
+                        Label(IOSSessionActionState.label(.toggleReady, session: session), systemImage: SessionAction.toggleReady.systemImage)
+                            .frame(minHeight: 44)
+                    }.disabled(state.busy).accessibilityIdentifier("action-toggleReady")
+                }
+            }
+            .font(.system(.caption)).buttonStyle(.plain).tint(SessionListStyle.amber)
+            .padding(.horizontal, 12).padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     private var primaryReady: Bool { state.swipeActions.contains(.toggleReady) }

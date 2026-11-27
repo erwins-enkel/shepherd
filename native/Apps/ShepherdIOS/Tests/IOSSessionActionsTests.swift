@@ -722,6 +722,17 @@ final class IOSSessionActionsTests: XCTestCase {
         try render(card(red), "merge-card-autopilot", height: 160)
         fixture.session.autopilotEnabled = nil
         try render(card(try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "state": "merged"])), "merge-card-merged", height: 160)
+        // #3878: the artifact card without a PR, and the artifact row inside the merge card.
+        let artifact = try JSONDecoder().decode(SessionArtifact.self, from: Data(#"{"url":"https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313","title":"Onboarding flow: three variants of the first-run screen","versions":3,"firstSeenAt":1,"updatedAt":1,"toolUseId":null}"#.utf8))
+        try render(IOSArtifactCard(artifact: artifact, rendersStaticFixture: true), "artifact-card", height: 160)
+        try render(IOSArtifactCard(artifact: artifact, rendersStaticFixture: true), "artifact-card-large-type", large: true, height: 520)
+        func artifactRow() -> some View {
+            IOSMergeCard(session: fixture.session, state: fixture.state, git: ready, verdict: nil, reviewing: false,
+                canMerge: true, artifact: artifact, rendersStaticFixture: true)
+        }
+        fixture.session.readyToMerge = true; fixture.session.status = .init(known: .done)
+        try render(artifactRow(), "merge-card-artifact", height: 220)
+        try render(artifactRow(), "merge-card-artifact-large-type", large: true, height: 700)
     }
 
     func testDecommissionIsOfferedForEveryLiveSessionButNeverArchivedOrReadOnly() {

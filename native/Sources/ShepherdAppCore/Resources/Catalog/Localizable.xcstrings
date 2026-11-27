@@ -601,6 +601,92 @@
         }
       }
     },
+    "artifactrow_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefakt dieser Sitzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact of this session"
+          }
+        }
+      }
+    },
+    "artifactrow_copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy link"
+          }
+        }
+      }
+    },
+    "artifactrow_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefakt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact"
+          }
+        }
+      }
+    },
+    "artifactrow_menu_facts": {
+      "comment": "%1$@ = n, %2$@ = when",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fassung %1$@ · %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "artifactrow_more_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitere Aktionen zum Artefakt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More artifact actions"
+          }
+        }
+      }
+    },
     "ask_banner_answer": {
       "extractionState": "manual",
       "localizations": {
@@ -17976,6 +18062,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Server default"
+          }
+        }
+      }
+    },
+    "native_ios_artifact_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        }
+      }
+    },
+    "native_ios_artifact_open_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet claude.ai außerhalb der App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens claude.ai outside the app."
+          }
+        }
+      }
+    },
+    "native_ios_artifact_share": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share …"
           }
         }
       }
@@ -36111,6 +36248,59 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pull request #%1$@"
+          }
+        }
+      }
+    },
+    "prrow_artifact_aria": {
+      "comment": "%1$@ = title",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefakt öffnen: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open artifact: %1$@"
+          }
+        }
+      }
+    },
+    "prrow_artifact_link": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefakt ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact ↗"
+          }
+        }
+      }
+    },
+    "prrow_artifact_tip_status": {
+      "comment": "%1$@ = n, %2$@ = when",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fassung %1$@, aktualisiert %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version %1$@, updated %2$@"
           }
         }
       }

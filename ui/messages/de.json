@@ -9188,5 +9188,8 @@
   "artifactrow_pr_menu_show": "Artefakt im Chat zeigen",
   "artifactrow_pr_menu_hide": "Artefakt für diese Sitzung ausblenden",
   "feat_artifact_menu_title": "Alle Artefakte einer Sitzung in einem Menü",
-  "feat_artifact_menu_body": "Hat der Agent mehrere Artefakte veröffentlicht, zeigt die Leiste das neueste, und „Alle N“ listet alle, das neueste zuerst: öffnen, Link kopieren oder im Chat zum Tool-Aufruf springen. „Für diese Sitzung ausblenden“ entfernt die Zeile auf allen deinen Geräten; ein neues Artefakt bringt sie zurück."
+  "feat_artifact_menu_body": "Hat der Agent mehrere Artefakte veröffentlicht, zeigt die Leiste das neueste, und „Alle N“ listet alle, das neueste zuerst: öffnen, Link kopieren oder im Chat zum Tool-Aufruf springen. „Für diese Sitzung ausblenden“ entfernt die Zeile auf allen deinen Geräten; ein neues Artefakt bringt sie zurück.",
+  "native_ios_artifact_open": "Öffnen",
+  "native_ios_artifact_open_hint": "Öffnet claude.ai außerhalb der App.",
+  "native_ios_artifact_share": "Teilen …"
 }

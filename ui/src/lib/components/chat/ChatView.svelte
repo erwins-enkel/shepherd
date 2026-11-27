@@ -66,6 +66,8 @@
   import NoteRow from "./NoteRow.svelte";
   import QuickReplies from "./QuickReplies.svelte";
   import WorkingTrace from "./WorkingTrace.svelte";
+  import ArtifactAccess from "../ArtifactAccess.svelte";
+  import { invokesDesign } from "#lib/artifact-access.js";
 
   // A session's conversation view, shared by the Operator Assistant and every session's Chat tab:
   // the transcript as a chat (with its tool calls, `tools`), and a composer. Prompt text goes
@@ -824,6 +826,10 @@
       submit();
     }}
   >
+    {#if variant === "session" && agentProvider === "claude" && invokesDesign(draft)}
+      <!-- #4293: `/design` typed into a session the trim keeps Artifact from — say why, offer it -->
+      <ArtifactAccess {sessionId} />
+    {/if}
     {#if attachments.length > 0}
       <AttachmentChips {attachments} coarse={touch || mobile} onremove={removeAttachment} />
     {/if}

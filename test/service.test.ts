@@ -28,6 +28,7 @@ import {
   codexAllowlistArgs,
   UNUSED_BUILTIN_TOOLS,
   builtinToolsNeededBy,
+  artifactTrimmed,
   buildHooksFragment,
   composeSystemPrompt,
   composeSystemPromptBlocks,
@@ -8066,6 +8067,101 @@ test("a /design task keeps Artifact on create and on resume (#3778)", async () =
     await resumer.resume(s.id);
     // Same tool list on resume, so the conversation's prompt cache survives.
     expect(settingsOverlay(calls.argv!).permissions.deny).toEqual(spawnDeny);
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+test("artifactTrimmed: only a Claude task the trim denies Artifact to (#4293)", () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    const store = new SessionStore(":memory:");
+    const plain = resumable(store);
+    expect(artifactTrimmed(plain)).toBe(true);
+    expect(artifactTrimmed(resumable(store, { prompt: "/design a hero" }))).toBe(false);
+    expect(artifactTrimmed({ ...plain, artifactEnabled: true })).toBe(false);
+    expect(artifactTrimmed({ ...plain, agentProvider: "codex" })).toBe(false);
+    expect(artifactTrimmed({ ...plain, terminal: true })).toBe(false);
+    config.trimBuiltinTools = false;
+    expect(artifactTrimmed(plain)).toBe(false);
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+/** A resuming service over `store` that records the argv and cwd of each spawn (#4293). */
+function artifactResumer(store: SessionStore) {
+  const spawns: { cwd: string; argv: string[] }[] = [];
+  const svc = new SessionService({
+    transcriptExists: () => true,
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (_n: string, cwd: string, argv: string[]) => {
+        spawns.push({ cwd, argv: inlineSpawnFiles(argv) });
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      listAsync: async () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  return { svc, spawns };
+}
+
+test("enableArtifact persists the opt-in and resumes the same session with Artifact (#4293)", async () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    const store = new SessionStore(":memory:");
+    const { svc, spawns } = artifactResumer(store);
+    const s = resumable(store);
+
+    const r = await svc.enableArtifact(s.id);
+    expect(r).toMatchObject({ ok: true, restarted: true });
+    expect(store.get(s.id)!.artifactEnabled).toBe(true);
+    expect(spawns).toHaveLength(1);
+    // The same conversation in the same worktree — only the deny list changed.
+    expect(spawns[0]!.cwd).toBe("/wt/x");
+    const argv = spawns[0]!.argv;
+    expect(argv[argv.indexOf("--resume") + 1]).toBe("abc-123");
+    const deny = settingsOverlay(argv).permissions.deny;
+    expect(deny).toEqual(UNUSED_BUILTIN_TOOLS.filter((t) => t !== "Artifact"));
+
+    // Every later resume keeps it.
+    await svc.resume(s.id, { force: true });
+    expect(settingsOverlay(spawns[1]!.argv).permissions.deny).toEqual(deny);
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+test("enableArtifact: no restart when nothing was trimmed; refuses archived and Codex (#4293)", async () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = false;
+    const store = new SessionStore(":memory:");
+    const { svc, spawns } = artifactResumer(store);
+    const s = resumable(store);
+    expect(await svc.enableArtifact(s.id)).toMatchObject({ ok: true, restarted: false });
+    expect(store.get(s.id)!.artifactEnabled).toBe(true);
+    expect(spawns).toHaveLength(0);
+
+    config.trimBuiltinTools = true;
+    const codex = resumable(store, { agentProvider: "codex" });
+    expect(await svc.enableArtifact(codex.id)).toEqual({ ok: false, code: "not-found" });
+    const archived = resumable(store);
+    store.update(archived.id, { status: "archived" });
+    expect(await svc.enableArtifact(archived.id)).toEqual({ ok: false, code: "archived" });
+    expect(await svc.enableArtifact("nope")).toEqual({ ok: false, code: "not-found" });
+    expect(spawns).toHaveLength(0);
   } finally {
     config.trimBuiltinTools = prev;
   }

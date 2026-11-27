@@ -890,6 +890,7 @@ type NewSession = Omit<
   | "claudeAiConnectors"
   | "ingressStamp"
   | "shelved"
+  | "artifactEnabled"
   | "archivedAt"
   | "archiveReason"
   | "model"
@@ -992,7 +993,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, codexSpeedObservedJson, codexStandardBlocked, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, shelved, usagePauseJson, ghGrantsJson, scheduleId, goalCondition, goalState,
+  claudeAiConnectors, ingressStamp, shelved, artifactEnabled, usagePauseJson, ghGrantsJson, scheduleId, goalCondition, goalState,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
@@ -1143,6 +1144,7 @@ type SessionRow = {
   claudeAiConnectors: number | null;
   ingressStamp: string | null;
   shelved: number;
+  artifactEnabled: number;
   usagePauseJson: string | null;
   ghGrantsJson: string | null;
   launchMetadataJson: string | null;
@@ -7166,6 +7168,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** #4293: the operator's "Enable Artifact for this session". One-way — the trim never takes the
+   *  tool back from a session the operator gave it to. Written only by SessionService.enableArtifact. */
+  setArtifactEnabled(id: string): void {
+    this.db.run(`UPDATE sessions SET artifactEnabled=1, updatedAt=? WHERE id=?`, [Date.now(), id]);
+  }
+
   /** Record the ingress-key stamp (#3341) a Claude spawn/resume carried. Written by
    *  SessionService's persistSpawnIdentity (and its legacy backfill); ConnectorRestartService reads
    *  it back via SessionService.ingressStale. */
@@ -8321,6 +8329,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("ingressStamp", `ingressStamp TEXT`);
     // Operator shelve flag (written only via setShelved).
     add("shelved", `shelved INTEGER NOT NULL DEFAULT 0`);
+    // #4293: the operator turned Claude's Artifact tool back on for this session (written only via
+    // setArtifactEnabled); every later resume keeps it off the trim's deny list.
+    add("artifactEnabled", `artifactEnabled INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseJson", `usagePauseJson TEXT`);
     // #4119: the opt-in gh permissions the operator granted this session (JSON GhGrant[]); null =
     // none. Written only via setGhGrants; the audit trail lives in gh_grant_log.
@@ -9382,6 +9393,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       claudeAiConnectors: nullableBool(r.claudeAiConnectors),
       ingressStamp: r.ingressStamp,
       shelved: !!r.shelved,
+      artifactEnabled: !!r.artifactEnabled,
       usagePause: safeJsonParse<UsagePause | null>(usagePauseJson, null),
     } as Session;
   }

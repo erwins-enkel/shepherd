@@ -3,10 +3,11 @@
   import type { Session } from "#lib/types.js";
   import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import RepoSettingsBody from "../repo-settings/RepoSettingsBody.svelte";
+  import ArtifactAccess from "../ArtifactAccess.svelte";
 
-  // The session's Automation tab: this task's autopilot override on top, the repo's full
-  // settings (the same body as the repo settings window) below it, filling the rest. The override
-  // is the body's lead, so a narrow tab scrolls it away with the rest.
+  // The session's Automation tab: this task's autopilot override (and, when trimmed, its Artifact
+  // opt-in) on top, the repo's full settings (the same body as the repo settings window) below it,
+  // filling the rest. The override is the body's lead, so a narrow tab scrolls it away with the rest.
   let {
     session,
     autopilotOn,
@@ -39,6 +40,8 @@
       {autopilotOn ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
     </button>
   </div>
+  <!-- #4293: shown only while the built-in tool trim keeps Artifact from this session -->
+  <ArtifactAccess sessionId={session.id} />
 {/snippet}
 
 <div class="automation">

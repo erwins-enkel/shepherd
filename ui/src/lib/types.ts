@@ -2265,6 +2265,9 @@ export interface Session {
   /** Operator-shelved: rendered in the folded Shelved group, excluded from needs-you signals,
    *  and left alone by server automation until unshelved. The agent stays alive. */
   shelved?: boolean;
+  /** The operator enabled Claude's Artifact tool for this session (#4293): it stays available on
+   *  every later resume, whatever the task prompt says. */
+  artifactEnabled?: boolean;
   usagePause?: UsagePause | null;
   /** Epoch ms when a merge train marked this PR-session in-flight; null when not.
    *  Transient — cleared server-side on merge/close, train archive, or TTL. */

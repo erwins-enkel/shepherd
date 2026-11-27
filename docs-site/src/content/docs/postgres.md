@@ -131,7 +131,8 @@ built to this contract keeps working unchanged.
   shares blocks and takes well under a second; on ext4 it is a full copy).
 - **Promoting** a session's database makes it the repo's new template (see
   below).
-- **Archiving** a session drops its database and role. If the server is stopped
+- **Archiving** a session drops its database and role, and every database the
+  session created (for example a test harness's per-run databases). If the server is stopped
   at that moment, the drop happens the next time it starts.
 - **At startup and hourly** Shepherd drops leftover session databases that no
   live session owns.
@@ -142,7 +143,15 @@ built to this contract keeps working unchanged.
   a migration that grants it to itself is refused. Give app roles a name
   specific to the project (for example `<project>_app`). A session that was already running when a
   sibling first created a role can be refused for up to a minute; re-running the
-  migrations then works.
+  migrations then works. Create shared roles `NOLOGIN`: a login role, or a role
+  that owns a database, stays with the session that created it until that
+  session is archived.
+- **Databases your tests create** (Postgres 17 and newer): a session's role may
+  `CREATE DATABASE`, so a harness that makes its own database and login role
+  per run works unchanged. Point its admin connection at `DATABASE_URL`. Only
+  the session's role and roles it created can connect to such a database. Don't
+  give one a name Shepherd uses for its own databases (`s_<hex>`,
+  `r_<repo>_base`).
 
 ## Update the template
 
@@ -169,10 +178,12 @@ The port is reachable from every Trusted and Standard sandbox on this machine;
 the boundary is the credentials. Each session's role can connect only to its own
 database, and the superuser password never leaves Shepherd. A session's role
 may create roles (`CREATEROLE`), so migrations can set up app roles. Postgres
-still refuses it superuser, `BYPASSRLS` and `CREATEDB` roles, built-in `pg_*`
-roles, and changes to other sessions' roles. Logins are pinned to the
-database named like the user, so no role, however it was granted, opens another
-session's database. Details:
+still refuses it superuser and `BYPASSRLS` roles, built-in `pg_*` roles, and
+changes to other sessions' roles. Logins to Shepherd's own databases are pinned
+to the database named like the user, so no role, however it was granted, opens
+another session's database. On Postgres 17 and newer the role may also create
+databases (`CREATEDB`). A login guard then lets into such a database only the
+session that owns it and the roles that session alone administers. Details:
 [sandbox security notes](https://github.com/erwins-enkel/shepherd/blob/main/docs/sandbox-security.md#on-demand-postgres-4232).
 
 ## Diagnose

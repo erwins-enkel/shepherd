@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+  ADMIN_PGOPTIONS,
   DEFAULT_POSTGRES_SETTINGS,
+  GUARD_SQL,
   HARDEN_SQL,
+  RECLAIM_SQL,
+  REVOKE_PUBLIC_SQL,
+  UNTEMPLATE_SQL,
   postgresInstanceNames,
   adoptScript,
   baseScript,
@@ -9,7 +14,9 @@ import {
   cloneScript,
   connectionFor,
   copyDefaultAclsSql,
+  dropOwnedDbsSql,
   dropScript,
+  finishScript,
   isImageRef,
   isSessionDbName,
   isPostgresMode,
@@ -66,8 +73,8 @@ describe("scripts", () => {
   it("base: superuser-owned template, CONNECT revoked from PUBLIC", () => {
     const sql = baseScript(repo);
     expect(sql).toContain(`CREATE DATABASE ${repoBaseDb(repo)}'`);
-    expect(sql).not.toMatch(/OWNER/);
-    expect(sql).not.toMatch(/ALTER DATABASE/);
+    // The base is created plain (superuser-owned); only a squatted base is parked + dropped.
+    expect(sql).not.toMatch(/CREATE DATABASE \S+ OWNER/);
     expect(sql).toContain(`REVOKE CONNECT, TEMPORARY ON DATABASE ${repoBaseDb(repo)} FROM PUBLIC;`);
     expect(sql).toContain(`CREATE ROLE ${repoRole(repo)} NOLOGIN`);
   });
@@ -94,7 +101,7 @@ describe("scripts", () => {
   it("role: CREATEROLE + inherit-only repo-role membership, PG16+ only", () => {
     const db = sessionDb(SID);
     const sql = roleScript(SID, "abcDEF0123456789_-xy", repo);
-    const pg16 = "WHERE current_setting('server_version_num')::int >= 160000\\gexec";
+    const pg16 = "WHERE pg_catalog.current_setting('server_version_num')::int >= 160000\\gexec";
     expect(sql).toContain(`ALTER ROLE ${db} WITH LOGIN NOCREATEROLE NOCREATEDB`);
     expect(sql).toContain(`'ALTER ROLE ${db} CREATEROLE' ${pg16}`);
     expect(sql).toContain(
@@ -154,7 +161,9 @@ describe("scripts", () => {
   });
 
   it("reset force-drops only the session's clone", () => {
-    expect(resetScript(SID)).toBe(`DROP DATABASE IF EXISTS ${sessionDb(SID)} WITH (FORCE);\n`);
+    const sql = resetScript(SID);
+    expect(sql).toContain(`FROM pg_database d WHERE d.datname = '${sessionDb(SID)}'\\gexec`);
+    expect(sql.match(/\\gexec/g)).toHaveLength(1);
     expect(() => resetScript("not-a-uuid")).toThrow();
   });
 
@@ -183,10 +192,11 @@ describe("scripts", () => {
     expect(at(clearDefaultAclsSql(role))).toBeLessThan(at(copyDefaultAclsSql(db, role)));
     expect(at(copyDefaultAclsSql(db, role))).toBeGreaterThan(at(`REASSIGN OWNED BY ${db}`));
     expect(at(copyDefaultAclsSql(db, role))).toBeLessThan(at(`DROP OWNED BY ${db};`));
-    expect(at(`DROP OWNED BY ${db};`)).toBeLessThan(at("BEGIN;"));
-    expect(at("BEGIN;")).toBeLessThan(at(`ALTER DATABASE ${base} RENAME TO ${role}_old;`));
-    expect(at(`ALTER DATABASE ${role}_next RENAME TO ${base};`)).toBeLessThan(at("COMMIT;"));
-    expect(at("COMMIT;")).toBeLessThan(at(`DROP DATABASE ${role}_old;`));
+    const swap = at(`BEGIN;\nALTER DATABASE ${base} RENAME TO ${role}_old;`);
+    expect(at(`DROP OWNED BY ${db};`)).toBeLessThan(swap);
+    const commit = sql.indexOf("COMMIT;", swap);
+    expect(at(`ALTER DATABASE ${role}_next RENAME TO ${base};`)).toBeLessThan(commit);
+    expect(commit).toBeLessThan(at(`DROP DATABASE ${role}_old;`));
   });
 
   it("default ACLs: reset global rows, re-grant every entry for the target role", () => {
@@ -222,7 +232,7 @@ describe("scripts", () => {
     const sql = promoteRestoreScript(repo, SID);
     expect(sql).toContain(`ALTER DATABASE ${db} OWNER TO ${db};`);
     expect(sql).toContain(`ALTER DATABASE ${db} ALLOW_CONNECTIONS true;`);
-    expect(sql).toContain(`DROP DATABASE IF EXISTS ${repoRole(repo)}_next;`);
+    expect(sql).toContain(`WHERE d.datname = '${repoRole(repo)}_next'\\gexec`);
   });
 });
 
@@ -235,8 +245,195 @@ it("hardening limits TCP logins to the database named like the user, then reload
   expect(HARDEN_SQL).toContain("'host sameuser all all scram-sha-256'");
   expect(HARDEN_SQL).toContain("'local all postgres trust'");
   expect(HARDEN_SQL).toContain("current_setting('hba_file')");
-  expect(HARDEN_SQL).not.toMatch(/host all all/);
   expect(HARDEN_SQL.indexOf("COPY")).toBeLessThan(HARDEN_SQL.indexOf("pg_reload_conf()"));
+});
+
+it("hardening: PG17+ pins Shepherd's names, lets other names through to the guard; older keeps 2 lines", () => {
+  const pg17 = HARDEN_SQL.indexOf(
+    "IF pg_catalog.current_setting('server_version_num')::int >= 170000 THEN",
+  );
+  const otherwise = HARDEN_SQL.indexOf(" ELSE EXECUTE format('COPY (VALUES (%L), (%L)) TO %L'");
+  expect(pg17).toBeGreaterThan(-1);
+  expect(otherwise).toBeGreaterThan(pg17);
+  const reject =
+    "'host /^s_[0-9a-f]{32}$,/^r_[a-z0-9_]*[0-9a-f]{8}_(base|next|old)$,postgres,template1 all all reject'";
+  expect(HARDEN_SQL.indexOf(reject)).toBeGreaterThan(pg17);
+  expect(HARDEN_SQL.indexOf(reject)).toBeLessThan(
+    HARDEN_SQL.indexOf("'host all all all scram-sha-256'"),
+  );
+  expect(HARDEN_SQL.indexOf("'host all all all scram-sha-256'")).toBeLessThan(otherwise);
+});
+
+it("hardening: template0 uncopyable, IS_TEMPLATE reset, guard installed in template1", () => {
+  expect(HARDEN_SQL).toContain("ALTER DATABASE template0 IS_TEMPLATE false;");
+  expect(HARDEN_SQL).toContain(UNTEMPLATE_SQL.trimEnd());
+  expect(HARDEN_SQL).toContain(REVOKE_PUBLIC_SQL.trimEnd());
+  expect(REVOKE_PUBLIC_SQL).toContain("WHERE o.rolsuper AND d.datallowconn");
+  expect(HARDEN_SQL.trimEnd().endsWith(`\\connect template1\n${GUARD_SQL}`)).toBe(true);
+});
+
+describe("login guard (#4270)", () => {
+  it("PG17-gated, drops a session-owned schema/function before creating its own", () => {
+    const at = (s: string) => {
+      const i = GUARD_SQL.indexOf(s);
+      expect(i).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    expect(
+      GUARD_SQL.startsWith(
+        "SELECT pg_catalog.current_setting('server_version_num')::int >= 170000 AS shepherd_pg17 \\gset\n\\if :shepherd_pg17",
+      ),
+    ).toBe(true);
+    expect(at("AS shepherd_tainted \\gset")).toBeLessThan(
+      at("\\if :shepherd_tainted\nDROP SCHEMA shepherd CASCADE;\n\\endif"),
+    );
+    expect(GUARD_SQL).toContain("n.nspname = 'shepherd' AND NOT o.rolsuper");
+    expect(GUARD_SQL).toContain("p.proowner WHERE n.nspname = 'shepherd' AND NOT o.rolsuper");
+    expect(at("DROP SCHEMA shepherd CASCADE")).toBeLessThan(
+      at("CREATE SCHEMA IF NOT EXISTS shepherd AUTHORIZATION postgres;"),
+    );
+    expect(at("CREATE SCHEMA IF NOT EXISTS")).toBeLessThan(
+      at("CREATE OR REPLACE FUNCTION shepherd.login_guard()"),
+    );
+    expect(at("CREATE OR REPLACE FUNCTION")).toBeLessThan(
+      at("CREATE EVENT TRIGGER shepherd_login_guard ON login"),
+    );
+    expect(GUARD_SQL).toContain("SECURITY DEFINER SET search_path = pg_catalog, pg_temp");
+    expect(GUARD_SQL).toContain("REVOKE ALL ON SCHEMA shepherd FROM PUBLIC;");
+    expect(GUARD_SQL.trimEnd().endsWith("\\endif")).toBe(true);
+  });
+
+  it("admits superusers and tenant-trusted roles only", () => {
+    expect(GUARD_SQL).toContain(
+      "IF (SELECT rolsuper FROM pg_roles WHERE oid = u) THEN RETURN; END IF;",
+    );
+    expect(GUARD_SQL).toContain("t.rolname ~ '^s_[0-9a-f]{32}$'");
+    // creator row: superuser grantor; and no other non-superuser admin holder — for owner and user
+    expect(GUARD_SQL.match(/a\.member = t\.oid AND a\.admin_option AND g\.rolsuper/g)).toHaveLength(
+      2,
+    );
+    expect(GUARD_SQL.match(/NOT m\.rolsuper AND m\.oid <> t\.oid/g)).toHaveLength(2);
+    expect(GUARD_SQL).toContain("RAISE EXCEPTION");
+  });
+
+  it("finish: guard in the clone, then CREATEDB on PG17+ only", () => {
+    const db = sessionDb(SID);
+    const sql = finishScript(SID);
+    expect(sql.indexOf(`\\connect ${db}\n${GUARD_SQL}\n\\connect postgres`)).toBe(0);
+    expect(sql).toContain(
+      `SELECT 'ALTER ROLE ${db} CREATEDB' WHERE pg_catalog.current_setting('server_version_num')::int >= 170000\\gexec`,
+    );
+    expect(sql.indexOf(GUARD_SQL)).toBeLessThan(sql.indexOf("CREATEDB"));
+  });
+
+  it("base: a non-superuser-owned base is dropped first; ends with the guard in the base", () => {
+    const base = repoBaseDb("/home/x/Work/demo");
+    const sql = baseScript("/home/x/Work/demo");
+    const drop = sql.indexOf(
+      `WHERE d.datname = '${base}' AND NOT (SELECT o.rolsuper FROM pg_roles o WHERE o.oid = d.datdba)\\gexec`,
+    );
+    expect(drop).toBeGreaterThan(-1);
+    expect(drop).toBeLessThan(sql.indexOf(`'CREATE DATABASE ${base}'`));
+    expect(sql.trimEnd().endsWith(`\\connect ${base}\n${GUARD_SQL}`)).toBe(true);
+  });
+
+  it("force-drop parks on the superuser and un-templates before DROP", () => {
+    const sql = resetScript(SID);
+    const owner = sql.indexOf("ALTER DATABASE %I OWNER TO postgres");
+    const untemplate = sql.indexOf("ALTER DATABASE %I IS_TEMPLATE false");
+    expect(owner).toBeGreaterThan(-1);
+    expect(owner).toBeLessThan(untemplate);
+    expect(untemplate).toBeLessThan(sql.indexOf("DROP DATABASE %I WITH (FORCE)"));
+    for (const s of [
+      dropOwnedDbsSql(sessionDb(SID)),
+      dropScript(sessionDb(SID)),
+      baseScript("/home/x/Work/demo"),
+      roleScript(SID, "abcDEF0123456789_-xy", "/home/x/Work/demo"),
+      promoteScript("/home/x/Work/demo", SID),
+      promoteRestoreScript("/home/x/Work/demo", SID),
+    ])
+      expect(s).not.toMatch(/^DROP DATABASE IF EXISTS/m);
+  });
+
+  it("owned-DB sweep: the role's databases and those of roles it created", () => {
+    const db = sessionDb(SID);
+    const sql = dropOwnedDbsSql(db);
+    expect(sql).toContain("DROP DATABASE %I WITH (FORCE)");
+    expect(sql).toContain(`d.datdba = (SELECT oid FROM pg_roles WHERE rolname = '${db}')`);
+    expect(sql).toContain(
+      `a.member = (SELECT oid FROM pg_roles WHERE rolname = '${db}') AND a.admin_option AND g.rolsuper`,
+    );
+    expect(() => dropOwnedDbsSql("postgres")).toThrow();
+    const drop = dropScript(db);
+    expect(drop.indexOf(sql)).toBeGreaterThan(-1);
+    expect(drop.indexOf(sql)).toBeLessThan(drop.indexOf("DROP ROLE"));
+  });
+
+  it("role: squat flag read first; squat block sweeps databases before revoking ADMIN rows, no DROP ROLE", () => {
+    const db = sessionDb(SID);
+    const sql = roleScript(SID, "abcDEF0123456789_-xy", "/home/x/Work/demo");
+    const at = (s: string) => {
+      const i = sql.indexOf(s);
+      expect(i).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    expect(sql.startsWith("SELECT EXISTS (")).toBe(true);
+    expect(at("AS shepherd_squatted \\gset")).toBeLessThan(at(`'CREATE ROLE ${db} LOGIN'`));
+    expect(at("AS shepherd_squatted")).toBeLessThan(at("REVOKE %I FROM %I CASCADE"));
+    const block = at("\\if :shepherd_squatted");
+    expect(block).toBeGreaterThan(at("RESET ALL"));
+    expect(at(dropOwnedDbsSql(db))).toBeGreaterThan(block);
+    expect(at(dropOwnedDbsSql(db))).toBeLessThan(at("GRANTED BY %I CASCADE"));
+    expect(at("GRANTED BY %I CASCADE")).toBeLessThan(at("\\endif"));
+    expect(sql).not.toContain("DROP ROLE");
+    // a same-named database the role doesn't own is dropped before the clone-exists count
+    expect(at("d.datdba IS DISTINCT FROM")).toBeLessThan(at("SELECT count(*) FROM pg_database"));
+  });
+
+  it("role: at a fresh lease a pre-existing session role counts as squatted", () => {
+    const db = sessionDb(SID);
+    const flag = (fresh: boolean) =>
+      roleScript(SID, "abcDEF0123456789_-xy", "/home/x/Work/demo", { verified: !fresh }).split(
+        "\n",
+      )[0]!;
+    expect(flag(true)).toContain(
+      `OR (SELECT oid FROM pg_roles WHERE rolname = '${db}') IS NOT NULL AS shepherd_squatted`,
+    );
+    expect(flag(false)).not.toContain("IS NOT NULL");
+  });
+
+  it("admin connections pin search_path and role", () => {
+    expect(ADMIN_PGOPTIONS).toBe("-c search_path=pg_catalog,pg_temp -c role=none");
+  });
+
+  it("promote: guard in the clone first; REASSIGN + hand-back of other databases in one transaction", () => {
+    const db = sessionDb(SID);
+    const role = repoRole("/home/x/Work/demo");
+    const sql = promoteScript("/home/x/Work/demo", SID);
+    expect(sql.indexOf(`\\connect ${db}\n${GUARD_SQL}\n\\connect postgres`)).toBe(0);
+    expect(sql).toContain(
+      `BEGIN;\nREASSIGN OWNED BY ${db} TO ${role};\nSELECT format('ALTER DATABASE %I OWNER TO ${db}', datname) FROM pg_database WHERE datdba = (SELECT oid FROM pg_roles WHERE rolname = '${role}')\\gexec\nCOMMIT;`,
+    );
+  });
+
+  it("adopt: never a database owner; LOGIN roles only with includeLogin", () => {
+    const leases = [{ db: sessionDb(SID), role: repoRole("/home/x/Work/demo") }];
+    expect(adoptScript(leases)).toContain(
+      "AND NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datdba = r.oid)",
+    );
+    expect(adoptScript(leases)).toContain("AND NOT r.rolcanlogin");
+    const all = adoptScript(leases, { includeLogin: true });
+    expect(all).toContain("WHERE d.datdba = r.oid");
+    expect(all).not.toContain("rolcanlogin");
+  });
+
+  it("reclaim + untemplate target only non-superuser owners", () => {
+    expect(RECLAIM_SQL).toContain("ALTER DATABASE %I OWNER TO %I");
+    expect(RECLAIM_SQL).toContain("g.rolsuper");
+    expect(RECLAIM_SQL).toContain("c.rolname ~ '^s_[0-9a-f]{32}$'");
+    expect(RECLAIM_SQL).toContain("NOT h.rolsuper AND h.oid <> c.oid");
+    expect(UNTEMPLATE_SQL).toContain("d.datistemplate AND NOT o.rolsuper");
+  });
 });
 
 it("instance names: plain for the default state dir, suffixed for any other", () => {

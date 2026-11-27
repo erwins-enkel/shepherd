@@ -3,7 +3,17 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PostgresService, PostgresError, type DockerRun } from "../src/postgres";
-import { POSTGRES_SETTING, repoBaseDb, sessionDb } from "../src/postgres-core";
+import {
+  ADMIN_PGOPTIONS,
+  POSTGRES_SETTING,
+  RECLAIM_SQL,
+  REVOKE_PUBLIC_SQL,
+  UNTEMPLATE_SQL,
+  dropOwnedDbsSql,
+  finishScript,
+  repoBaseDb,
+  sessionDb,
+} from "../src/postgres-core";
 import { SessionStore } from "../src/store";
 
 const S1 = "11111111-1111-4111-8111-111111111111";
@@ -20,6 +30,7 @@ class FakeDocker {
   dockerDown = false;
   failRun = false;
   failAdopt = false;
+  failRoleOnce = false;
   failPromote = false;
   ready = true;
   clients = 0;
@@ -50,7 +61,7 @@ class FakeDocker {
       this.exists = this.running = false;
       return "";
     }
-    if (cmd === "exec" && args[sub === "-i" ? 2 : 1] !== this.name)
+    if (cmd === "exec" && args[sub === "-i" ? 4 : 1] !== this.name)
       throw new Error(`exec on unknown container: ${args.join(" ")}`);
     if (cmd === "exec" && sub === "-i") return this.sql(opts.input ?? "");
     if (cmd === "exec") {
@@ -75,15 +86,22 @@ class FakeDocker {
     return "";
   }
 
-  private sql(input: string): string {
+  private sql(raw: string): string {
     if (!this.running) throw new Error("not running");
+    // The fake cluster never has a squatted session role: skip roleScript's squat-only block.
+    const input = raw.replace(/\\if :shepherd_squatted[\s\S]*?\\endif/g, "");
     if (this.failPromote && input.includes("RENAME TO")) throw new Error("being accessed");
     if (input.includes("pg_terminate_backend")) return "0\n";
     if (input.includes("pg_stat_activity")) return `${this.clients}\n`;
     if (input.includes("WITH ADMIN OPTION") && this.failAdopt) throw new Error("adopt failed");
+    if (this.failRoleOnce && input.includes("AS shepherd_squatted")) {
+      this.failRoleOnce = false;
+      throw new Error("cannot drop a template database");
+    }
     if (input.includes("UNION SELECT rolname"))
       return [...new Set([...this.dbs, ...this.roles])].join("\n");
-    for (const m of input.matchAll(/DROP DATABASE IF EXISTS (\w+)/g)) this.dbs.delete(m[1]!);
+    for (const m of input.matchAll(/FROM pg_database d WHERE d\.datname = '(\w+)'\\gexec/g))
+      this.dbs.delete(m[1]!);
     for (const m of input.matchAll(/DROP ROLE IF EXISTS (\w+)/g)) this.roles.delete(m[1]!);
     for (const m of input.matchAll(/^CREATE DATABASE (s_\w+) TEMPLATE/gm)) this.dbs.add(m[1]!);
     const role = input.match(/ALTER ROLE (s_\w+) WITH LOGIN/);
@@ -315,7 +333,39 @@ describe("app roles", () => {
     const after = inputs().slice(from);
     const adopt = after.findIndex((i) => ADOPT.test(i) && i.includes(`'${sessionDb(id)}'`));
     expect(adopt).toBeGreaterThanOrEqual(0);
-    expect(adopt).toBeLessThan(after.findIndex((i) => i.includes("DROP DATABASE IF EXISTS")));
+    expect(adopt).toBeLessThan(after.findIndex((i) => i.includes("DROP ROLE IF EXISTS")));
+  });
+
+  it("release sweeps the session's databases, then adopts LOGIN roles too, then drops (#4270)", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    expect(
+      inputs()
+        .filter((i) => ADOPT.test(i))
+        .every((i) => i.includes("NOT r.rolcanlogin")),
+    ).toBe(true);
+    const from = docker.calls.length;
+    await s.releaseSession(id);
+    const after = inputs().slice(from);
+    const sweep = after.findIndex((i) => i === dropOwnedDbsSql(sessionDb(id)));
+    const adopt = after.findIndex((i) => ADOPT.test(i));
+    const drop = after.findIndex((i) => i.includes(`DROP ROLE IF EXISTS ${sessionDb(id)}`));
+    expect(sweep).toBeGreaterThanOrEqual(0);
+    expect(sweep).toBeLessThan(adopt);
+    expect(adopt).toBeLessThan(drop);
+    expect(after[adopt]).not.toContain("rolcanlogin");
+  });
+
+  it("idle tick reclaims and untemplates before adopting (#4270)", async () => {
+    const s = svc();
+    await s.request(mkSession());
+    const from = docker.calls.length;
+    await s.idleTick();
+    const after = inputs().slice(from);
+    const reclaim = after.findIndex((i) => i === RECLAIM_SQL + UNTEMPLATE_SQL + REVOKE_PUBLIC_SQL);
+    expect(reclaim).toBeGreaterThanOrEqual(0);
+    expect(reclaim).toBeLessThan(after.findIndex((i) => ADOPT.test(i)));
   });
 
   it("idle tick adopts while sessions hold leases", async () => {
@@ -337,7 +387,56 @@ describe("app roles", () => {
   });
 });
 
+describe("finish (#4270)", () => {
+  it("a role script that failed leaves the lease unverified: the retry still treats an existing role as squatted", async () => {
+    const s = svc();
+    const id = mkSession();
+    docker.failRoleOnce = true;
+    await expect(s.request(id)).rejects.toThrow();
+    expect(store.getPostgresLease(id)?.roleVerified).toBe(0);
+    await s.request(id);
+    const roles = docker.calls
+      .map((c) => c.input ?? "")
+      .filter((i) => i.includes("AS shepherd_squatted"));
+    expect(roles).toHaveLength(2);
+    expect(roles.every((i) => i.includes("IS NOT NULL AS shepherd_squatted"))).toBe(true);
+    expect(store.getPostgresLease(id)?.roleVerified).toBe(1);
+  });
+
+  it("every admin psql pins search_path/role; only a fresh lease treats an existing role as squatted", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    await s.reset(id);
+    const psql = docker.calls.filter((c) => c.input !== undefined);
+    expect(psql.every((c) => c.args.includes(`PGOPTIONS=${ADMIN_PGOPTIONS}`))).toBe(true);
+    const roles = psql.map((c) => c.input!).filter((i) => i.includes("AS shepherd_squatted"));
+    expect(roles).toHaveLength(2);
+    expect(roles[0]).toContain("IS NOT NULL AS shepherd_squatted");
+    expect(roles[1]).not.toContain("IS NOT NULL AS shepherd_squatted");
+  });
+
+  it("runs finishScript after the clone, on request and on reset", async () => {
+    const s = svc();
+    const id = mkSession();
+    await s.request(id);
+    await s.reset(id);
+    const inputs = docker.calls.map((c) => c.input ?? "");
+    const clones = inputs.flatMap((i, n) =>
+      /^CREATE DATABASE s_\w+ TEMPLATE/m.test(i) ? [n] : [],
+    );
+    const finishes = inputs.flatMap((i, n) => (i === finishScript(id) ? [n] : []));
+    expect(clones).toHaveLength(2);
+    expect(finishes).toHaveLength(2);
+    expect(finishes[0]!).toBeGreaterThan(clones[0]!);
+    expect(finishes[1]!).toBeGreaterThan(clones[1]!);
+  });
+});
+
 describe("reset", () => {
+  /** resetScript alone — roleScript also force-drops, but only squat or foreign-owned databases. */
+  const RESET =
+    /^SELECT format\('ALTER DATABASE %I OWNER TO postgres'.* WHERE d\.datname = 's_\w+'\\gexec\n$/;
   it("re-clones the session's DB from the template with the same DSN", async () => {
     const s = svc();
     const id = mkSession();
@@ -345,7 +444,9 @@ describe("reset", () => {
     const again = await s.reset(id);
     expect(again).toEqual(first);
     expect(
-      docker.sqlCalls(new RegExp(`DROP DATABASE IF EXISTS ${sessionDb(id)} WITH \\(FORCE\\)`)),
+      docker.sqlCalls(
+        new RegExp(`^SELECT format.* WHERE d\\.datname = '${sessionDb(id)}'\\\\gexec\n$`),
+      ),
     ).toBe(1);
     expect(docker.sqlCalls(/CREATE DATABASE s_\w+ TEMPLATE/)).toBe(2);
     expect(docker.dbs.has(sessionDb(id))).toBe(true);
@@ -355,7 +456,7 @@ describe("reset", () => {
     const id = mkSession();
     const out = await svc().reset(id);
     expect(out.status).toBe("ready");
-    expect(docker.sqlCalls(/WITH \(FORCE\)/)).toBe(0);
+    expect(docker.sqlCalls(RESET)).toBe(0);
     expect(store.getPostgresLease(id)?.state).toBe("active");
   });
 
@@ -374,7 +475,7 @@ describe("reset", () => {
     release();
     const done = await s.request(id);
     expect(done.status).toBe("ready");
-    expect(docker.sqlCalls(/WITH \(FORCE\)/)).toBe(1);
+    expect(docker.sqlCalls(RESET)).toBe(1);
     expect(docker.sqlCalls(/CREATE DATABASE s_\w+ TEMPLATE/)).toBe(2);
   });
 

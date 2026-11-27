@@ -40,10 +40,18 @@ const NO_TOOL_NOTICE =
   "container of your own. Use `DATABASE_URL` only when it is already set; otherwise leave the " +
   "database-backed checks (migrations, DB tests, e2e) to CI's `db` job and say so in your report.";
 
-/** #4264: app roles created by migrations are shared per repo; adoption lags a minute. */
+/** #4264: app roles created by migrations are shared per repo; adoption lags a minute. #4270: a
+ *  LOGIN role, or one that owns a database, stays this session's alone; and a session may create
+ *  its own databases (per-run test databases), reachable only by itself and the roles it made. */
 const MIGRATION_ROLES =
   "Migrations may create roles; a role is shared by every session of this repo on the server. " +
-  'If granting such a role fails with "ADMIN option", wait a minute and re-run the migrations.';
+  'If granting such a role fails with "ADMIN option", wait a minute and re-run the migrations. ' +
+  "Create shared app roles NOLOGIN: a LOGIN role, or one that owns a database, stays with the " +
+  "session that created it until that session is archived. " +
+  "Your role may also CREATE DATABASE (for example a test harness's per-run database): only your " +
+  "role and the roles it created can connect to such a database, and it is dropped when this " +
+  "session is archived. Don't name one like `s_<hex>` or `r_…_base`; a harness that needs an " +
+  "admin connection can use `DATABASE_URL` for it.";
 
 /** #4240: the reset + status tools, for sessions that have the Postgres tools. */
 const RESET_STATUS =

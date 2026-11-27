@@ -95,6 +95,7 @@ test("Claude spawn carries the notice on every profile", async () => {
     expect(prompt(captured.argv!)).toContain(
       'If granting such a role fails with "ADMIN option", wait a minute and re-run the migrations.',
     );
+    expect(prompt(captured.argv!)).toContain("Your role may also CREATE DATABASE");
     expect(prompt(captured.argv!)).toContain("`postgres_reset`");
     expect(prompt(captured.argv!)).toContain("`postgres_status`");
   }

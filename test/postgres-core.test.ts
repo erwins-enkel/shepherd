@@ -126,13 +126,17 @@ describe("scripts", () => {
     expect(sql).toContain(`r.rolname = '${role}' AND a.admin_option AND NOT m.rolsuper\\gexec`);
   });
 
-  it("adopt: hands roles a session administers to its repo role, never managed names", () => {
+  it("adopt: hands roles a session created to its repo role, never managed names", () => {
     const db = sessionDb(SID);
     const role = repoRole(repo);
     const sql = adoptScript([{ db, role }]);
     expect(sql).toContain("GRANT %I TO %I WITH ADMIN OPTION, INHERIT FALSE, SET FALSE");
     expect(sql).toContain(`h.rolname = '${role}'`);
-    expect(sql).toContain(`m.rolname = '${db}' AND a.admin_option AND NOT r.rolsuper`);
+    // Only the creator's ADMIN row (superuser grantor), never one another session granted (#4272).
+    expect(sql).toContain("JOIN pg_roles g ON g.oid = a.grantor");
+    expect(sql).toContain(
+      `m.rolname = '${db}' AND a.admin_option AND g.rolsuper AND NOT r.rolsuper`,
+    );
     expect(sql).toContain("r.rolname !~ '^pg_'");
     expect(sql).toContain("r.rolname !~ '^s_[0-9a-f]{32}$'");
     expect(sql).toContain("r.rolname !~ '^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$'");

@@ -287,18 +287,22 @@ export function cloneScript(repoPath: string, sessionId: string): string {
 const SESSION_ROLE_PATTERN = "^s_[0-9a-f]{32}$";
 const REPO_ROLE_PATTERN = "^r_([a-z0-9_]{1,20}_)?[0-9a-f]{8}$";
 
-/** Hand the roles a session created (it holds ADMIN on them directly) to its repo role WITH ADMIN,
- *  so every session of that repo inherits ADMIN and the roles keep an admin holder after the
- *  session is dropped. Never `pg_*`, superusers or Shepherd's own session/repo role names; a
- *  missing session or repo role is a no-op. Empty input → "" (nothing to run). */
+/** Hand the roles a session created to its repo role WITH ADMIN, so every session of that repo
+ *  inherits ADMIN and the roles keep an admin holder after the session is dropped. "Created" = the
+ *  session's direct ADMIN row has a superuser grantor: PG16+ records a CREATEROLE user's implicit
+ *  ADMIN on its new role as granted by the bootstrap superuser, while a role another session
+ *  granted it (`GRANT … WITH ADMIN OPTION`, `CREATE ROLE … ADMIN`) carries that session as grantor
+ *  and is never adopted (#4272: cross-repo role injection). Never `pg_*`, superusers or Shepherd's
+ *  own session/repo role names; a missing session or repo role is a no-op. Empty input → ""
+ *  (nothing to run). */
 export function adoptScript(leases: readonly { db: string; role: string }[]): string {
   const lines = leases.map(({ db, role }) => {
     if (!isSessionDbName(db)) throw new Error(`invalid session role: ${db}`);
     return (
       `SELECT format('GRANT %I TO %I WITH ADMIN OPTION, INHERIT FALSE, SET FALSE', r.rolname, h.rolname) ` +
       `FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member ` +
-      `JOIN pg_roles h ON h.rolname = ${lit(role)} ` +
-      `WHERE m.rolname = ${lit(db)} AND a.admin_option AND NOT r.rolsuper AND r.rolname !~ '^pg_' ` +
+      `JOIN pg_roles g ON g.oid = a.grantor JOIN pg_roles h ON h.rolname = ${lit(role)} ` +
+      `WHERE m.rolname = ${lit(db)} AND a.admin_option AND g.rolsuper AND NOT r.rolsuper AND r.rolname !~ '^pg_' ` +
       `AND r.rolname !~ '${SESSION_ROLE_PATTERN}' AND r.rolname !~ '${REPO_ROLE_PATTERN}' ` +
       `AND NOT EXISTS (SELECT 1 FROM pg_auth_members x WHERE x.roleid = a.roleid AND x.member = h.oid AND x.admin_option)\\gexec`
     );

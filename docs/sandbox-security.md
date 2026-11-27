@@ -346,7 +346,12 @@ role `r_<repo>` (`INHERIT TRUE, SET FALSE`). Shepherd grants every role a
 session created to `r_<repo>` `WITH ADMIN OPTION` (`adoptScript`: on request,
 every idle tick, reconcile and before a drop), so sibling sessions inherit ADMIN
 on the repo's app roles and the roles keep an admin holder once their creator is
-dropped. Roles are server-wide, so a session can create a name another repo's
+dropped. "Created" means the session's own ADMIN grant on the role has a
+superuser grantor (Postgres 16+ records a `CREATEROLE` user's implicit ADMIN on
+its new role as granted by the bootstrap superuser). A role another session
+granted it `WITH ADMIN OPTION` carries that session as grantor and is never
+adopted, so a session can't inject its own roles into another repo (#4272).
+Roles are server-wide, so a session can create a name another repo's
 migration later reuses (its `CREATE ROLE … EXCEPTION WHEN duplicate_object`
 passes) and keep ADMIN on it. The hba rule above keeps that role, and any
 session holding it, out of the other repo's clones.

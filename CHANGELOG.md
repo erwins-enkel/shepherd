@@ -1,5 +1,50 @@
 # Changelog
 
+## [2.10.0](https://github.com/erwins-enkel/shepherd/compare/v2.9.0...v2.10.0) (2026-11-28)
+
+
+### Features
+
+* **codex:** expose Fast mode defaults and session speed ([#4234](https://github.com/erwins-enkel/shepherd/issues/4234)) ([f594072](https://github.com/erwins-enkel/shepherd/commit/f594072fd7aaa45a3e852da621422a91c49c7e55))
+* **egress:** relay Playwright browser downloads for confined sessions ([#4270](https://github.com/erwins-enkel/shepherd/issues/4270)) ([16825ac](https://github.com/erwins-enkel/shepherd/commit/16825ac9e46cffc94a8252ba28b9c18d44c78c6e))
+* **postgres:** app contract + bootstrap/spawn steering for on-demand Postgres ([#4255](https://github.com/erwins-enkel/shepherd/issues/4255)) ([680a913](https://github.com/erwins-enkel/shepherd/commit/680a913b76f4b133a968a4fed8b149dbf9967837))
+* **postgres:** auto mode + env injection (incl. preview, Codex) ([#4268](https://github.com/erwins-enkel/shepherd/issues/4268)) ([3e91f5e](https://github.com/erwins-enkel/shepherd/commit/3e91f5e0644aa1672d295959872e6f8afb6949b3))
+* **postgres:** on-demand Postgres for Autonomous sessions + no-tool notice ([#4259](https://github.com/erwins-enkel/shepherd/issues/4259)) ([0fac5f6](https://github.com/erwins-enkel/shepherd/commit/0fac5f633e230798d922fe7f9e8500f39039aaf5)), closes [#4239](https://github.com/erwins-enkel/shepherd/issues/4239)
+* **postgres:** on-demand shared Postgres 18 with per-session clone DBs ([#4241](https://github.com/erwins-enkel/shepherd/issues/4241)) ([a4f50de](https://github.com/erwins-enkel/shepherd/commit/a4f50deacb984b2b093d9e34989deed39f774442))
+* **postgres:** per-repo RLS bypass for session roles ([#4295](https://github.com/erwins-enkel/shepherd/issues/4295)) ([dbd4a2a](https://github.com/erwins-enkel/shepherd/commit/dbd4a2a035fabd957802040baa095de722378a9d))
+* **postgres:** per-run test databases via CREATEDB + login guard ([#4271](https://github.com/erwins-enkel/shepherd/issues/4271)) ([1ea57db](https://github.com/erwins-enkel/shepherd/commit/1ea57db39e2eeb9b859a048500b3cbb180696691))
+* **postgres:** pick repos for on-demand Postgres in Settings ([#4256](https://github.com/erwins-enkel/shepherd/issues/4256)) ([1e7e353](https://github.com/erwins-enkel/shepherd/commit/1e7e353de0c14fab5a8398b51f9fc67dba19ae69))
+* **postgres:** promote session DB to repo template + postgres_reset/status ([#4265](https://github.com/erwins-enkel/shepherd/issues/4265)) ([a2b3b25](https://github.com/erwins-enkel/shepherd/commit/a2b3b25846e9e3c3f9437713ac296c0b9faf736a))
+* **postgres:** superuser-like test privileges opt-in ([#4296](https://github.com/erwins-enkel/shepherd/issues/4296)) ([91319be](https://github.com/erwins-enkel/shepherd/commit/91319be89dcda74ed2491c951727ccea0e525472))
+* **sessions:** enable Claude's Artifact tool for one session ([#4293](https://github.com/erwins-enkel/shepherd/issues/4293)) ([#4294](https://github.com/erwins-enkel/shepherd/issues/4294)) ([34ec2b7](https://github.com/erwins-enkel/shepherd/commit/34ec2b755ee67d7ba3da71d55f81b5fd623cb1d9))
+* **ui:** offer Shape in New Task epic mode ([#4224](https://github.com/erwins-enkel/shepherd/issues/4224)) ([bed876f](https://github.com/erwins-enkel/shepherd/commit/bed876f5c336a4aeb6f0f8b361931b9259a57721))
+* **ui:** repo-grouped herd layout + global Merge status ([#4230](https://github.com/erwins-enkel/shepherd/issues/4230)) ([53274ca](https://github.com/erwins-enkel/shepherd/commit/53274ca48a8e188a6ff1ab9ab99151b6e68fdffc))
+* **ui:** show archived epic sessions with open pull requests ([#4243](https://github.com/erwins-enkel/shepherd/issues/4243)) ([9a2d9b2](https://github.com/erwins-enkel/shepherd/commit/9a2d9b27e236584713ab1784469261f1ced1bc9a))
+* **ui:** sticky save bar for pending repo rules ([#4276](https://github.com/erwins-enkel/shepherd/issues/4276)) ([825d7e3](https://github.com/erwins-enkel/shepherd/commit/825d7e33fe72c570e6ee590d747bcbadba447350))
+
+
+### Bug Fixes
+
+* **forge:** refresh covered epic structure after 5 min ([#4267](https://github.com/erwins-enkel/shepherd/issues/4267)) ([2a68a5e](https://github.com/erwins-enkel/shepherd/commit/2a68a5e6521de3306118b024bd37525799fff490))
+* **newtask:** let the coaching hint follow Shape into Epic mode ([#4227](https://github.com/erwins-enkel/shepherd/issues/4227)) ([4460752](https://github.com/erwins-enkel/shepherd/commit/44607529510a1b610ced19367aac950d4a8311b8))
+* **postgres:** adopt only roles the session created ([#4273](https://github.com/erwins-enkel/shepherd/issues/4273)) ([32037fc](https://github.com/erwins-enkel/shepherd/commit/32037fcff5d51b9398bcd387542b764bde202336)), closes [#4272](https://github.com/erwins-enkel/shepherd/issues/4272)
+* **postgres:** let migrations create + share app roles ([#4264](https://github.com/erwins-enkel/shepherd/issues/4264)) ([49d3285](https://github.com/erwins-enkel/shepherd/commit/49d3285d8c9ca2b658889cca850b1c6db525d247))
+* reliable ask answers with distinguishable outcomes ([#4219](https://github.com/erwins-enkel/shepherd/issues/4219)) ([#4225](https://github.com/erwins-enkel/shepherd/issues/4225)) ([cbf0036](https://github.com/erwins-enkel/shepherd/commit/cbf0036b16c7f6c4e29fa68eee882d7cebed4147))
+* retry tailnet host discovery when tailscaled is late at boot ([#4217](https://github.com/erwins-enkel/shepherd/issues/4217)) ([2e38d5c](https://github.com/erwins-enkel/shepherd/commit/2e38d5c450cc453cef22295ef7c098e9a5a26dd2)), closes [#4216](https://github.com/erwins-enkel/shepherd/issues/4216)
+* **sandbox:** sync OAuth credential mirror so host refresh reaches live membranes ([#4263](https://github.com/erwins-enkel/shepherd/issues/4263)) ([7764247](https://github.com/erwins-enkel/shepherd/commit/7764247d5d5a941d3997e5980f86732c58ab868a)), closes [#4260](https://github.com/erwins-enkel/shepherd/issues/4260)
+* **ui:** answer gh grant + login requests in chat ([#4258](https://github.com/erwins-enkel/shepherd/issues/4258)) ([ebec68d](https://github.com/erwins-enkel/shepherd/commit/ebec68d989029774137297a0e402747d0128328d))
+* **ui:** focus terminal on Terminal tab click ([#4223](https://github.com/erwins-enkel/shepherd/issues/4223)) ([d43e2a7](https://github.com/erwins-enkel/shepherd/commit/d43e2a730e84af3605dc66608b28f4982d93df94)), closes [#4221](https://github.com/erwins-enkel/shepherd/issues/4221)
+* **ui:** fold assistant bars to one line when many are open ([#4257](https://github.com/erwins-enkel/shepherd/issues/4257)) ([a1fc994](https://github.com/erwins-enkel/shepherd/commit/a1fc994dd7c9ec32ee057fe4c5a77e60d9d1f8d0))
+* **ui:** repo heading "N in groups above" jumps to its row ([#4237](https://github.com/erwins-enkel/shepherd/issues/4237)) ([9da86bb](https://github.com/erwins-enkel/shepherd/commit/9da86bb901411bc2751dffb5fb27d99b971748ad))
+* **ui:** run manual merges in background behind progress toast ([#4229](https://github.com/erwins-enkel/shepherd/issues/4229)) ([ee0ef72](https://github.com/erwins-enkel/shepherd/commit/ee0ef72d1c6c54204a4db9b3fc2bb9c827d0a766))
+* **ui:** stop restart poll loop after unmount ([#4218](https://github.com/erwins-enkel/shepherd/issues/4218)) ([56e9637](https://github.com/erwins-enkel/shepherd/commit/56e9637145ed02d6f3837f4daea1da207b17fd68)), closes [#4212](https://github.com/erwins-enkel/shepherd/issues/4212)
+
+
+### Documentation
+
+* **research:** codex ultrafast mode feasibility for [#4275](https://github.com/erwins-enkel/shepherd/issues/4275) ([#4277](https://github.com/erwins-enkel/shepherd/issues/4277)) ([c7334ad](https://github.com/erwins-enkel/shepherd/commit/c7334ad7c1b46351e0962fcbbef315379625e92c))
+* **research:** list published deepsec advisories ([#4214](https://github.com/erwins-enkel/shepherd/issues/4214)) ([8a64b6c](https://github.com/erwins-enkel/shepherd/commit/8a64b6c0ee17db859268d9fa7543b8315eebcb1a))
+
 ## [2.9.0](https://github.com/erwins-enkel/shepherd/compare/v2.8.0...v2.9.0) (2026-11-26)
 
 
